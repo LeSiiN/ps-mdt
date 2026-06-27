@@ -1,6 +1,11 @@
 /** NUI event constants organized by domain */
 export const NUI_EVENTS = {
+	RADIO: {
+		PTT: "radioPTT",
+		CONFIG: "radioConfig",
+	},
 	DASHBOARD: {
+		GET_DASHBOARD: "getDashboard",
 		GET_JOB_DATA: "getJobData",
 		GET_REPORT_STATISTICS: "getReportStatistics",
 		GET_TIME_STATISTICS: "getTimeStatistics",
@@ -23,6 +28,22 @@ export const NUI_EVENTS = {
 		UPDATE_ACTIVE_UNITS: "updateActiveUnits",
 		UPDATE_RECENT_DISPATCHES: "updateRecentDispatches",
 		UPDATE_USAGE_METRICS: "updateUsageMetrics",
+		SET_CALLSIGN: "setCallsign",
+		GET_CALLSIGN: "getCallsign"
+	},
+	COURT: {
+		GET_HEARINGS: "getHearings",
+		GET_HEARING: "getHearing",
+		CREATE_HEARING: "createHearing",
+		UPDATE_HEARING: "updateHearing",
+		DELETE_HEARING: "deleteHearing",
+		ADD_ATTENDEE: "addHearingAttendee",
+		REMOVE_ATTENDEE: "removeHearingAttendee",
+		ADD_ATTENDEES_BULK: "addHearingAttendeesBulk",
+		SET_STATUS: "setHearingStatus",
+		GET_ATTENDEE_GROUPS: "getAttendeeGroups",
+		GET_GROUP_MEMBERS: "getGroupMembers",
+		GET_MISSED: "getMissedHearings",
 	},
 	DISPATCH: {
 		ATTACH_TO_DISPATCH: "attachToDispatch",
@@ -62,11 +83,16 @@ export const NUI_EVENTS = {
 		UPLOAD_EVIDENCE_IMAGE: "uploadEvidenceImage",
 		GENERATE_REPORT_ID: "generateReportId",
 		SEARCH_VEHICLES_FOR_REPORT: "searchVehiclesForReport",
+		SYNC_AWARENESS: "syncAwareness",
+		POLL_AWARENESS: "pollAwareness",
 	},
 	CITIZEN: {
 		GET_CITIZENS: "getCitizens",
+		GET_PROPERTY: "getProperty",
+		SET_WAYPOINT: "setWaypoint",
 		SEARCH_CITIZENS: "searchCitizens",
 		GET_CITIZEN: "getCitizen",
+		GET_CITIZEN_CHARGES: "getCitizenCharges",
 		UPDATE_CITIZEN: "updateCitizen",
 		GET_BOLOS: "getBolos",
 		CREATE_BOLO: "createBolo",
@@ -83,6 +109,11 @@ export const NUI_EVENTS = {
 		ADD_SUSPECT_FINGERPRINT: "addSuspectFingerprint",
 		UPDATE_CITIZEN_DNA: "updateCitizenDNA",
 		UPDATE_CITIZEN_FINGERPRINT: "updateCitizenFingerprint",
+		ADD_CITIZEN_GALLERY: 'addCitizenGallery',
+		REMOVE_CITIZEN_GALLERY: 'removeCitizenGallery',
+		GET_CITIZEN_TAGS: 'getCitizenTags',
+		ADD_CITIZEN_TAG: 'addCitizenTag',
+		REMOVE_CITIZEN_TAG: 'removeCitizenTag',
 	},
 	VEHICLE: {
 		GET_VEHICLES: "getVehicles",
@@ -96,7 +127,10 @@ export const NUI_EVENTS = {
 		SEARCH_WEAPONS: "searchWeapons",
 		GET_WEAPON: "getWeapon",
 		GET_WEAPON_HISTORY: "getWeaponOwnershipHistory",
+		SAVE_WEAPON_INFO: 'saveWeaponInfo',
 		UPDATE_WEAPON: "updateWeapon",
+		GET_WEAPON_CONFIG: "getWeaponConfig",
+		SAVE_WEAPON_FLAGS: "saveWeaponFlags",
 	},
 	CHARGE: {
 		GET_CHARGES: "getCharges",
@@ -204,7 +238,18 @@ export const NUI_EVENTS = {
 		VIEW_BODYCAM: "viewBodycam",
 	},
 	MAP: {
-		GET_TRACKING: "getTracking",
+		GET_TRACKING:       "getTracking",
+		GET_PATROLS:        "getPatrols",
+        CREATE_PATROL:      "createPatrol",
+        DELETE_PATROL:      "deletePatrol",
+        RENAME_PATROL:      "renamePatrol",
+        ASSIGN_OFFICER:     "assignOfficer",
+        REMOVE_FROM_PATROL: "removeFromPatrol",
+		SAVE_UI_STATE: "saveMapUiState",
+		REORDER_PATROLS: "reorderPatrols",
+		SET_PATROL_ZONE: "setPatrolZone",
+		GET_OFFICER_STATUS_CONFIG: "getOfficerStatusConfig",
+		SET_OFFICER_STATUS: "setOfficerStatus",
 	},
 	MANAGEMENT: {
 		GET_PERMISSION_ROLES: "getPermissionRoles",
@@ -260,6 +305,7 @@ export const NUI_EVENTS = {
 		GET_WARRANT_REQUESTS: "getWarrantRequests",
 		REVIEW_WARRANT_REQUEST: "reviewWarrantRequest",
 		CREATE_WARRANT_REQUEST: "createWarrantRequest",
+		CLOSE_WARRANT_REQUEST: "closeWarrantRequest",
 		GET_COURT_ORDERS: "getCourtOrders",
 		CREATE_COURT_ORDER: "createCourtOrder",
 		UPDATE_COURT_ORDER: "updateCourtOrder",
@@ -286,6 +332,19 @@ export const NUI_EVENTS = {
 		CHECK_SOP_AGREEMENT: "checkSOPAgreement",
 		ACKNOWLEDGE_SOP: "acknowledgesSOP",
 	},
+	BULLETIN: {
+        GET_POSTS:           'getBulletinPosts',
+        CREATE_POST:         'createBulletinPost',
+        UPDATE_POST:         'updateBulletinPost',
+        DELETE_POST:         'deleteBulletinPost',
+        TOGGLE_PIN:          'toggleBulletinPin',
+        GET_CATEGORIES:      'getBulletinCategories',
+        ADD_CATEGORY:        'addBulletinCategory',
+        UPDATE_CATEGORY:     'updateBulletinCategory',
+        REMOVE_CATEGORY:     'removeBulletinCategory',
+        REORDER_CATEGORIES:  'reorderBulletinCategories',
+        SAVE_CATEGORIES:     'updateBulletinCategory',
+	},
 } as const;
 
 // Backwards compatibility exports (deprecated - use NUI_EVENTS instead)
@@ -303,7 +362,9 @@ export const DOJ_EVENTS = NUI_EVENTS.DOJ;
 
 // All events combined for type checking
 export const ALL_NUI_EVENTS = [
+	...Object.values(NUI_EVENTS.RADIO),
 	...Object.values(NUI_EVENTS.DASHBOARD),
+	...Object.values(NUI_EVENTS.COURT),
 	...Object.values(NUI_EVENTS.DISPATCH),
 	...Object.values(NUI_EVENTS.NAVIGATION),
 	...Object.values(NUI_EVENTS.AUTH),
@@ -331,12 +392,14 @@ export const ALL_NUI_EVENTS = [
 	...Object.values(NUI_EVENTS.COLLAB),
 	...Object.values(NUI_EVENTS.DOJ),
 	...Object.values(NUI_EVENTS.SOP),
+	...Object.values(NUI_EVENTS.BULLETIN),
 	"copyToClipboard",
 	"submitComplaint",
 	"closeComplaint",
 	"reportEditorJoined",
 	"reportEditorLeft",
 	"reportDataUpdate",
+	"courtReminder",
 	"syncYjsUpdate",
 	"yjsUpdate",
 	"yjsBatch",

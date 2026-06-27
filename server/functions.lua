@@ -2,6 +2,32 @@ function GetActiveUnits()
     return ps.getJobCount("police")
 end
 
+--- Returns a callsign only if it is safe to write to mdt_profiles for this
+--- citizen. The callsign column has a UNIQUE index, so assigning a value that
+--- another profile already owns throws a "Duplicate entry" error and aborts
+--- whatever transaction is running (e.g. the login session upsert). This
+--- normalises blank/sentinel values to nil and returns nil when the callsign is
+--- already taken by a different citizen, so the caller keeps the existing value
+--- (via COALESCE) or inserts NULL instead of crashing.
+---@param callsign string|nil
+---@param citizenid string|nil
+---@return string|nil
+function GetAssignableCallsign(callsign, citizenid)
+    if callsign == 'NO CALLSIGN' or callsign == '' then callsign = nil end
+    if not callsign then return nil end
+
+    local taken = MySQL.scalar.await(
+        'SELECT 1 FROM mdt_profiles WHERE callsign = ? AND citizenid != ? LIMIT 1',
+        { callsign, citizenid or '' }
+    )
+    if taken then
+        ps.warn(('Callsign "%s" is already in use - not assigning it to %s'):format(tostring(callsign), tostring(citizenid)))
+        return nil
+    end
+
+    return callsign
+end
+
 --- Check if a job is a police/LEO job based on Config.PoliceJobs and Config.PoliceJobType
 ---@param jobName string|nil -- The job name to check (e.g. 'lspd', 'bcso')
 ---@param jobType string|nil -- The job type to check (e.g. 'leo')
@@ -21,6 +47,45 @@ function IsPoliceJob(jobName, jobType)
     return false
 end
 
+--- Check if a job is a medical/EMS job based on Config.MedicalJobs and Config.MedicalJobType
+---@param jobName string|nil
+---@param jobType string|nil
+---@return boolean
+function IsEmsJob(jobName, jobType)
+    if jobType and Config and Config.MedicalJobType and tostring(jobType) == tostring(Config.MedicalJobType) then
+        return true
+    end
+    if jobName and Config and Config.MedicalJobs then
+        local check = tostring(jobName)
+        for _, job in ipairs(Config.MedicalJobs) do
+            if tostring(job) == check then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--- The MDT "domain" a job belongs to. Police and DOJ share the 'police' domain
+--- (so their calendar / map data stays together); EMS is its own 'ems' domain.
+---@param jobName string|nil
+---@param jobType string|nil
+---@return "police"|"ems"
+function GetDomainForJob(jobName, jobType)
+    if IsEmsJob(jobName, jobType) then return 'ems' end
+    return 'police'
+end
+
+--- The MDT domain for an online player source.
+---@param src number
+---@return "police"|"ems"
+function GetMdtDomain(src)
+    local jobName = ps.getJobName and ps.getJobName(src) or nil
+    local jobType = ps.getJobType and ps.getJobType(src) or nil
+    return GetDomainForJob(jobName, jobType)
+end
+
+
 --- Ensure an MDT profile exists for a citizen. Resolves name from online player or DB if offline.
 ---@param citizenid string -- The citizen ID to ensure a profile for
 ---@return boolean -- true if profile exists or was created, false on failure
@@ -39,7 +104,7 @@ function EnsureProfileExists(citizenid)
         local charinfo = playerData.charinfo
         local fullname = charinfo.firstname .. ' ' .. charinfo.lastname
         local callsign = playerData.metadata and playerData.metadata.callsign or nil
-        if callsign == 'NO CALLSIGN' or callsign == '' then callsign = nil end
+        callsign = GetAssignableCallsign(callsign, citizenid)
 
         local success = MySQL.insert.await([[
             INSERT INTO mdt_profiles (citizenid, fullname, callsign)
@@ -65,7 +130,7 @@ function EnsureProfileExists(citizenid)
     local metadata = row.metadata and json.decode(row.metadata) or {}
     local fullname = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
     local callsign = metadata.callsign
-    if callsign == 'NO CALLSIGN' or callsign == '' then callsign = nil end
+    callsign = GetAssignableCallsign(callsign, citizenid)
 
     local success = MySQL.insert.await([[
         INSERT INTO mdt_profiles (citizenid, fullname, callsign)
@@ -85,40 +150,56 @@ function EnsureProfileData(citizenid, fullname, callsign, badgeNumber, rank, dep
         return nil
     end
 
-    -- Sanitize callsign to avoid UNIQUE constraint violations
-    if callsign == 'NO CALLSIGN' or callsign == '' then callsign = nil end
+    -- Sanitize callsign and skip it if another profile already owns it
+    -- (UNIQUE index would otherwise throw and abort the caller's transaction).
+    callsign = GetAssignableCallsign(callsign, citizenid)
 
     local profile = MySQL.single.await('SELECT id FROM mdt_profiles WHERE citizenid = ?', { citizenid })
     if profile and profile.id then
-        MySQL.update.await([[UPDATE mdt_profiles
+        -- Try the full update; if it still trips the callsign UNIQUE index for
+        -- any reason (e.g. a race), retry once without touching the callsign so
+        -- the profile/session is never lost over a callsign clash.
+        local ok = pcall(MySQL.update.await, [[UPDATE mdt_profiles
             SET fullname = COALESCE(?, fullname),
                 callsign = COALESCE(?, callsign),
                 badge_number = COALESCE(?, badge_number),
                 rank = COALESCE(?, rank),
                 department = COALESCE(?, department)
             WHERE citizenid = ?
-        ]], {
-            fullname,
-            callsign,
-            badgeNumber,
-            rank,
-            department,
-            citizenid
-        })
+        ]], { fullname, callsign, badgeNumber, rank, department, citizenid })
+
+        if not ok then
+            ps.warn(('EnsureProfileData: update failed for %s, retrying without callsign'):format(tostring(citizenid)))
+            pcall(MySQL.update.await, [[UPDATE mdt_profiles
+                SET fullname = COALESCE(?, fullname),
+                    badge_number = COALESCE(?, badge_number),
+                    rank = COALESCE(?, rank),
+                    department = COALESCE(?, department)
+                WHERE citizenid = ?
+            ]], { fullname, badgeNumber, rank, department, citizenid })
+        end
+
         return profile.id
     end
 
-    local result = MySQL.insert.await([[INSERT INTO mdt_profiles
+    local okInsert, result = pcall(MySQL.insert.await, [[INSERT INTO mdt_profiles
         (citizenid, fullname, callsign, badge_number, rank, department)
         VALUES (?, ?, ?, ?, ?, ?)
-    ]], {
-        citizenid,
-        fullname or 'Unknown',
-        callsign,
-        badgeNumber,
-        rank,
-        department
-    })
+    ]], { citizenid, fullname or 'Unknown', callsign, badgeNumber, rank, department })
+
+    if not okInsert then
+        -- Insert failed (most likely the callsign clash). Retry without callsign.
+        ps.warn(('EnsureProfileData: insert failed for %s, retrying without callsign'):format(tostring(citizenid)))
+        okInsert, result = pcall(MySQL.insert.await, [[INSERT INTO mdt_profiles
+            (citizenid, fullname, badge_number, rank, department)
+            VALUES (?, ?, ?, ?, ?)
+        ]], { citizenid, fullname or 'Unknown', badgeNumber, rank, department })
+    end
+
+    if not okInsert then
+        ps.error(('EnsureProfileData: could not create profile for %s: %s'):format(tostring(citizenid), tostring(result)))
+        return nil
+    end
 
     return result
 end

@@ -6,6 +6,38 @@ RegisterNUICallback('getMyProfile', function(data, cb)
     cb(result or { success = false })
 end)
 
+RegisterNUICallback('getProperty', function(data, cb)
+    if not MDTOpen then cb({ success = false }) return end
+    if not data or not data.property_id then
+        cb({ success = false, message = 'Missing property id' })
+        return
+    end
+    local result = ps.callback(resourceName .. ':server:getProperty', data.property_id)
+    if not result or not result.success then
+        cb(result or { success = false, message = 'Property not found' })
+        return
+    end
+    if result.property and result.property.coords then
+        local coords = result.property.coords
+        local street1, street2 = GetStreetNameAtCoord(coords.x, coords.y, coords.z, 1.0)
+        local s1 = street1 and GetStreetNameFromHashKey(street1) or nil
+        local s2 = street2 and GetStreetNameFromHashKey(street2) or nil
+        if s1 and s1 ~= '' then
+            result.property.streetName = (s2 and s2 ~= '') and (s1 .. ' / ' .. s2) or s1
+        end
+    end
+    cb(result)
+end)
+ 
+-- setWaypoint: sets a GPS blip on the map from NUI coords
+-- The NUI calls fetchNui('setWaypoint', { x, y }) — no server round-trip needed.
+RegisterNUICallback('setWaypoint', function(data, cb)
+    cb({})
+    if not data or not data.x or not data.y then return end
+    SetNewWaypoint(data.x, data.y)
+end)
+ 
+
 RegisterNUICallback('getCitizens', function(data, cb)
     if not MDTOpen then cb({}) return end
     if type(data) ~= 'table' then
@@ -111,6 +143,19 @@ RegisterNUICallback('getCitizen', function(data, cb)
     end
 end)
 
+-- Charges section in the Citizen profile — paginated on-demand (20/page) so
+-- opening a profile never has to load a citizen's full charge history at once.
+RegisterNUICallback('getCitizenCharges', function(data, cb)
+    if not MDTOpen then cb({ charges = {}, hasMore = false }) return end
+    if not data or not data.citizenid then
+        cb({ charges = {}, hasMore = false })
+        return
+    end
+
+    local result = ps.callback(resourceName .. ':server:getCitizenCharges', data.citizenid, data.page or 1)
+    cb(result or { charges = {}, hasMore = false })
+end)
+
 RegisterNUICallback('updateCitizenLicense', function(data, cb)
     if not MDTOpen then cb({ success = false, message = 'MDT is not open' }) return end
     if not data or not data.citizenid or not data.license then
@@ -154,6 +199,15 @@ RegisterNUICallback('addCitizenTag', function(data, cb)
     end
     local result = ps.callback(resourceName .. ':server:addCitizenTag', data)
     cb(result or { success = false })
+end)
+
+-- Available citizen tags for the profile picker, scoped to the viewer's domain.
+RegisterNUICallback('getCitizenTags', function(_, cb)
+    if not MDTOpen then cb({ success = false, data = {} }) return end
+    local jobType = ps.getJobType()
+    local mdtJobType = jobType == Config.MedicalJobType and 'ems' or 'leo'
+    local tags = ps.callback(resourceName .. ':server:getCitizenTags', mdtJobType)
+    cb({ success = true, data = tags or {} })
 end)
 
 RegisterNUICallback('removeCitizenTag', function(data, cb)

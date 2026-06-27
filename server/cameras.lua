@@ -4,6 +4,10 @@
 
 local resourceName = tostring(GetCurrentResourceName())
 
+-- Ace tied to the placer command (auto-created by lib.addCommand's `restricted`).
+-- Used to gate the mutating camera events directly, so they can't be spoofed.
+local placerAce = 'command.' .. (((Config and Config.CameraPlacer) or {}).command or 'cameraplacer')
+
 local spawnedCameras = {} -- Track spawned cameras
 local playerViewingCamera = {} -- Track players viewing cameras
 
@@ -81,6 +85,12 @@ function Camera.new(camId, camType, camLabel, options)
         newCameraInstance.model = options.model or 'security_cam_03'
         newCameraInstance.coords = options.coords or vector3(0.0, 0.0, 0.0)
         newCameraInstance.rotation = options.rotation or vector3(0.0, 0.0, 0.0)
+        -- Feed transform (what the operator sees). Decoupled from the prop:
+        -- the gizmo places the physical prop (coords/rotation), the feed placer
+        -- sets these. nil = fall back to prop transform (+ heading offset).
+        newCameraInstance.feedCoords = options.feedCoords or nil
+        newCameraInstance.feedRotation = options.feedRotation or nil
+        newCameraInstance.feedFov = options.feedFov or nil
         newCameraInstance.image = options.image or nil
         newCameraInstance.canRotate = options.canRotate ~= false -- Default to true
         newCameraInstance.isOnline = options.isOnline ~= false -- Default to true
@@ -385,6 +395,10 @@ function Camera:getData()
         data.coords = self.coords
         data.rotation = self.rotation
         data.entityId = self.entityId
+        data.spawnsModel = self.spawnsModel ~= false -- TRUE = real prop spawned (needs view offset)
+        data.feedCoords = self.feedCoords        -- decoupled feed transform (nil = use prop)
+        data.feedRotation = self.feedRotation
+        data.feedFov = self.feedFov
 
         -- Convert entity ID to network ID for client-server communication
         if self.entityId and DoesEntityExist(self.entityId) then
@@ -413,6 +427,9 @@ function Camera:update(updates)
     elseif self.camType == Camera.types.static then
         if updates.coords then self.coords = updates.coords end
         if updates.rotation then self.rotation = updates.rotation end
+        if updates.feedCoords then self.feedCoords = updates.feedCoords end
+        if updates.feedRotation then self.feedRotation = updates.feedRotation end
+        if updates.feedFov then self.feedFov = updates.feedFov end
         if updates.model and Camera.models[updates.model] then
             local oldModel = self.model
             self.model = updates.model
@@ -509,11 +526,12 @@ function Camera:saveToDatabase()
     end
 
     local query = [[
-        INSERT INTO mdt_cameras (cam_id, cam_label, cam_type, model, coords, rotation, image, can_rotate, is_online, spawns_model, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO mdt_cameras (cam_id, cam_label, cam_type, model, coords, rotation, feed_coords, feed_rotation, feed_fov, image, can_rotate, is_online, spawns_model, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
         cam_label = VALUES(cam_label), cam_type = VALUES(cam_type), model = VALUES(model), coords = VALUES(coords),
-        rotation = VALUES(rotation), image = VALUES(image), can_rotate = VALUES(can_rotate), is_online = VALUES(is_online), spawns_model = VALUES(spawns_model)
+        rotation = VALUES(rotation), feed_coords = VALUES(feed_coords), feed_rotation = VALUES(feed_rotation), feed_fov = VALUES(feed_fov),
+        image = VALUES(image), can_rotate = VALUES(can_rotate), is_online = VALUES(is_online), spawns_model = VALUES(spawns_model)
     ]]
 
     local success = MySQL.insert.await(query, {
@@ -523,6 +541,9 @@ function Camera:saveToDatabase()
         self.model,
         json.encode({x = self.coords.x, y = self.coords.y, z = self.coords.z}),
         json.encode({x = self.rotation.x, y = self.rotation.y, z = self.rotation.z}),
+        self.feedCoords and json.encode({x = self.feedCoords.x, y = self.feedCoords.y, z = self.feedCoords.z}) or '',
+        self.feedRotation and json.encode({x = self.feedRotation.x, y = self.feedRotation.y, z = self.feedRotation.z}) or '',
+        self.feedFov or 0.0,
         self.image or '',
         self.canRotate,
         self.isOnline,
@@ -573,8 +594,14 @@ function Camera.loadAllFromDatabase()
     end
 
     for _, row in ipairs(results) do
-        local coords = json.decode(row.coords)
-        local rotation = json.decode(row.rotation)
+        local okCoords, coords = pcall(json.decode, row.coords)
+        local okRot, rotation = pcall(json.decode, row.rotation)
+        if not okCoords or not okRot or type(coords) ~= 'table' or type(rotation) ~= 'table'
+            or coords.x == nil or coords.y == nil or coords.z == nil
+            or rotation.x == nil or rotation.y == nil or rotation.z == nil then
+            ps.warn(('Camera.loadAllFromDatabase - skipping cam_id %s: invalid coords/rotation JSON'):format(tostring(row.cam_id)))
+            goto continue
+        end
 
         local camera = Camera.createStatic(
             row.cam_id,
@@ -593,9 +620,29 @@ function Camera.loadAllFromDatabase()
             camera.createdAt = row.created_at
             camera.createdBy = row.created_by
 
+            -- Decode feed transform if present (decoupled from prop)
+            if row.feed_coords and row.feed_coords ~= '' then
+                local okC, fc = pcall(json.decode, row.feed_coords)
+                if okC and fc then camera.feedCoords = vector3(fc.x, fc.y, fc.z) end
+            end
+            if row.feed_rotation and row.feed_rotation ~= '' then
+                local okR, fr = pcall(json.decode, row.feed_rotation)
+                if okR and fr then camera.feedRotation = vector3(fr.x, fr.y, fr.z) end
+            end
+            local fovNum = tonumber(row.feed_fov)
+            if fovNum and fovNum > 0 then camera.feedFov = fovNum end
+
             if camera.camTypeDb == 'placed' or camera.spawnsModel then
-                camera:spawn()
-                --ps.debug('Camera.loadAllFromDatabase - Loaded and spawned physical camera ' .. row.cam_id .. ' (type: ' .. camera.camTypeDb .. ')')
+                -- Server-side CreateObject needs at least one connected player to
+                -- act as host. At a fresh server boot nobody is online yet, so we
+                -- defer the actual spawn to SpawnPendingCameras() (called on the
+                -- first player load). On a live restart players may already be
+                -- online, so spawn right away in that case.
+                if GetNumPlayerIndices() > 0 then
+                    camera:spawn()
+                else
+                    camera.isSpawned = false
+                end
             else
                 camera.isSpawned = true
                 --ps.debug('Camera.loadAllFromDatabase - Loaded virtual camera ' .. row.cam_id .. ' (type: ' .. camera.camTypeDb .. ', no model spawned)')
@@ -606,10 +653,41 @@ function Camera.loadAllFromDatabase()
         else
             ps.error('Camera.loadAllFromDatabase - Failed to create camera ' .. row.cam_id)
         end
+
+        ::continue::
     end
 
     --ps.info('Camera.loadAllFromDatabase - Loaded ' .. #cameras .. ' cameras from database')
     return cameras
+end
+
+-- Spawn any physical cameras that aren't spawned yet. Safe to call repeatedly:
+-- Camera:spawn() guards against double-spawning, so already-spawned cameras are
+-- skipped. Used to (re)spawn props once a player is connected, since server-side
+-- entities need a host. Networked entities then replicate to all later joiners.
+local spawningPending = false
+function SpawnPendingCameras()
+    if spawningPending then return end
+    if GetNumPlayerIndices() <= 0 then return end
+    spawningPending = true
+
+    local spawned = 0
+    for _, camera in pairs(spawnedCameras) do
+        if camera.camType == Camera.types.static
+            and (camera.camTypeDb == 'placed' or camera.spawnsModel)
+            and not camera.isSpawned then
+            if camera:spawn() then
+                spawned = spawned + 1
+                Wait(0) -- yield between spawns to avoid a burst
+            end
+        end
+    end
+
+    if spawned > 0 then
+        ps.debug('SpawnPendingCameras - spawned ' .. spawned .. ' pending camera(s)')
+    end
+
+    spawningPending = false
 end
 
 -- Server event handlers for client menu actions ----------------------------------
@@ -618,6 +696,10 @@ end
 RegisterNetEvent(resourceName .. ':server:createStaticCamera', function(cameraData)
     local playerId = source
     if not CheckAuth(playerId) then return end
+    if not IsPlayerAceAllowed(playerId, placerAce) then
+        ps.notify(playerId, 'You are not allowed to place cameras', 'error')
+        return
+    end
 
     ps.debug('Creating static camera for player:', playerId)
     ps.debug('Received camera data:')
@@ -657,6 +739,15 @@ RegisterNetEvent(resourceName .. ':server:createStaticCamera', function(cameraDa
         camera.createdBy = ps.getIdentifier(playerId)
         camera.createdAt = os.time() * 1000 -- Convert to milliseconds
 
+        -- Decoupled feed transform (set by the feed placer on the client)
+        if cameraData.feedCoords then
+            camera.feedCoords = vector3(cameraData.feedCoords.x, cameraData.feedCoords.y, cameraData.feedCoords.z)
+        end
+        if cameraData.feedRotation then
+            camera.feedRotation = vector3(cameraData.feedRotation.x, cameraData.feedRotation.y, cameraData.feedRotation.z)
+        end
+        if cameraData.feedFov then camera.feedFov = tonumber(cameraData.feedFov) end
+
         -- Set camera type and spawning behavior for player-placed cameras
         camera.camTypeDb = 'placed'
         camera.spawnsModel = true
@@ -694,6 +785,10 @@ end)
 RegisterNetEvent(resourceName .. ':server:requestCameraList', function()
     local playerId = source
     if not CheckAuth(playerId) then return end
+    if not IsPlayerAceAllowed(playerId, placerAce) then
+        ps.notify(playerId, 'You are not allowed to manage cameras', 'error')
+        return
+    end
     ps.debug('Sending camera list to player:', playerId)
 
     local cameraList = {}
@@ -704,6 +799,9 @@ RegisterNetEvent(resourceName .. ':server:requestCameraList', function()
             model = camera.model,
             coords = camera.coords,
             rotation = camera.rotation,
+            feedCoords = camera.feedCoords,
+            feedRotation = camera.feedRotation,
+            feedFov = camera.feedFov,
             isSpawned = camera.isSpawned,
             viewerCount = camera:getViewerCount()
         })
@@ -716,6 +814,7 @@ end)
 RegisterNetEvent(resourceName .. ':server:spawnCamera', function(camId)
     local playerId = source
     if not CheckAuth(playerId) then return end
+    if not IsPlayerAceAllowed(playerId, placerAce) then return end
     ps.debug('Spawning camera for player:', playerId, 'Camera ID:', camId)
 
     local camera = spawnedCameras[camId]
@@ -741,6 +840,7 @@ end)
 RegisterNetEvent(resourceName .. ':server:despawnCamera', function(camId)
     local playerId = source
     if not CheckAuth(playerId) then return end
+    if not IsPlayerAceAllowed(playerId, placerAce) then return end
     ps.debug('Despawning camera for player:', playerId, 'Camera ID:', camId)
 
     local camera = spawnedCameras[camId]
@@ -832,6 +932,10 @@ end)
 RegisterNetEvent(resourceName .. ':server:deleteCamera', function(camId)
     local playerId = source
     if not CheckAuth(playerId) then return end
+    if not IsPlayerAceAllowed(playerId, placerAce) then
+        ps.notify(playerId, 'You are not allowed to delete cameras', 'error')
+        return
+    end
     ps.debug('Deleting camera for player:', playerId, 'Camera ID:', camId)
 
     local camera = spawnedCameras[camId]
@@ -870,6 +974,13 @@ end)
 -- Handle camera update request from client
 ps.registerCallback(resourceName .. ':server:updateCamera', function(source, updateData)
     local playerId = source
+    if not CheckAuth(playerId, true) then
+        return { success = false, error = 'Not authorized' }
+    end
+    if not IsPlayerAceAllowed(playerId, placerAce) then
+        ps.notify(playerId, 'You are not allowed to edit cameras', 'error')
+        return { success = false, error = 'Not allowed' }
+    end
     ps.debug('Updating camera for player:', playerId, 'Data:', updateData)
 
     if not updateData or type(updateData) ~= 'table' then
@@ -901,6 +1012,9 @@ ps.registerCallback(resourceName .. ':server:updateCamera', function(source, upd
     if updateData.model then updates.model = updateData.model end
     if updateData.coords then updates.coords = updateData.coords end
     if updateData.rotation then updates.rotation = updateData.rotation end
+    if updateData.feedCoords then updates.feedCoords = updateData.feedCoords end
+    if updateData.feedRotation then updates.feedRotation = updateData.feedRotation end
+    if updateData.feedFov then updates.feedFov = updateData.feedFov end
 
     camera:update(updates)
 
@@ -989,25 +1103,292 @@ end
 -- Callbacks ----------------------------
 
 -- Callback to get spawned cameras for the frontend
+-- ============================================================================
+--  Dashcams (v1) - police vehicle cameras
+--  A dashcam exists for any on-duty LEO who is the DRIVER of a vehicle. They are
+--  ephemeral (no DB), discovered live and surfaced through the normal camera
+--  list as type 'Dashcam'. Viewing reuses the bodycam-style attach pipeline on
+--  the client (the cam follows the vehicle each frame), so it works for vehicles
+--  that are streamed to the viewer - same constraint as bodycams.
+-- ============================================================================
+local dashcamViewers = {} -- [dashcamId] = { source = ownerSrc, viewers = { [viewerSrc] = startTime } }
+local dashcamPushActive = false
+-- Client-reported "I am the driver of an emergency-class (18) vehicle" status.
+-- GetVehicleClass isn't reliable server-side (tracking does the same client-side
+-- check), so the officer's client reports it and we gate dashcams on it here.
+local dashcamVehState = {} -- [src] = { plate = string }
+
+RegisterNetEvent(resourceName .. ':server:dashcamVehicleState', function(data)
+    local src = source
+    if not CheckAuth(src, true) then return end
+    if data and data.plate then
+        dashcamVehState[src] = { plate = data.plate }
+    else
+        dashcamVehState[src] = nil
+    end
+end)
+
+local function dashcamOfficerInfo(src)
+    if QBCore and QBCore.Functions and QBCore.Functions.GetPlayer then
+        local player = QBCore.Functions.GetPlayer(src)
+        if player and player.PlayerData then
+            local d = player.PlayerData
+            return {
+                name = (d.charinfo and (d.charinfo.firstname .. ' ' .. d.charinfo.lastname)) or GetPlayerName(src),
+                callsign = d.metadata and d.metadata.callsign or nil,
+                jobName = d.job and d.job.name or nil,
+                jobType = d.job and d.job.type or nil,
+                onduty = d.job and d.job.onduty,
+            }
+        end
+        return nil
+    end
+    return {
+        name = (ps.getPlayerName and ps.getPlayerName(src)) or GetPlayerName(src) or ('Unit ' .. tostring(src)),
+        callsign = ps.getMetadata and ps.getMetadata(src, 'callsign') or nil,
+        jobName = ps.getJobName and ps.getJobName(src) or nil,
+        jobType = ps.getJobType and ps.getJobType(src) or nil,
+        onduty = not (ps.getJobDuty) and true or ps.getJobDuty(src),
+    }
+end
+
+-- Returns the vehicle a player is driving (server-side), or nil.
+local function getDrivenVehicle(src)
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return nil end
+    local veh = GetVehiclePedIsIn(ped, false)
+    if not veh or veh == 0 then return nil end
+    -- Only the driver gets the dashcam (also de-dupes multiple cops in one car)
+    if GetPedInVehicleSeat(veh, -1) ~= ped then return nil end
+    return veh
+end
+
+-- Build the list of currently active dashcams. Keyed by vehicle so a
+-- double-crewed unit only ever produces ONE dashcam for the car.
+local function getActiveDashcams()
+    local byVeh = {} -- [vehNetId] = entry
+    for _, pidStr in ipairs(GetPlayers()) do
+        local pid = tonumber(pidStr)
+        local info = pid and dashcamOfficerInfo(pid) or nil
+        if info and info.onduty ~= false and IsPoliceJob(info.jobName, info.jobType)
+            and dashcamVehState[pid] then
+            local veh = getDrivenVehicle(pid)
+            if veh then
+                local netId = NetworkGetNetworkIdFromEntity(veh)
+                if netId and netId ~= 0 and not byVeh[netId] then
+                    local plate = GetVehicleNumberPlateText(veh)
+                    plate = plate and (plate:gsub('%s+', '')) or nil
+                    -- Id is simply the plate (falls back to the net id only if a
+                    -- vehicle somehow has no plate).
+                    local id = plate or ('#' .. netId)
+                    byVeh[netId] = {
+                        id = id,
+                        netId = netId,
+                        source = pid,
+                        officerName = info.name,
+                        callsign = info.callsign,
+                        plate = plate,
+                    }
+                end
+            end
+        end
+    end
+
+    local list = {}
+    for _, e in pairs(byVeh) do
+        local viewers = 0
+        if dashcamViewers[e.id] and dashcamViewers[e.id].viewers then
+            for _ in pairs(dashcamViewers[e.id].viewers) do viewers = viewers + 1 end
+        end
+        e.viewerCount = viewers
+        list[#list + 1] = e
+    end
+    return list
+end
+
+-- Pushes live vehicle transforms to dashcam viewers so the feed works even when
+-- the unit is far away / not streamed to the viewer. Runs only while there are
+-- viewers; exits when none remain. If an officer stops driving or goes off duty,
+-- the dashcam ends for its viewers.
+function StartDashcamPushThread()
+    if dashcamPushActive then return end
+    dashcamPushActive = true
+
+    CreateThread(function()
+        local interval = (Config.Dashcam and Config.Dashcam.UpdateInterval) or 250
+        while next(dashcamViewers) ~= nil do
+            for id, entry in pairs(dashcamViewers) do
+                local stillValid = false
+                local src = entry.source
+                local info = src and dashcamOfficerInfo(src) or nil
+
+                if info and info.onduty ~= false and IsPoliceJob(info.jobName, info.jobType)
+                    and dashcamVehState[src] then
+                    local veh = getDrivenVehicle(src)
+                    if veh then
+                        stillValid = true
+                        local coords = GetEntityCoords(veh)
+                        local heading = GetEntityHeading(veh)
+                        local speed = GetEntitySpeed(veh)
+                        local netId = NetworkGetNetworkIdFromEntity(veh)
+                        for viewer in pairs(entry.viewers) do
+                            TriggerClientEvent(resourceName .. ':client:dashcamTransform', viewer, {
+                                dashcamId = id,
+                                coords = coords,
+                                heading = heading,
+                                speed = speed,
+                                vehicleNetId = netId,
+                            })
+                        end
+                    end
+                end
+
+                -- Officer left the car / went off duty -> end the dashcam
+                if not stillValid then
+                    for viewer in pairs(entry.viewers) do
+                        TriggerClientEvent(resourceName .. ':client:dashcamEnded', viewer, id)
+                    end
+                    dashcamViewers[id] = nil
+                end
+            end
+            Wait(interval)
+        end
+        dashcamPushActive = false
+    end)
+end
+
+-- Returns the configured model name (key in Config.Dashcam.Positions.models)
+-- that matches this vehicle, or nil if the model isn't configured.
+local function getDashcamModelName(veh)
+    local models = (Config.Dashcam and Config.Dashcam.Positions and Config.Dashcam.Positions.models) or {}
+    local hash = GetEntityModel(veh)
+    for name in pairs(models) do
+        if GetHashKey(name) == hash then return name end
+    end
+    return nil
+end
+
+-- Start a dashcam view for a viewer (called from viewCamera for dashcam ids).
+local function startDashcamView(viewerSrc, dashcamId)
+    if not CheckPermission(viewerSrc, 'dashcams_view') then
+        return { success = false, error = 'No permission to view dashcams' }
+    end
+
+    -- Resolve the requested dashcam against the live list (handles plate ids)
+    local match
+    for _, dc in ipairs(getActiveDashcams()) do
+        if dc.id == dashcamId then match = dc break end
+    end
+    if not match then
+        return { success = false, error = 'Dashcam unavailable' }
+    end
+
+    local veh = getDrivenVehicle(match.source)
+    if not veh or veh == 0 then
+        return { success = false, error = 'Vehicle not available' }
+    end
+
+    -- A dashcam only works for vehicles configured in Config.Dashcam.Positions.
+    local modelName = getDashcamModelName(veh)
+    if not modelName then
+        return { success = false, error = 'No dashcam configured for this vehicle' }
+    end
+
+    local coords = GetEntityCoords(veh)
+    local heading = GetEntityHeading(veh)
+
+    TriggerClientEvent(resourceName .. ':client:startCameraView', viewerSrc, {
+        coords = coords,
+        rotation = vector3(0.0, 0.0, heading),
+        networkId = nil,
+        isDashcam = true,
+        dashcamId = match.id,
+        dashcamModel = modelName,
+        targetSource = match.source,
+        vehicleNetId = match.netId,
+        officerName = match.officerName,
+        callsign = match.callsign,
+        plate = match.plate,
+    })
+
+    dashcamViewers[match.id] = dashcamViewers[match.id] or { source = match.source, viewers = {} }
+    dashcamViewers[match.id].source = match.source
+    dashcamViewers[match.id].viewers[viewerSrc] = os.time()
+
+    StartDashcamPushThread()
+
+    return { success = true, camera = { id = match.id, label = (match.officerName or 'Dashcam') .. ' Dashcam' } }
+end
+
+RegisterNetEvent(resourceName .. ':server:deactivateDashcam', function(dashcamId)
+    local playerId = source
+    if not CheckAuth(playerId) then return end
+    local entry = dashcamViewers[dashcamId]
+    if entry and entry.viewers then
+        entry.viewers[playerId] = nil
+        if next(entry.viewers) == nil then
+            dashcamViewers[dashcamId] = nil
+        end
+    end
+end)
+
+AddEventHandler('playerDropped', function()
+    local playerId = source
+    dashcamVehState[playerId] = nil
+    -- Remove this player from any dashcam viewer lists, and drop dashcams they
+    -- owned (their vehicle despawns when they leave anyway).
+    for id, entry in pairs(dashcamViewers) do
+        if entry.source == playerId then
+            for viewer in pairs(entry.viewers) do
+                TriggerClientEvent(resourceName .. ':client:dashcamEnded', viewer, id)
+            end
+            dashcamViewers[id] = nil
+        elseif entry.viewers[playerId] then
+            entry.viewers[playerId] = nil
+            if next(entry.viewers) == nil then dashcamViewers[id] = nil end
+        end
+    end
+end)
+
 ps.registerCallback(resourceName .. ':server:getCameras', function(source)
     local src = source
     if not CheckAuth(src) then
         return {}
     end
 
+    local canCameras = CheckPermission(src, 'cameras_view')
+    local canDashcams = CheckPermission(src, 'dashcams_view')
+
     local cameraList = {}
-    for camId, camera in pairs(spawnedCameras) do
-        table.insert(cameraList, {
-            id = camId,
-            label = camera.camLabel,
-            type = camera.camTypeDb or camera.camType,
-            isOnline = camera.isOnline ~= false,
-            image = camera.image or '',
-            coords = camera.coords,
-            rotation = camera.rotation,
-            model = camera.model,
-            viewerCount = camera:getViewerCount()
-        })
+    if canCameras then
+        for camId, camera in pairs(spawnedCameras) do
+            table.insert(cameraList, {
+                id = camId,
+                label = camera.camLabel,
+                type = camera.camTypeDb or camera.camType,
+                isOnline = camera.isOnline ~= false,
+                image = camera.image or '',
+                coords = camera.coords,
+                rotation = camera.rotation,
+                model = camera.model,
+                viewerCount = camera:getViewerCount()
+            })
+        end
+    end
+
+    -- Append live dashcams (police vehicle cameras) as their own type
+    if canDashcams then
+        for _, dc in ipairs(getActiveDashcams()) do
+            cameraList[#cameraList + 1] = {
+                id = dc.id,
+                label = (dc.callsign and ('[' .. dc.callsign .. '] ') or '') .. (dc.officerName or 'Unit')
+                    .. (dc.plate and (' - ' .. dc.plate) or ''),
+                type = 'Dashcam',
+                isOnline = true,
+                image = '',
+                viewerCount = dc.viewerCount or 0,
+            }
+        end
     end
 
     return cameraList
@@ -1018,6 +1399,14 @@ ps.registerCallback(resourceName .. ':server:viewCamera', function(source, camer
     local src = source
     if not CheckAuth(src) then
         return { success = false, error = "Unauthorized" }
+    end
+
+    -- Dashcams are virtual/live and routed separately. Since the id is just the
+    -- plate now, match it against the live dashcam list rather than a prefix.
+    for _, dc in ipairs(getActiveDashcams()) do
+        if dc.id == cameraId then
+            return startDashcamView(src, cameraId)
+        end
     end
 
     local camera = spawnedCameras[cameraId]
@@ -1043,6 +1432,22 @@ ps.registerCallback(resourceName .. ':server:viewCamera', function(source, camer
 end)
 
 -- Callback to get available camera models
+-- Returns the server's real time so the camera overlay can show actual time
+-- (not in-game, not the client's local clock). epoch = UTC seconds, offset =
+-- server local timezone offset in seconds. The client ticks locally from this.
+ps.registerCallback(resourceName .. ':server:getServerTime', function(source)
+    local now = os.time()
+    -- DST-correct local UTC offset: compare the local wall-clock and UTC tables
+    -- with isdst forced off so the standard offset cancels and the real (incl.
+    -- summer time) difference remains. The naive os.difftime(now, os.time(!*t))
+    -- ignores DST and is an hour short in summer.
+    local utcdate = os.date('!*t', now)
+    local localdate = os.date('*t', now)
+    localdate.isdst = false
+    local offset = os.difftime(os.time(localdate), os.time(utcdate))
+    return { epoch = now, offset = offset }
+end)
+
 ps.registerCallback(resourceName .. ':server:getCameraModels', function(source)
     local models = {}
     for key, hash in pairs(Camera.models) do
@@ -1084,8 +1489,25 @@ AddEventHandler('onResourceStart', function(startedResource)
         for _ in pairs(loadedCameras) do count = count + 1 end
 
         ps.debug('Loaded ' .. count .. ' cameras from database')
+
+        -- Live restart: players may already be online, so spawn deferred props now.
+        if GetNumPlayerIndices() > 0 then
+            SpawnPendingCameras()
+        end
     end
 end)
+
+-- Spawn deferred camera props once a player is connected (server-side entities
+-- need a host). Covers a fresh server boot where nobody was online at start.
+-- Listens to both QBCore and QBX player-loaded events; spawn is idempotent.
+local function onPlayerReady()
+    -- small delay so the player is fully in the session before we create entities
+    SetTimeout(1500, SpawnPendingCameras)
+end
+
+AddEventHandler('QBCore:Server:OnPlayerLoaded', onPlayerReady)
+AddEventHandler('qbx_core:server:onPlayerLoaded', onPlayerReady)
+RegisterNetEvent('QBCore:Server:OnPlayerLoaded', onPlayerReady)
 
 -- Resource stop cleanup
 AddEventHandler('onResourceStop', function(resourceName)
@@ -1110,3 +1532,13 @@ AddEventHandler('playerDropped', function(reason)
     end
 end)
 
+-- Camera Placer command ----------------------------------
+-- Admin-only entry point. ox_lib's `restricted` field gates this server-side
+-- (auto-creates the `command.<name>` ace), so no manual permission wiring is
+-- needed beyond mapping the group in server.cfg if you use a custom group.
+lib.addCommand(Config.CameraPlacer and Config.CameraPlacer.command or 'cameraplacer', {
+    help = 'Open the static camera placer (admin)',
+    restricted = Config.CameraPlacer and Config.CameraPlacer.restricted or 'group.admin'
+}, function(source)
+    TriggerClientEvent(resourceName .. ':client:openCameraPlacer', source)
+end)

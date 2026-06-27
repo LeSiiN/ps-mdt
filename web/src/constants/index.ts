@@ -19,7 +19,9 @@ export const MDT_TABS = [
 	{ name: "PPR", icon: "rate_review" },
 	{ name: "FTO", icon: "school" },
 	{ name: "SOP", icon: "menu_book" },
+	{ name: "Bulletin Board", icon: "forum" },
 	{ name: "Court Cases", icon: "gavel" },
+	{ name: "Calendar", icon: "calendar_month" },
 	{ name: "Warrant Review", icon: "policy" },
 	{ name: "Court Orders", icon: "assignment_late" },
 	{ name: "Legal Documents", icon: "article" },
@@ -33,8 +35,9 @@ export const EMS_TABS: readonly (typeof MDT_TABS)[number]["name"][] = [
 	"Citizens",
 	"Reports",
 	"Roster",
+	"Bulletin Board",
 	"Map",
-	"Bodycams",
+	"Calendar",
 	"Preferences",
 	"Settings",
 ] as const;
@@ -44,11 +47,13 @@ export const DOJ_TABS: readonly string[] = [
 	"Dashboard",
 	"Reports",
 	"Court Cases",
+	"Calendar",
 	"Warrant Review",
 	"Citizens",
 	"Cases",
 	"Evidence",
 	"Court Orders",
+	"Bulletin Board",
 	"Legal Documents",
 	"Charges",
 	"Settings",
@@ -73,17 +78,17 @@ export interface NavGroup {
 }
 
 export const NAV_GROUPS: NavGroup[] = [
-	{ id: "dashboard", tabs: ["Dashboard"] },
+	{ id: "dashboard", tabs: ["Dashboard", "Bulletin Board"] },
 	{ id: "operations", label: "Operations", icon: "assignment", tabs: ["Reports", "Cases", "Evidence", "BOLOs", "Warrants"] },
 	{ id: "records", label: "Records", icon: "folder_open", tabs: ["Citizens", "Vehicles", "Weapons", "Charges"] },
-	{ id: "personnel", label: "Personnel", icon: "badge", tabs: ["Roster", "Awards", "IA", "PPR", "FTO", "SOP"] },
+	{ id: "personnel", label: "Personnel", icon: "badge", tabs: ["Roster", "Awards", "IA", "PPR", "FTO", "SOP", "Calendar"] },
 	{ id: "surveillance", label: "Surveillance", icon: "visibility", tabs: ["Map", "Cameras", "Bodycams"] },
 	{ id: "bottom", tabs: ["Preferences", "Settings"] },
 ];
 
 export const DOJ_NAV_GROUPS: NavGroup[] = [
 	{ id: "dashboard", tabs: ["Dashboard"] },
-	{ id: "court", label: "Court", icon: "account_balance", tabs: ["Court Cases", "Warrant Review", "Court Orders"] },
+	{ id: "court", label: "Court", icon: "account_balance", tabs: ["Court Cases", "Calendar", "Warrant Review", "Court Orders"] },
 	{ id: "legal", label: "Legal", icon: "description", tabs: ["Legal Documents", "Charges"] },
 	{ id: "records", label: "Records", icon: "folder_open", tabs: ["Reports", "Citizens", "Cases", "Evidence"] },
 	{ id: "bottom", tabs: ["Settings"] },
@@ -143,7 +148,9 @@ export type ComponentId =
 	| "ppr"
 	| "fto"
 	| "sop"
+	| "bulletin_board"
 	| "court_cases"
+	| "calendar"
 	| "warrant_review"
 	| "court_orders"
 	| "legal_documents"
@@ -171,6 +178,8 @@ export const TAB_TO_COMPONENT_MAP: Record<MDTTab, ComponentId> = {
 	PPR: "ppr",
 	FTO: "fto",
 	SOP: "sop",
+	Calendar: "calendar",
+	"Bulletin Board": "bulletin_board",
 	"Court Cases": "court_cases",
 	"Warrant Review": "warrant_review",
 	"Court Orders": "court_orders",
@@ -185,7 +194,7 @@ export const DEFAULT_DATE = "03.15.2024";
 /** App version and branding per job type */
 export const APP_INFO = {
 	leo: {
-		version: "LSPD MDT System v2.0",
+		version: "LSPD MDT System v3.0",
 		title: "Los Santos Police Department",
 		subtitle: "Mobile Data Terminal",
 		footerSubtext: "Authorized Personnel Only",
@@ -247,7 +256,9 @@ export const COMPONENT_DISPLAY_NAMES: Record<ComponentId, string> = {
 	ppr: "Performance Reviews",
 	fto: "Field Training",
 	sop: "Standard Operating Procedures",
+	bulletin_board: "Bulletin Board",
 	court_cases: "Court Cases",
+	calendar: "Calendar",
 	warrant_review: "Warrant Review",
 	court_orders: "Court Orders",
 	legal_documents: "Legal Documents",

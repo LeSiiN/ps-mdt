@@ -88,12 +88,12 @@ end)
 
 RegisterNUICallback('reviewWarrantRequest', function(data, cb)
     if not MDTOpen then
-        cb({ success = false, message = 'MDT is not open' })
+        cb({ success = false, error = 'MDT is not open' })
         return
     end
 
     if not data or not data.request_id or not data.decision then
-        cb({ success = false, message = 'Missing request_id or decision' })
+        cb({ success = false, error = 'Missing request_id or decision' })
         return
     end
 
@@ -103,6 +103,21 @@ RegisterNUICallback('reviewWarrantRequest', function(data, cb)
         data.decision,
         data.reason or ''
     )
+    cb(result or { success = false })
+end)
+
+RegisterNUICallback('closeWarrantRequest', function(data, cb)
+    if not MDTOpen then
+        cb({ success = false, error = 'MDT is not open' })
+        return
+    end
+
+    if not data or not data.request_id then
+        cb({ success = false, error = 'Missing request_id' })
+        return
+    end
+
+    local result = ps.callback(resourceName .. ':server:closeWarrantRequest', data.request_id)
     cb(result or { success = false })
 end)
 

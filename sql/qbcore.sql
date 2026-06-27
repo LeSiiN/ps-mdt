@@ -355,7 +355,7 @@ CREATE TABLE IF NOT EXISTS `mdt_reports_involved` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `reportid` int(10) unsigned NOT NULL,
   `citizenid` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
-  `type` varchar(7) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `type` varchar(15) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `FK_mdt_reports_involved_mdt_reports` (`reportid`),
@@ -553,7 +553,7 @@ CREATE TABLE IF NOT EXISTS `mdt_audit_logs` (
 ALTER TABLE `player_vehicles`
   ADD COLUMN IF NOT EXISTS `mdt_vehicle_information` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS `mdt_vehicle_points` int(11) NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS `mdt_vehicle_status` enum('valid','suspended','expired','impounded') NOT NULL DEFAULT 'valid',
+  ADD COLUMN IF NOT EXISTS `mdt_vehicle_status` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'valid',
   ADD COLUMN IF NOT EXISTS `mdt_vehicle_stolen` tinyint(1) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS `mdt_vehicle_boloactive` tinyint(1) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS `mdt_vehicle_image` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL;
@@ -566,6 +566,7 @@ CREATE TABLE IF NOT EXISTS `mdt_weapons` (
   `information` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `weaponClass` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `weaponModel` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `flags` JSON DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `unique_serial` (`serial`),
   KEY `FK_mdt_weapons_mdt_profiles` (`owner`),
@@ -595,6 +596,9 @@ CREATE TABLE IF NOT EXISTS `mdt_cameras` (
   `model` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'security_cam_03',
   `coords` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `rotation` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `feed_coords` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT 'Decoupled camera feed position (what the operator sees). NULL = use prop coords',
+  `feed_rotation` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT 'Decoupled camera feed rotation. NULL = use prop rotation + heading offset',
+  `feed_fov` float DEFAULT NULL COMMENT 'Decoupled camera feed FOV. NULL = default FOV',
   `image` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `can_rotate` BOOLEAN NOT NULL DEFAULT TRUE,
   `is_online` BOOLEAN NOT NULL DEFAULT TRUE,
@@ -603,6 +607,12 @@ CREATE TABLE IF NOT EXISTS `mdt_cameras` (
   `created_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   PRIMARY KEY (`cam_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Migration for existing installs: add decoupled camera-feed columns (MariaDB)
+ALTER TABLE `mdt_cameras`
+  ADD COLUMN IF NOT EXISTS `feed_coords` text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `feed_rotation` text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `feed_fov` float DEFAULT NULL;
 
 -- DEFAULT CAMERA DATA (remove if not needed for your server)
 INSERT IGNORE INTO `mdt_cameras` (`cam_id`, `cam_label`, `cam_type`, `coords`, `rotation`, `image`, `can_rotate`, `is_online`, `spawns_model`, `created_by`) VALUES
@@ -732,9 +742,10 @@ SET SQL_MODE=@OLDTMP_SQL_MODE;
 CREATE TABLE IF NOT EXISTS `mdt_tags` (
   `id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(25) NOT NULL,
-  `type` ENUM('officer','report','both') NOT NULL DEFAULT 'officer',
+  `type` ENUM('report','officer','citizen') NOT NULL DEFAULT 'citizen',
   `color` VARCHAR(7) NOT NULL DEFAULT '#6b7280',
   `job_type` VARCHAR(10) NOT NULL DEFAULT 'all',
+  `description` VARCHAR(120) NULL DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `unique_tag_name_job` (`name`, `job_type`)
@@ -756,6 +767,33 @@ INSERT IGNORE INTO mdt_tags (name, type, color, job_type) VALUES
 ('Surgeon', 'officer', '#3b82f6', 'ems'),
 ('Trainee', 'officer', '#f59e0b', 'ems'),
 ('On Call', 'officer', '#06b6d4', 'ems');
+
+-- Default Citizen Tags (LEO) — officer-safety / record flags
+INSERT IGNORE INTO mdt_tags (name, type, color, job_type) VALUES
+('Armed & Dangerous', 'citizen', '#dc2626', 'leo'),
+('Violent', 'citizen', '#ef4444', 'leo'),
+('Flight Risk', 'citizen', '#f97316', 'leo'),
+('Resisting', 'citizen', '#f97316', 'leo'),
+('Felon', 'citizen', '#b91c1c', 'leo'),
+('Repeat Offender', 'citizen', '#ea580c', 'leo'),
+('Gang Member', 'citizen', '#ec4899', 'leo'),
+('Drug User', 'citizen', '#06b6d4', 'leo'),
+('Probation', 'citizen', '#f59e0b', 'leo'),
+('Parole', 'citizen', '#f59e0b', 'leo'),
+('Informant', 'citizen', '#06b6d4', 'leo'),
+('Mental Health', 'citizen', '#8b5cf6', 'leo'),
+('Suspended License', 'citizen', '#6b7280', 'leo'),
+('Veteran', 'citizen', '#10b981', 'leo');
+
+-- Default Citizen Tags (EMS medical + shared)
+INSERT IGNORE INTO mdt_tags (name, type, color, job_type) VALUES
+('Allergy', 'citizen', '#ef4444', 'ems'),
+('DNR', 'citizen', '#8b5cf6', 'ems'),
+('Diabetic', 'citizen', '#06b6d4', 'ems'),
+('Epileptic', 'citizen', '#a855f7', 'ems'),
+('Heart Condition', 'citizen', '#dc2626', 'ems'),
+('Organ Donor', 'citizen', '#10b981', 'ems'),
+('Medical Alert', 'citizen', '#f59e0b', 'all');
 
 -- Default LEO Report Tags
 INSERT IGNORE INTO mdt_tags (name, type, color, job_type) VALUES
@@ -1296,7 +1334,7 @@ CREATE TABLE IF NOT EXISTS `mdt_warrant_requests` (
   `charges` text DEFAULT NULL,
   `reason` text NOT NULL,
   `linked_report_id` int(10) unsigned DEFAULT NULL,
-  `status` enum('pending','approved','denied') NOT NULL DEFAULT 'pending',
+  `status` enum('pending','approved','denied','closed') NOT NULL DEFAULT 'pending',
   `reviewer_citizenid` varchar(50) DEFAULT NULL,
   `reviewer_name` varchar(100) DEFAULT NULL,
   `review_reason` text DEFAULT NULL,
@@ -1324,3 +1362,134 @@ CREATE TABLE IF NOT EXISTS `mdt_warrant_reviews` (
 
 -- Add lawyer_requested column to mdt_reports
 ALTER TABLE `mdt_reports` ADD COLUMN IF NOT EXISTS `lawyer_requested` tinyint(1) NOT NULL DEFAULT 0;
+-- Update mdt_reports_evidence with new columns
+ALTER TABLE mdt_reports_evidence
+  ADD COLUMN IF NOT EXISTS title VARCHAR(255) NOT NULL DEFAULT '' AFTER reportid,
+  ADD COLUMN IF NOT EXISTS images LONGTEXT NULL DEFAULT NULL AFTER stored;
+
+-- Add flags column to mdt_weapons
+ALTER TABLE `mdt_weapons` ADD COLUMN IF NOT EXISTS `flags` JSON DEFAULT NULL;
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  Patrols  (server/backend/tracking.lua)
+--  Persisted patrols: membership, ordering, and optional map-zone geometry.
+--  `member_ids` and `zone_points` hold JSON; `member_ids` is reset to '[]' on
+--  resource start so officers re-assign after a restart. `job_type` is the MDT
+--  domain the patrol belongs to ('police' or 'ems').
+-- ════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS `mdt_patrols` (
+  `id` varchar(64) NOT NULL,
+  `name` varchar(64) NOT NULL,
+  `color` varchar(7) NOT NULL DEFAULT '#3B82F6',
+  `member_ids` longtext DEFAULT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `zone_points` longtext DEFAULT NULL,
+  `job_type` varchar(10) NOT NULL DEFAULT 'police',
+  PRIMARY KEY (`id`),
+  KEY `idx_mdt_patrols_job_sort` (`job_type`,`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  Officer Status  (server/backend/officer_status.lua)
+--  One row per officer who has ever set a status. `status` is a free-form key
+--  validated server-side against Config.OfficerStatus (see config.lua), so new
+--  statuses can be added there without a migration. `note` is the optional
+--  custom description (e.g. "Traffic Stop"); NULL falls back to the status
+--  label client-side. `updated_at` powers the "since" timestamp in the UI.
+-- ════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS `mdt_officer_status` (
+  `citizenid` varchar(64) NOT NULL,
+  `status` varchar(32) NOT NULL DEFAULT 'active',
+  `note` varchar(120) DEFAULT NULL,
+  `job_type` varchar(10) NOT NULL DEFAULT 'police',
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`citizenid`),
+  KEY `idx_mdt_officer_status_job` (`job_type`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  Court / Training calendar  (server/backend/court.lua)
+--  Hearings cover court dates, trainings and meetings; `job_type` keeps the
+--  police/DOJ calendar separate from the EMS calendar. Attendees are the people
+--  invited to a hearing, with reminder bookkeeping (`notified_at`/`delivered_at`).
+-- ════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS `mdt_court_hearings` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) NOT NULL,
+  `category` enum('court','training','meeting','other') NOT NULL DEFAULT 'court',
+  `hearing_type` enum('arraignment','trial','sentencing','appeal','motion','hearing','other') NOT NULL DEFAULT 'trial',
+  `case_id` int(10) unsigned DEFAULT NULL,
+  `warrant_reportid` int(10) unsigned DEFAULT NULL,
+  `defendant_cid` varchar(50) DEFAULT NULL,
+  `defendant_name` varchar(100) DEFAULT NULL,
+  `scheduled_at` datetime NOT NULL,
+  `duration_minutes` int(11) NOT NULL DEFAULT 30,
+  `location` varchar(255) DEFAULT NULL,
+  `judge_cid` varchar(50) DEFAULT NULL,
+  `judge_name` varchar(100) DEFAULT NULL,
+  `status` enum('scheduled','in_session','completed','adjourned','cancelled') NOT NULL DEFAULT 'scheduled',
+  `notes` text DEFAULT NULL,
+  `created_by` varchar(50) NOT NULL,
+  `created_by_name` varchar(100) DEFAULT NULL,
+  `job_type` varchar(10) NOT NULL DEFAULT 'police',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_mdt_court_hearings_schedule` (`job_type`,`scheduled_at`),
+  KEY `idx_mdt_court_hearings_status` (`status`),
+  KEY `idx_mdt_court_hearings_case` (`case_id`),
+  CONSTRAINT `FK_mdt_court_hearings_cases` FOREIGN KEY (`case_id`) REFERENCES `mdt_cases` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `mdt_court_attendees` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `hearing_id` int(10) unsigned NOT NULL,
+  `citizenid` varchar(50) NOT NULL,
+  `display_name` varchar(100) DEFAULT NULL,
+  `role` enum('prosecutor','defense','officer','witness','judge','trainee','instructor','attendee') NOT NULL DEFAULT 'officer',
+  `notified_at` datetime DEFAULT NULL,
+  `delivered_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_mdt_court_attendees_hearing_cid` (`hearing_id`,`citizenid`),
+  KEY `idx_mdt_court_attendees_citizen` (`citizenid`),
+  CONSTRAINT `FK_mdt_court_attendees_hearing` FOREIGN KEY (`hearing_id`) REFERENCES `mdt_court_hearings` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  Bulletin board  (server/backend/bulletinboard.lua)
+--  Posts are scoped per department (`job`); categories are per-department too
+--  and are soft-referenced by `mdt_bulletin_posts.category` = value (no FK, so a
+--  category can be renamed/removed with the reassignment logic in the resource).
+--  Default categories are seeded automatically on first use per job.
+-- ════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS `mdt_bulletin_categories` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `job` varchar(50) NOT NULL,
+  `value` varchar(48) NOT NULL,
+  `label` varchar(48) NOT NULL,
+  `icon` varchar(48) NOT NULL DEFAULT 'label',
+  `color` varchar(7) NOT NULL DEFAULT '#6B7280',
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `is_default` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_mdt_bulletin_categories_job_value` (`job`,`value`),
+  KEY `idx_mdt_bulletin_categories_job` (`job`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `mdt_bulletin_posts` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) NOT NULL,
+  `content` text NOT NULL,
+  `author` varchar(100) DEFAULT NULL,
+  `author_rank` varchar(50) DEFAULT NULL,
+  `category` varchar(48) NOT NULL DEFAULT 'general',
+  `priority` enum('urgent','high','normal','low') NOT NULL DEFAULT 'normal',
+  `pinned` tinyint(1) NOT NULL DEFAULT 0,
+  `job` varchar(50) NOT NULL,
+  `created_by` varchar(50) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_mdt_bulletin_posts_job` (`job`,`pinned`),
+  KEY `idx_mdt_bulletin_posts_job_category` (`job`,`category`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

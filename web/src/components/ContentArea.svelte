@@ -30,11 +30,13 @@
 	import Management from "@/pages/Management.svelte";
 	import Settings from "../pages/Settings.svelte";
 	import CourtCases from "../pages/doj/CourtCases.svelte";
+	import CourtCalendar from "../pages/doj/CourtCalendar.svelte";
 	import WarrantReview from "../pages/doj/WarrantReview.svelte";
 	import CourtOrders from "../pages/doj/CourtOrders.svelte";
 	import LegalDocuments from "../pages/doj/LegalDocuments.svelte";
 	import type { createInstanceStateService } from "../services/instanceStateService.svelte";
 	import type { createTabService } from "../services/tabService.svelte";
+	import BulletInBoard from "@/pages/BulletInBoard.svelte";
 
 	interface Props {
 		authService: AuthService;
@@ -109,16 +111,18 @@
 		citizens: ["citizens_search"],
 		bolos: ["bolos_view", "bolos_create"],
 		vehicles: ["vehicles_search"],
-		weapons: ["weapons_search"],
+		weapons: ["weapons_search", "weapons_add"],
 		cases: ["cases_view", "cases_create"],
 		evidence: ["evidence_view", "evidence_create"],
 		reports: ["reports_view", "reports_create"],
 		warrants: ["warrants_view", "warrants_issue"],
 		charges: ["charges_view", "charges_edit"],
-		cameras: ["cameras_view"],
+		cameras: ["cameras_view", "dashcams_view"],
 		bodycams: ["bodycams_view"],
 		ia: ["ia_view"],
 		sop: ["sop_view", "sop_manage"],
+		bulletin_board: ["bulletin_view"],
+		calendar: ["court_view", "training_view"],
 		management: ["management_settings", "management_bulletins", "management_activity", "management_permissions", "management_tracking"],
 		settings: ["management_settings"],
 	};
@@ -145,8 +149,11 @@
 			charges: "Charges",
 			awards: "Awards",
 			cameras: "Cameras",
+			calendar: "Calendar",
 			bodycams: "Bodycams",
 			management: "Settings",
+			sop: "SOP",
+			bulletin_board: "Bulletin Board",
 			settings: "Preferences",
 		};
 		return labels[pageId] || pageId;
@@ -196,7 +203,7 @@
 		{:else if activeComponent === "reports"}
 			<Reports {instanceStateService} {tabService} jobType={authService.jobType} />
 		{:else if activeComponent === "warrants"}
-			<Warrants {tabService} />
+			<Warrants {tabService} {authService} />
 		{:else if activeComponent === "charges"}
 			<Charges {authService} />
 		{:else if activeComponent === "awards"}
@@ -204,11 +211,11 @@
 		{:else if activeComponent === "roster"}
 			<Roster {authService} {tabService} />
 		{:else if activeComponent === "map"}
-			<Map />
+			<Map {authService}/>
 		{:else if activeComponent === "vehicles"}
 			<Vehicles {tabService} />
 		{:else if activeComponent === "weapons"}
-			<Weapons />
+			<Weapons {tabService} {authService} />
 		{:else if activeComponent === "cases"}
 			<Cases {tabService} />
 		{:else if String(activeComponent) === "evidence"}
@@ -225,12 +232,16 @@
 			<FTO {tabService} {authService} />
 		{:else if activeComponent === "sop"}
 			<SOP {authService} />
+		{:else if activeComponent === "bulletin_board"}
+			<BulletInBoard {authService} />
 		{:else if activeComponent === "management"}
 			<Management {authService} />
 		{:else if activeComponent === "settings"}
 			<Settings />
 		{:else if activeComponent === "court_cases"}
 			<CourtCases {tabService} {authService} />
+		{:else if activeComponent === "calendar"}
+			<CourtCalendar {tabService} {authService} />
 		{:else if activeComponent === "warrant_review"}
 			<WarrantReview {tabService} {authService} />
 		{:else if activeComponent === "court_orders"}

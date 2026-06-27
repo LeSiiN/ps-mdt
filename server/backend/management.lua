@@ -60,18 +60,25 @@ local function getAllPermissions()
         'citizens_search', 'citizens_edit_licenses',
         'bolos_view', 'bolos_create',
         'vehicles_search', 'vehicles_edit_dmv',
-        'weapons_search',
+        'weapons_search', 'weapons_add',
         'cases_view', 'cases_create', 'cases_edit', 'cases_delete',
         'evidence_view', 'evidence_create', 'evidence_transfer', 'evidence_upload',
         'reports_view', 'reports_create', 'reports_delete',
         'warrants_view', 'warrants_issue', 'warrants_close',
         'charges_view', 'charges_edit',
-        'dispatch_attach', 'dispatch_route',
-        'cameras_view', 'bodycams_view',
+        'map_patrols_view', 'map_patrols_manage', 'map_patrols_edit', 'dispatch_attach', 'dispatch_route',
+        'cameras_view', 'bodycams_view', 'dashcams_view',
+        'notes_edit_department',
         'roster_manage_certifications', 'roster_manage_officers',
+        'ppr_view', 'ppr_manage',
+        'fto_view', 'fto_manage',
+        'bulletin_view', 'bulletin_post', 'bulletin_pin',
+        'court_view', 'court_create', 'court_edit', 'court_delete',
+        'training_view', 'training_create', 'training_edit', 'training_delete',
+        'ia_view', 'ia_manage',
+        'sop_view', 'sop_manage',
         'management_permissions', 'management_bulletins', 'management_activity',
         'management_tags', 'management_tracking', 'management_settings',
-        'ia_view', 'ia_manage',
     }
 end
 
@@ -221,6 +228,9 @@ end)
 ps.registerCallback(resourceName .. ':server:updatePermissionRole', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    if not CheckPermission(src, 'management_permissions') then
+        return { success = false, message = 'Insufficient permissions' }
+    end
 
     payload = payload or {}
     if not payload.job or payload.grade == nil or type(payload.permissions) ~= 'table' then
@@ -252,78 +262,6 @@ ps.registerCallback(resourceName .. ':server:updatePermissionRole', function(sou
     return { success = true }
 end)
 
--- TAG MANAGEMENT
-
--- Ensure mdt_tags table exists
-CreateThread(function()
-    MySQL.query.await([[
-        CREATE TABLE IF NOT EXISTS `mdt_tags` (
-            `id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-            `name` VARCHAR(25) NOT NULL,
-            `type` ENUM('officer','report','both') NOT NULL DEFAULT 'officer',
-            `color` VARCHAR(7) NOT NULL DEFAULT '#6b7280',
-            `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `unique_tag_name` (`name`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-    ]])
-
-    -- Fix ENUM if table was created with old 'citizen' value
-    pcall(MySQL.query.await, [[
-        ALTER TABLE `mdt_tags` MODIFY COLUMN `type` ENUM('officer','report','both') NOT NULL DEFAULT 'officer'
-    ]])
-    -- Migrate any old 'citizen' rows to 'officer'
-    pcall(MySQL.query.await, [[UPDATE `mdt_tags` SET `type` = 'officer' WHERE `type` = 'citizen']])
-
-    -- Seed default tags if table is empty
-    local count = MySQL.scalar.await('SELECT COUNT(*) FROM mdt_tags')
-    if (tonumber(count) or 0) == 0 then
-        -- Default officer tags
-        local officerDefaults = {
-            { name = 'SWAT',          color = '#3b82f6' },
-            { name = 'FTO',           color = '#10b981' },
-            { name = 'Detective',     color = '#8b5cf6' },
-            { name = 'Probation',     color = '#f59e0b' },
-            { name = 'Command',       color = '#ef4444' },
-            { name = 'K9 Certified',  color = '#06b6d4' },
-            { name = 'Air Certified', color = '#ec4899' },
-        }
-        for _, tag in ipairs(officerDefaults) do
-            pcall(MySQL.insert.await, 'INSERT IGNORE INTO mdt_tags (name, type, color) VALUES (?, ?, ?)', { tag.name, 'officer', tag.color })
-        end
-
-        -- Default report tags
-        local reportDefaults = {
-            { name = 'Robbery',            color = '#ef4444' },
-            { name = 'Armed',              color = '#f97316' },
-            { name = 'Priority',           color = '#f59e0b' },
-            { name = 'Active',             color = '#10b981' },
-            { name = 'Ballistics',         color = '#8b5cf6' },
-            { name = 'Gang Related',       color = '#ec4899' },
-            { name = 'Drug Related',       color = '#06b6d4' },
-            { name = 'Traffic',            color = '#3b82f6' },
-            { name = 'Domestic',           color = '#6b7280' },
-            { name = 'Assault',            color = '#ef4444' },
-            { name = 'High Priority',      color = '#f59e0b' },
-            { name = 'Confidential',       color = '#8b5cf6' },
-            { name = 'Active Investigation', color = '#10b981' },
-        }
-        for _, tag in ipairs(reportDefaults) do
-            pcall(MySQL.insert.await, 'INSERT IGNORE INTO mdt_tags (name, type, color) VALUES (?, ?, ?)', { tag.name, 'report', tag.color })
-        end
-
-        -- Also import any existing tags from usage tables
-        local existing = MySQL.query.await('SELECT DISTINCT tag FROM mdt_profiles_tags')
-        for _, row in ipairs(existing or {}) do
-            pcall(MySQL.insert.await, 'INSERT IGNORE INTO mdt_tags (name, type) VALUES (?, ?)', { row.tag, 'officer' })
-        end
-        local existingReport = MySQL.query.await('SELECT DISTINCT tag FROM mdt_reports_tags')
-        for _, row in ipairs(existingReport or {}) do
-            pcall(MySQL.insert.await, 'INSERT IGNORE INTO mdt_tags (name, type) VALUES (?, ?)', { row.tag, 'report' })
-        end
-    end
-end)
-
 ps.registerCallback(resourceName .. ':server:getTags', function(source, data)
     local src = source
     if not CheckAuth(src) then return {} end
@@ -332,23 +270,24 @@ ps.registerCallback(resourceName .. ':server:getTags', function(source, data)
     local jobType = data.jobType
 
     local query, params
-    if jobType and (jobType == 'leo' or jobType == 'ems') then
+    -- EMS management only sees its own + shared tags; LEO/management sees all.
+    if jobType == 'ems' then
         query = [[
-            SELECT t.id, t.name, t.type, t.color, t.job_type, t.created_at,
+            SELECT t.id, t.name, t.type, t.color, t.job_type, t.description, t.created_at,
                    (SELECT COUNT(*) FROM mdt_profiles_tags pt WHERE pt.tag = t.name) +
                    (SELECT COUNT(*) FROM mdt_reports_tags rt WHERE rt.tag = t.name) AS usage_count
             FROM mdt_tags t
-            WHERE t.job_type = ? OR t.job_type = 'all'
-            ORDER BY t.name ASC
+            WHERE t.job_type = 'ems' OR t.job_type = 'all'
+            ORDER BY t.type ASC, t.name ASC
         ]]
-        params = { jobType }
+        params = { }
     else
         query = [[
-            SELECT t.id, t.name, t.type, t.color, t.job_type, t.created_at,
+            SELECT t.id, t.name, t.type, t.color, t.job_type, t.description, t.created_at,
                    (SELECT COUNT(*) FROM mdt_profiles_tags pt WHERE pt.tag = t.name) +
                    (SELECT COUNT(*) FROM mdt_reports_tags rt WHERE rt.tag = t.name) AS usage_count
             FROM mdt_tags t
-            ORDER BY t.name ASC
+            ORDER BY t.type ASC, t.name ASC
         ]]
         params = {}
     end
@@ -357,15 +296,21 @@ ps.registerCallback(resourceName .. ':server:getTags', function(source, data)
     return rows or {}
 end)
 
+local VALID_TAG_TYPES = { report = true, officer = true, citizen = true }
+local VALID_TAG_JOBS = { leo = true, ems = true, all = true }
+
 ps.registerCallback(resourceName .. ':server:createTag', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
     payload = payload or {}
     local name = payload.name
-    local tagType = payload.type or 'officer'
+    local tagType = payload.type or 'citizen'
     local color = payload.color or '#6b7280'
     local jobType = payload.job_type or 'all'
+
+    if not VALID_TAG_TYPES[tagType] then tagType = 'citizen' end
+    if not VALID_TAG_JOBS[jobType] then jobType = 'all' end
 
     if not name or name == '' then
         return { success = false, message = 'Tag name is required' }
@@ -380,7 +325,7 @@ ps.registerCallback(resourceName .. ':server:createTag', function(source, payloa
         return { success = false, message = 'Tag already exists' }
     end
 
-    local id = MySQL.insert.await('INSERT INTO mdt_tags (name, type, color, job_type) VALUES (?, ?, ?, ?)', { name, tagType, color, jobType })
+    local id = MySQL.insert.await('INSERT INTO mdt_tags (name, type, color, job_type, description) VALUES (?, ?, ?, ?, ?)', { name, tagType, color, jobType, payload.description or nil })
     if not id then
         return { success = false, message = 'Failed to create tag' }
     end
@@ -398,6 +343,9 @@ ps.registerCallback(resourceName .. ':server:updateTag', function(source, payloa
     local tagType = payload.type
     local color = payload.color
     local jobType = payload.job_type or 'all'
+
+    if tagType and not VALID_TAG_TYPES[tagType] then tagType = 'citizen' end
+    if not VALID_TAG_JOBS[jobType] then jobType = 'all' end
 
     if not id then
         return { success = false, message = 'Invalid tag ID' }
@@ -419,7 +367,7 @@ ps.registerCallback(resourceName .. ':server:updateTag', function(source, payloa
         return { success = false, message = 'Another tag with that name already exists' }
     end
 
-    MySQL.update.await('UPDATE mdt_tags SET name = ?, type = ?, color = ?, job_type = ? WHERE id = ?', { name, tagType, color, jobType, id })
+    MySQL.update.await('UPDATE mdt_tags SET name = ?, type = ?, color = ?, job_type = ?, description = ? WHERE id = ?', { name, tagType, color, jobType, payload.description or nil, id })
 
     -- Update references in profile tags and report tags if name changed
     if oldName and oldName ~= name then
@@ -460,6 +408,9 @@ end)
 ps.registerCallback(resourceName .. ':server:saveAward', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    if not CheckPermission(src, 'management_permissions') then
+        return { success = false, message = 'Insufficient permissions' }
+    end
 
     payload = payload or {}
     local name = payload.name

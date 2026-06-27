@@ -74,6 +74,20 @@ local function getGender(gen)
     return 'Unknown'
 end
 
+-- SetMetaData only updates the player's IN-MEMORY metadata; the players row is
+-- rewritten only on the next autosave/logout. To keep the DB consistent right
+-- away (so MDT profile re-reads, which query the players table, reflect the
+-- change immediately), eagerly persist the full live metadata after SetMetaData.
+-- Because this snapshot is identical to what's in memory, the next autosave just
+-- rewrites the same value -- there is no clobber.
+local function persistLiveMetadata(Player, citizenid)
+    if not (Player and Player.PlayerData and Player.PlayerData.metadata and citizenid) then return end
+    local ok, encoded = pcall(json.encode, Player.PlayerData.metadata)
+    if ok and encoded then
+        MySQL.update.await('UPDATE players SET metadata = ? WHERE citizenid = ?', { encoded, citizenid })
+    end
+end
+
 -- Safe query helper: returns empty table on error (handles missing tables gracefully)
 local function safeQuery(query, params)
     local ok, rows = pcall(MySQL.query.await, query, params)
@@ -89,24 +103,24 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
     local src = source
     if not CheckAuth(src) then return {} end
     local startTime = os.clock()
-    page = page or 1 -- Default to page 1 if not provided
-    local limit = Config.Pagination and Config.Pagination.Citizens or 20
-    local offset = (page - 1) * limit
-
-    -- Main query with pagination
+    page = page or 1
+    -- The Citizens UI filters AND paginates client-side over the full set
+    -- (allFilteredCitizens -> slice). A server LIMIT would cap the list at the
+    -- first page and make search only see those rows, so return everything here.
     local query = [[
         SELECT mp.id, p.citizenid, JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
         JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) AS lastname,
         JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.gender')) AS gender,
         JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.birthdate')) AS dateofbirth,
         JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.phone')) AS phone,
-        JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label')) AS job
+        JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label')) AS job,
+        JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.fingerprint')) AS fingerprint,
+        JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.dna')) AS dna
         FROM players AS p
         LEFT JOIN mdt_profiles AS mp
         ON CONVERT(p.citizenid USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(mp.citizenid USING utf8mb4) COLLATE utf8mb4_general_ci
-        LIMIT ? OFFSET ?
     ]]
-    local result = safeQuery(query, { limit, offset })
+    local result = safeQuery(query, {})
     if not result or #result == 0 then return {} end
 
     local citizenids = {}
@@ -128,6 +142,7 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
     local propCounts = {}
     local vehCounts = {}
     local arrestCounts = {}
+    local tagsByCid = {}
 
     if #citizenids > 0 then
         local inClause = buildInClause(citizenids)
@@ -142,12 +157,22 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
             end
         end
 
-        local propRows = safeQuery(
-            ('SELECT citizenid, COUNT(*) AS cnt FROM player_houses WHERE citizenid IN (%s) GROUP BY citizenid'):format(inClause),
+        -- Profile tags (so the list can show them before opening a profile)
+        local tagRows = safeQuery(
+            ('SELECT mp.citizenid AS citizenid, pt.tag AS tag FROM mdt_profiles_tags pt JOIN mdt_profiles mp ON mp.id = pt.profileId WHERE mp.citizenid IN (%s)'):format(inClause),
             citizenids
         )
-        for _, row in ipairs(propRows) do
-            propCounts[row.citizenid] = tonumber(row.cnt) or 0
+        for _, row in ipairs(tagRows) do
+            if row.citizenid and row.tag then
+                tagsByCid[row.citizenid] = tagsByCid[row.citizenid] or {}
+                tagsByCid[row.citizenid][#tagsByCid[row.citizenid] + 1] = row.tag
+            end
+        end
+
+        -- Property counts come from the configured housing system (Config.Housing).
+        local propCountRows = Housing.GetCountsByOwners(citizenids)
+        for cid, cnt in pairs(propCountRows) do
+            propCounts[cid] = cnt
         end
 
         local vehRows = safeQuery(
@@ -176,11 +201,14 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
         v.dob = v.dateofbirth
         v.phone = v.phone
         v.image = profilePics[v.citizenid] or nil
+        v.fingerprint = v.fingerprint or nil
+        v.dna = v.dna or nil
         v.occupations = { v.job }
         v.properties = propCounts[v.citizenid] or 0
         v.vehicles = vehCounts[v.citizenid] or 0
         v.arrests = arrestCounts[v.citizenid] or 0
         v.flags = flagsByCid[v.citizenid] or {}
+        v.tags = tagsByCid[v.citizenid] or {}
     end
     local endTime = os.clock()
     local elapsedTime = (endTime - startTime) * 1000
@@ -216,14 +244,15 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
     -- Build a complex search query that searches across multiple fields and returns same data as getCitizens
     local sqlQuery = [[
         SELECT DISTINCT
-            mp.id,
-            p.citizenid,
+            mp.id, p.citizenid,
             JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
             JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) AS lastname,
             JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.gender')) AS gender,
             JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.birthdate')) AS dateofbirth,
             JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.phone')) AS phone,
-            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label')) AS job
+            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label')) AS job,
+            JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.fingerprint')) AS fingerprint,
+            JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.dna')) AS dna
         FROM players AS p
         LEFT JOIN mdt_profiles AS mp ON p.citizenid COLLATE utf8mb4_general_ci = mp.citizenid COLLATE utf8mb4_general_ci
         WHERE 
@@ -232,13 +261,17 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
             LOWER(CONCAT(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')), ' ', JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')))) LIKE ? OR
             LOWER(p.citizenid) LIKE ? OR
             LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.phone'))) LIKE ? OR
-            LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label'))) LIKE ?
+            LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label'))) LIKE ? OR
+            LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.fingerprint'))) LIKE ? OR
+            LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.dna'))) LIKE ?
         LIMIT ?
     ]]
 
-    local searchLimit = Config.Pagination and Config.Pagination.CitizenSearch or 20
+    local searchLimit = (Config.Pagination and Config.Pagination.Citizens) or 25
     local result = safeQuery(sqlQuery, {
-        searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchLimit
+        searchTerm, searchTerm, searchTerm, searchTerm,
+        searchTerm, searchTerm, searchTerm, searchTerm,
+        searchLimit
     })
     if not result or #result == 0 then return {} end
 
@@ -261,6 +294,7 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
     local propCounts = {}
     local vehCounts = {}
     local arrestCounts = {}
+    local tagsByCid = {}
 
     if #citizenids > 0 then
         local inClause = buildInClause(citizenids)
@@ -275,12 +309,22 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
             end
         end
 
-        local propRows = safeQuery(
-            ('SELECT citizenid, COUNT(*) AS cnt FROM player_houses WHERE citizenid IN (%s) GROUP BY citizenid'):format(inClause),
+        -- Profile tags (so the list can show them before opening a profile)
+        local tagRows = safeQuery(
+            ('SELECT mp.citizenid AS citizenid, pt.tag AS tag FROM mdt_profiles_tags pt JOIN mdt_profiles mp ON mp.id = pt.profileId WHERE mp.citizenid IN (%s)'):format(inClause),
             citizenids
         )
-        for _, row in ipairs(propRows) do
-            propCounts[row.citizenid] = tonumber(row.cnt) or 0
+        for _, row in ipairs(tagRows) do
+            if row.citizenid and row.tag then
+                tagsByCid[row.citizenid] = tagsByCid[row.citizenid] or {}
+                tagsByCid[row.citizenid][#tagsByCid[row.citizenid] + 1] = row.tag
+            end
+        end
+
+        -- Property counts come from the configured housing system (Config.Housing).
+        local propCountRows = Housing.GetCountsByOwners(citizenids)
+        for cid, cnt in pairs(propCountRows) do
+            propCounts[cid] = cnt
         end
 
         local vehRows = safeQuery(
@@ -314,6 +358,7 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
         v.vehicles = vehCounts[v.citizenid] or 0
         v.arrests = arrestCounts[v.citizenid] or 0
         v.flags = flagsByCid[v.citizenid] or {}
+        v.tags = tagsByCid[v.citizenid] or {}
     end
 
     local endTime = os.clock()
@@ -391,6 +436,19 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
         return { success = false, message = 'Citizen not found' }
     end
 
+    -- Online players keep PlayerData.metadata in memory as the source of truth; the
+    -- DB row is only the last-saved snapshot and lags behind live changes (e.g. a
+    -- license toggled via SetMetaData won't reach the DB until the next autosave).
+    -- Use the live metadata when the citizen is online so the profile reflects the
+    -- current state instead of stale data.
+    local OnlinePlayer = ps.getPlayerByIdentifier(citizenid)
+    if OnlinePlayer and OnlinePlayer.PlayerData and OnlinePlayer.PlayerData.metadata then
+        local okEnc, encoded = pcall(json.encode, OnlinePlayer.PlayerData.metadata)
+        if okEnc and encoded then
+            playerRow.metadata = encoded
+        end
+    end
+
     local profileRow = MySQL.single.await('SELECT id, profilepicture, notes FROM mdt_profiles WHERE citizenid = ?', { citizenid })
 
     -- Fetch tags and gallery for this profile
@@ -420,7 +478,8 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
     local flags = collectCitizenFlags({ citizenid })
     local vehicles = MySQL.query.await('SELECT plate, vehicle FROM player_vehicles WHERE citizenid = ?', { citizenid }) or {}
     local vehiclesCount = #vehicles
-    local properties = MySQL.query.await('SELECT house FROM player_houses WHERE citizenid = ?', { citizenid }) or {}
+    -- Owned properties come from the configured housing system (Config.Housing).
+    local properties = Housing.GetByOwner(citizenid)
     local propertiesCount = #properties
     local arrestsCount = MySQL.scalar.await('SELECT COUNT(*) FROM mdt_arrests WHERE citizenid = ?', { citizenid }) or 0
     local activeWarrants = MySQL.query.await([[
@@ -510,11 +569,24 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
     end
 
     local weapons = MySQL.query.await([[
-        SELECT id, serial, scratched, owner, information, weaponClass, weaponModel
+        SELECT id, serial, scratched, owner, information, weaponClass, weaponModel, flags
         FROM mdt_weapons
         WHERE owner = ?
         ORDER BY id DESC
     ]], { citizenid }) or {}
+
+    local weaponsMapped = {}
+    for _, w in ipairs(weapons) do
+        weaponsMapped[#weaponsMapped + 1] = {
+            id = w.id,
+            serial = w.serial,
+            scratched = w.scratched,
+            information = w.information,
+            weaponClass = w.weaponClass,
+            weaponModel = w.weaponModel,
+            flags = w.flags and json.decode(w.flags) or {},
+        }
+    end
 
     local linkedReports = {}
     if #involvedReportIds > 0 then
@@ -582,7 +654,7 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
             activeWarrants = activeWarrants,
             activeBolos = activeBoloDetails,
             evidence = evidence,
-            weapons = weapons,
+            weapons = weaponsMapped,
             linkedReports = linkedReports,
             ownedVehicles = vehicles,
             propertiesList = properties,
@@ -613,6 +685,67 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
     }
 end)
 
+-- Citizen profile "Charges" section — kept deliberately separate from
+-- getCitizenProfile (unlike linkedReports/evidence/weapons, which load
+-- everything at once): a heavily-charged citizen can accumulate hundreds of
+-- rows over a long-running server, and loading them all on every profile open
+-- would be wasteful. Instead the NUI calls this on-demand, 20 rows at a time
+-- (Config.Pagination.CitizenCharges), via a real LIMIT/OFFSET query backed by
+-- the existing idx_charges_citizenid index — no client-side slicing.
+--
+-- Rows are grouped by charge TYPE (not one row per report): a citizen charged
+-- with the same offense across several reports gets a single line with the
+-- combined count, instead of N separate near-duplicate lines. This is done in
+-- SQL (GROUP BY), not by aggregating in Lua/JS after the fact, since the
+-- whole point of this endpoint is to never pull a citizen's full charge
+-- history into memory just to summarize it.
+ps.registerCallback(resourceName .. ':server:getCitizenCharges', function(source, citizenid, page)
+    local src = source
+    if not CheckAuth(src) then return { charges = {}, hasMore = false } end
+
+    if not citizenid or citizenid == '' then
+        return { charges = {}, hasMore = false }
+    end
+
+    page = tonumber(page) or 1
+    if page < 1 then page = 1 end
+    local limit = (Config.Pagination and Config.Pagination.CitizenCharges) or 20
+    local offset = (page - 1) * limit
+
+    -- One extra row is fetched (limit + 1) so "hasMore" is exact rather than
+    -- the cases.lua heuristic (#rows >= limit, which is wrong whenever the
+    -- citizen has precisely a multiple of `limit` distinct charge types).
+    -- report_id is shown directly in the UI (so an officer can jump to the
+    -- report by id) when the charge came from a single report; for charges
+    -- spanning several reports there's no single id to show.
+    local rows = MySQL.query.await([[
+        SELECT
+            mrc.charge,
+            SUM(mrc.count)               AS total_count,
+            SUM(mrc.count * mrc.fine)    AS total_fine,
+            SUM(mrc.count * mrc.time)    AS total_time,
+            COUNT(DISTINCT mrc.reportid) AS report_count,
+            MAX(mr.id)                   AS report_id,
+            MAX(mr.datecreated)          AS datecreated,
+            MAX(mpc.code)                AS charge_code,
+            MAX(mpc.charge_class)        AS charge_class
+        FROM mdt_reports_charges mrc
+        INNER JOIN mdt_reports mr ON mr.id = mrc.reportid
+        LEFT JOIN mdt_penal_codes mpc ON mpc.label = mrc.charge
+        WHERE mrc.citizenid = ?
+        GROUP BY mrc.charge
+        ORDER BY datecreated DESC, mrc.charge ASC
+        LIMIT ? OFFSET ?
+    ]], { citizenid, limit + 1, offset }) or {}
+
+    local hasMore = #rows > limit
+    if hasMore then
+        rows[#rows] = nil -- drop the lookahead row, it was only there to detect hasMore
+    end
+
+    return { charges = rows, hasMore = hasMore }
+end)
+
 ps.registerCallback(resourceName .. ':server:updateCitizenLicense', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -625,6 +758,24 @@ ps.registerCallback(resourceName .. ':server:updateCitizenLicense', function(sou
         return { success = false, message = 'Missing citizen id or license' }
     end
 
+    -- When the citizen is ONLINE, QBCore/QBX keep PlayerData.metadata in memory as
+    -- the source of truth and flush it back to the `players` table on autosave /
+    -- logout. A direct UPDATE while they are online gets silently clobbered by the
+    -- next flush (and live license checks read the stale in-memory copy), so the
+    -- change appears to do nothing. Go through SetMetaData instead: it mutates the
+    -- in-memory metadata AND persists it.
+    local Player = ps.getPlayerByIdentifier(citizenId)
+    if Player and Player.Functions and Player.Functions.SetMetaData then
+        local metadata = (Player.PlayerData and Player.PlayerData.metadata) or {}
+        metadata.licences = metadata.licences or {}
+        metadata.licences[licenseType] = enabled
+        Player.Functions.SetMetaData('licences', metadata.licences)
+        persistLiveMetadata(Player, citizenId)
+        return { success = true }
+    end
+
+    -- OFFLINE fallback: no in-memory state to conflict with, so a direct DB write
+    -- is safe and authoritative.
     local row = MySQL.single.await('SELECT metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenId })
     if not row then
         return { success = false, message = 'Citizen not found' }
@@ -718,6 +869,19 @@ ps.registerCallback(resourceName .. ':server:updateCitizenFingerprint', function
         return { success = false, message = 'Missing citizen id' }
     end
 
+    -- Online: write through the live player object so the next autosave does not
+    -- clobber it (same rationale as updateCitizenLicense).
+    local Player = ps.getPlayerByIdentifier(citizenid)
+    if Player and Player.Functions and Player.Functions.SetMetaData then
+        Player.Functions.SetMetaData('fingerprint', fingerprint or '')
+        persistLiveMetadata(Player, citizenid)
+        if ps.auditLog then
+            ps.auditLog(src, 'update_fingerprint', 'citizens', citizenid, { fingerprint = fingerprint })
+        end
+        return { success = true }
+    end
+
+    -- Offline fallback: direct DB write is safe.
     local row = MySQL.single.await('SELECT metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
     if not row then
         return { success = false, message = 'Citizen not found' }
@@ -734,13 +898,23 @@ ps.registerCallback(resourceName .. ':server:updateCitizenFingerprint', function
     return { success = true }
 end)
 
--- Update citizen DNA
+-- Update citizen dna
 ps.registerCallback(resourceName .. ':server:updateCitizenDNA', function(source, citizenid, dna)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
     if not citizenid or citizenid == '' then
         return { success = false, message = 'Missing citizen id' }
+    end
+
+    local Player = ps.getPlayerByIdentifier(citizenid)
+    if Player and Player.Functions and Player.Functions.SetMetaData then
+        Player.Functions.SetMetaData('dna', dna or '')
+        persistLiveMetadata(Player, citizenid)
+        if ps.auditLog then
+            ps.auditLog(src, 'update_dna', 'citizens', citizenid, { dna = dna })
+        end
+        return { success = true }
     end
 
     local row = MySQL.single.await('SELECT metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
@@ -1001,7 +1175,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
 
     -- Profile picture from mdt_profiles
     local prOk, profileRow = pcall(MySQL.single.await,
-        'SELECT profilepicture, notes FROM mdt_profiles WHERE citizenid COLLATE utf8mb4_general_ci = ? LIMIT 1',
+        'SELECT profilepicture, notes FROM mdt_profiles WHERE citizenid = ? LIMIT 1',
         { citizenid })
     profileRow = prOk and profileRow or nil
     local image = (profileRow and profileRow.profilepicture and profileRow.profilepicture ~= '') and profileRow.profilepicture or nil
@@ -1012,7 +1186,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     local activeWarrants = {}
     if civConfig.showWarrants ~= false then
         local wOk, wResult = pcall(MySQL.query.await,
-            'SELECT reportid, expirydate FROM mdt_reports_warrants WHERE citizenid COLLATE utf8mb4_general_ci = ? AND expirydate >= NOW() ORDER BY expirydate ASC',
+            'SELECT reportid, expirydate FROM mdt_reports_warrants WHERE citizenid = ? AND expirydate >= NOW() ORDER BY expirydate ASC',
             { citizenid })
         activeWarrants = wOk and wResult or {}
     end
@@ -1021,7 +1195,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     local activeBolos = {}
     if civConfig.showBolos ~= false then
         local bOk, bResult = pcall(MySQL.query.await,
-            'SELECT id, reportId, type, notes FROM mdt_bolos WHERE status = ? AND subject_id COLLATE utf8mb4_general_ci = ? ORDER BY id DESC',
+            'SELECT id, reportId, type, notes FROM mdt_bolos WHERE status = ? AND subject_id = ? ORDER BY id DESC',
             { 'active', citizenid })
         activeBolos = bOk and bResult or {}
     end
@@ -1040,7 +1214,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     local linkedReports = {}
 
     local riOk, involvedReports = pcall(MySQL.query.await,
-        'SELECT reportid FROM mdt_reports_involved WHERE citizenid COLLATE utf8mb4_general_ci = ?',
+        'SELECT reportid FROM mdt_reports_involved WHERE citizenid = ?',
         { citizenid })
     for _, row in ipairs(riOk and involvedReports or {}) do
         local rid = tonumber(row.reportid)
@@ -1048,35 +1222,40 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     end
 
     local rcOk, chargedReports = pcall(MySQL.query.await,
-        'SELECT reportid FROM mdt_reports_charges WHERE citizenid COLLATE utf8mb4_general_ci = ?',
+        'SELECT reportid FROM mdt_reports_charges WHERE citizenid = ?',
         { citizenid })
     for _, row in ipairs(rcOk and chargedReports or {}) do
         local rid = tonumber(row.reportid)
         if rid and not reportIdSet[rid] then reportIdSet[rid] = true end
     end
 
-    for rid, _ in pairs(reportIdSet) do
-        local rOk, report = pcall(MySQL.single.await, 'SELECT id, title, type FROM mdt_reports WHERE id = ?', { rid })
-        if rOk and report then
+    local reportIds = {}
+    for rid in pairs(reportIdSet) do reportIds[#reportIds + 1] = rid end
+    if #reportIds > 0 then
+        local placeholders = string.rep('?,', #reportIds - 1) .. '?'
+        local lrOk, reports = pcall(MySQL.query.await,
+            'SELECT id, title, type FROM mdt_reports WHERE id IN (' .. placeholders .. ')',
+            reportIds)
+        for _, report in ipairs(lrOk and reports or {}) do
             linkedReports[#linkedReports + 1] = { id = report.id, title = report.title, type = report.type }
         end
     end
 
     -- Vehicles
     local vOk, vehicles = pcall(MySQL.query.await,
-        'SELECT plate, vehicle FROM player_vehicles WHERE citizenid COLLATE utf8mb4_general_ci = ?',
+        'SELECT plate, vehicle FROM player_vehicles WHERE citizenid = ?',
         { citizenid })
     vehicles = vOk and vehicles or {}
 
     -- Weapons
     local wpOk, weapons = pcall(MySQL.query.await,
-        'SELECT id, serial, scratched, weaponModel FROM mdt_weapons WHERE owner COLLATE utf8mb4_general_ci = ?',
+        'SELECT id, serial, scratched, weaponModel FROM mdt_weapons WHERE owner = ?',
         { citizenid })
     weapons = wpOk and weapons or {}
 
     -- Custom licenses
     local clOk, customLicenses = pcall(MySQL.query.await,
-        'SELECT cl.id, cl.name, cl.description, COALESCE(cil.active, 0) as active FROM mdt_custom_licenses cl LEFT JOIN mdt_citizen_licenses cil ON cil.license_id = cl.id AND cil.citizenid COLLATE utf8mb4_general_ci = ? ORDER BY cl.id ASC',
+        'SELECT cl.id, cl.name, cl.description, COALESCE(cil.active, 0) as active FROM mdt_custom_licenses cl LEFT JOIN mdt_citizen_licenses cil ON cil.license_id = cl.id AND cil.citizenid = ? ORDER BY cl.id ASC',
         { citizenid })
     customLicenses = clOk and customLicenses or {}
 
@@ -1105,6 +1284,113 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
             weapons = weapons,
             licenses = { driver = licences.driver or false, weapon = licences.weapon or false },
             customLicenses = clList,
+        }
+    }
+end)
+
+ps.registerCallback(resourceName .. ':server:getProperty', function(source, propertyId)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+
+    if not propertyId then
+        return { success = false, message = 'Missing property id' }
+    end
+
+    -- Look the property up via the configured housing system (Config.Housing).
+    local propRow = Housing.GetById(propertyId)
+ 
+    if not propRow then
+        return { success = false, message = 'Property not found' }
+    end
+ 
+    -- Decode coords JSON → table
+    local coords = nil
+    if propRow.coords and propRow.coords ~= '' then
+        local ok, decoded = pcall(json.decode, propRow.coords)
+        if ok and decoded then
+            coords = decoded
+        end
+    end
+ 
+    -- Resolve owner citizenid → full name
+    local ownerName = nil
+    if propRow.owner and propRow.owner ~= '' then
+        local ownerRow = MySQL.single.await([[
+            SELECT JSON_UNQUOTE(JSON_EXTRACT(charinfo, '$.firstname')) AS firstname,
+                   JSON_UNQUOTE(JSON_EXTRACT(charinfo, '$.lastname'))  AS lastname
+            FROM players
+            WHERE citizenid = ?
+            LIMIT 1
+        ]], { propRow.owner })
+        if ownerRow then
+            ownerName = (ownerRow.firstname or '') .. ' ' .. (ownerRow.lastname or '')
+            ownerName = ownerName:match('^%s*(.-)%s*$') -- trim
+        end
+    end
+ 
+    -- Decode keyholders JSON → array of citizenids
+    -- The column stores either a JSON array of citizenids (["CID1","CID2",...])
+    -- or a JSON object keyed by citizenid — we handle both.
+    local keyholderList = {}
+    if propRow.keyholders and propRow.keyholders ~= '' and propRow.keyholders ~= '{}' and propRow.keyholders ~= '[]' then
+        local ok, decoded = pcall(json.decode, propRow.keyholders)
+        if ok and decoded then
+            -- Array form: ["CID1", "CID2"]
+            if decoded[1] ~= nil then
+                for _, cid in ipairs(decoded) do
+                    keyholderList[#keyholderList + 1] = tostring(cid)
+                end
+            else
+                -- Object/map form: { CID1 = true, CID2 = 1, ... }
+                for cid, _ in pairs(decoded) do
+                    keyholderList[#keyholderList + 1] = tostring(cid)
+                end
+            end
+        end
+    end
+ 
+    -- Batch-resolve keyholder names
+    local keyholders = {}
+    if #keyholderList > 0 then
+        local placeholders = {}
+        for i = 1, #keyholderList do placeholders[i] = '?' end
+        local khRows = MySQL.query.await(([[
+            SELECT citizenid,
+                   JSON_UNQUOTE(JSON_EXTRACT(charinfo, '$.firstname')) AS firstname,
+                   JSON_UNQUOTE(JSON_EXTRACT(charinfo, '$.lastname'))  AS lastname
+            FROM players
+            WHERE citizenid IN (%s)
+        ]]):format(table.concat(placeholders, ',')), keyholderList)
+ 
+        -- Build a lookup map for fast access
+        local nameMap = {}
+        for _, row in ipairs(khRows or {}) do
+            local full = ((row.firstname or '') .. ' ' .. (row.lastname or '')):match('^%s*(.-)%s*$')
+            nameMap[row.citizenid] = full ~= '' and full or nil
+        end
+ 
+        -- Preserve original keyholder order
+        for _, cid in ipairs(keyholderList) do
+            -- Skip if the keyholder is the owner (already shown as owner)
+            if cid ~= propRow.owner then
+                keyholders[#keyholders + 1] = {
+                    citizenid = cid,
+                    name = nameMap[cid] or 'Unknown',
+                }
+            end
+        end
+    end
+
+
+    return {
+        success = true,
+        property = {
+            property_name = propRow.property_name,
+            coords        = coords,
+            streetName    = propRow.streetName,
+            owner         = propRow.owner or nil,
+            ownerName     = ownerName,
+            keyholders    = keyholders,
         }
     }
 end)

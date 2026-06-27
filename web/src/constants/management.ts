@@ -78,7 +78,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		icon: "directions_car",
 		permissions: [
 			{ key: "vehicles_search", label: "Search Vehicles", description: "Search and view vehicle records" },
-			{ key: "vehicles_edit_dmv", label: "Edit DMV Status", description: "Update points, status, and notes" },
+			{ key: "vehicles_edit_dmv", label: "Edit Vehicle Points & Impound", description: "Set license points and impound/release vehicles" },
 		],
 	},
 	{
@@ -87,6 +87,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		icon: "security",
 		permissions: [
 			{ key: "weapons_search", label: "Search Weapons", description: "Search and view weapon records" },
+			{ key: "weapons_add", label: "Add Weapons", description: "Register a new gun manually" },
 		],
 	},
 	{
@@ -127,11 +128,12 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 	},
 	{
 		key: "cameras",
-		label: "Cameras & Bodycams",
+		label: "Cameras, Bodycams & Dashcams",
 		icon: "videocam",
 		permissions: [
 			{ key: "cameras_view", label: "View Cameras", description: "Access security camera feeds" },
 			{ key: "bodycams_view", label: "View Bodycams", description: "Access officer bodycam footage" },
+			{ key: "dashcams_view", label: "View Dashcams", description: "Access police vehicle dashcam feeds" },
 		],
 	},
 	{
@@ -139,6 +141,9 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		label: "Dispatch",
 		icon: "cell_tower",
 		permissions: [
+			{ key: "map_patrols_view",   label: "View Patrols",   description: "View patrol assignments on the map" },
+			{ key: "map_patrols_manage", label: "Manage Patrols", description: "Assign or remove officers from patrols" },
+			{ key: "map_patrols_edit",   label: "Edit Patrols",   description: "Create, rename, delete and reorder patrols" },
 			{ key: "dispatch_attach", label: "Attach to Calls", description: "Attach or detach from dispatch calls" },
 			{ key: "dispatch_route", label: "Route to Calls", description: "Set GPS route to dispatch calls" },
 		],
@@ -159,6 +164,31 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		permissions: [
 			{ key: "sop_view", label: "View SOP", description: "View standard operating procedures" },
 			{ key: "sop_manage", label: "Manage SOP", description: "Create, edit, and publish standard operating procedures" },
+		],
+	},
+	{
+		key: "bulletin_board",
+		label: "Bulletin Board ( Creator or Manage Posts can Delete )",
+		icon: "forum",
+		permissions: [
+			{ key: "bulletin_view", label: "View BP", description: "View Bulletin Posts" },
+			{ key: "bulletin_post", label: "Manage Posts", description: "Create and Edit Bulletin Posts" },
+			{ key: "bulletin_pin", label: "Pin Posts", description: "Pin Bulletin Posts" },
+		],
+	},
+	{
+		key: "calendar",
+		label: "Calendar",
+		icon: "calendar_month",
+		permissions: [
+			{ key: "court_view", label: "View Court Events", description: "See court hearings on the calendar" },
+			{ key: "court_create", label: "Create Court Events", description: "Schedule court hearings" },
+			{ key: "court_edit", label: "Edit Court Events", description: "Edit court hearings, status, and attendees" },
+			{ key: "court_delete", label: "Delete Court Events", description: "Delete court hearings" },
+			{ key: "training_view", label: "View Training/Meetings", description: "See training, education, and meeting events" },
+			{ key: "training_create", label: "Create Training/Meetings", description: "Schedule trainings, weiterbildungen, and meetings" },
+			{ key: "training_edit", label: "Edit Training/Meetings", description: "Edit training/meeting events and attendees" },
+			{ key: "training_delete", label: "Delete Training/Meetings", description: "Delete training/meeting events" },
 		],
 	},
 	{
@@ -195,6 +225,8 @@ export const TAB_VISIBILITY_KEYS = [
 	{ tabName: "PPR", key: "tab_hidden_ppr", label: "PPR" },
 	{ tabName: "FTO", key: "tab_hidden_fto", label: "Field Training" },
 	{ tabName: "SOP", key: "tab_hidden_sop", label: "SOP" },
+	{ tabName: "Bulletin Board", key: "tab_hidden_bulletin_board", label: "Bulletin Board" },
+	{ tabName: "Calendar", key: "tab_hidden_calendar", label: "Calendar" },
 ];
 
 /** Flat list of all permission keys */

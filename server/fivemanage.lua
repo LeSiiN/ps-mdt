@@ -123,6 +123,7 @@ end)
 
 -- Trigger mugshot on a suspect by citizenid (from MDT UI)
 ps.registerCallback(resourceName .. ':server:triggerSuspectMugshot', function(source, citizenid)
+    if not CheckAuth(source) then return { success = false, message = 'Unauthorized' } end
     if not citizenid then return { success = false, message = 'Missing citizen id' } end
 
     local targetPlayer = ps.getPlayerByIdentifier(citizenid)
@@ -140,15 +141,19 @@ ps.registerCallback(resourceName .. ':server:triggerSuspectMugshot', function(so
 end)
 
 -- Upload a profile photo for a suspect via base64 (from MDT UI)
-ps.registerCallback(resourceName .. ':server:uploadSuspectPhoto', function(source, citizenid, base64Image)
-    if not citizenid or not base64Image then
+ps.registerCallback(resourceName .. ':server:uploadSuspectPhoto', function(source, citizenid, imageUrl)
+    if not CheckAuth(source) then return { success = false, message = 'Unauthorized' } end
+    if not CheckPermission(source, 'evidence_upload') then
+        return { success = false, message = 'Insufficient permissions' }
+    end
+    if not citizenid or not imageUrl then
         return { success = false, message = 'Missing data' }
     end
 
-    local imageUrl, uploadError = FiveManageUpload(base64Image, 'suspect_' .. citizenid .. '.png')
-    if not imageUrl then
-        return { success = false, message = 'Upload failed: ' .. (uploadError or 'Unknown error') }
-    end
+    -- local imageUrl, uploadError = FiveManageUpload(base64Image, 'suspect_' .. citizenid .. '.png')
+    -- if not imageUrl then
+    --     return { success = false, message = 'Upload failed: ' .. (uploadError or 'Unknown error') }
+    -- end
 
     -- Ensure profile exists
     if not EnsureProfileExists(citizenid) then

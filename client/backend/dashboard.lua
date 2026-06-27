@@ -60,6 +60,9 @@ function NUIUpdateAuth()
             citizenid = playerData.citizenid,
             job = playerData.job,
             charinfo = playerData.charinfo,
+            metadata = type(playerData.metadata) == 'table' and {
+                callsign = playerData.metadata.callsign or '',
+            } or nil,
         } or nil,
         isLEO = isAuthorized,
         onDuty = ps.getJobDuty() or false,
@@ -89,9 +92,20 @@ RegisterNUICallback('toggleDuty', function(_, cb)
     TriggerServerEvent('ps_lib:server:toggleDuty')
 end)
 
+-- DASHBOARD (aggregate) -----------------------------------
+-- One round-trip that returns every dashboard widget's data at once, so
+-- opening the MDT fires a single NUI callback instead of ~9.
+RegisterNUICallback('getDashboard', function(_, cb)
+    if not MDTOpen then
+        cb({})
+        return
+    end
+    local data = ps.callback(resourceName .. ':server:getDashboard')
+    cb(data or {})
+end)
+
 -- JOB DATA -----------------------------------------------
 RegisterNUICallback('getJobData', function(_, cb)
-
     local jobData = ps.callback(resourceName .. ':server:getJobData')
      ps.debug('[getJobData] Triggered NUI callback on client', jobData)
     cb(jobData or {})
@@ -172,6 +186,32 @@ RegisterNUICallback('deleteBulletin', function(data, cb)
     end
     local result = ps.callback(resourceName .. ':server:deleteBulletin', data)
     cb(result or { success = false })
+end)
+
+RegisterNUICallback('getBulletinCategories', function(_, cb)
+    local result = ps.callback(resourceName .. ':server:getBulletinCategories', false)
+    cb(result or {})
+end)
+
+RegisterNUICallback('saveBulletinCategories', function(data, cb)
+    if not data or not data.categories then
+        cb({ success = false, message = 'Invalid data' })
+        return
+    end
+ 
+    for _, cat in ipairs(data.categories) do
+        if type(cat.value) ~= 'string' or type(cat.label) ~= 'string' or type(cat.icon) ~= 'string' then
+            cb({ success = false, message = 'Malformed category entry' })
+            return
+        end
+        if #cat.label > 32 or #cat.icon > 48 then
+            cb({ success = false, message = 'Category label or icon name too long' })
+            return
+        end
+    end
+ 
+    local result = ps.callback('mdt:server:saveBulletinCategories', false, data.categories)
+    cb(result or { success = false, message = 'Server error' })
 end)
 
 -- RECENT REPORTS -------------------------------------
