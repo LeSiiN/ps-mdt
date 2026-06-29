@@ -53,6 +53,7 @@
 		lastName: string;
 		rank: string;
 		department?: string;
+		departmentLabel?: string;
 		status: "On Duty" | "Off Duty";
 		certifications: string[];
 		badgeNumber: string;
@@ -168,7 +169,8 @@
 					firstName: "John",
 					lastName: "Smith",
 					rank: "Chief of Police",
-					department: "lspd",
+					department: "police",
+					departmentLabel: "LSPD",
 					status: "On Duty",
 					certifications: ["FTO", "SWAT", "Interceptor"],
 					badgeNumber: "1001",
@@ -181,7 +183,8 @@
 					firstName: "Jane",
 					lastName: "Doe",
 					rank: "Lieutenant",
-					department: "lspd",
+					department: "police",
+					departmentLabel: "LSPD",
 					status: "On Duty",
 					certifications: ["Air Certified", "FTO"],
 					badgeNumber: "1002",
@@ -194,7 +197,8 @@
 					firstName: "Mike",
 					lastName: "Johnson",
 					rank: "Sergeant",
-					department: "bcso",
+					department: "police",
+					departmentLabel: "LSPD",
 					status: "Off Duty",
 					certifications: ["SWAT"],
 					badgeNumber: "1003",
@@ -207,7 +211,8 @@
 					firstName: "Sarah",
 					lastName: "Wilson",
 					rank: "Officer",
-					department: "lspd",
+					department: "police",
+					departmentLabel: "LSPD",
 					status: "On Duty",
 					certifications: [],
 					badgeNumber: "1004",
@@ -220,7 +225,8 @@
 					firstName: "David",
 					lastName: "Brown",
 					rank: "Detective",
-					department: "sahp",
+					department: "police",
+					departmentLabel: "LSPD",
 					status: "Off Duty",
 					certifications: ["FTO"],
 					badgeNumber: "1005",
@@ -654,7 +660,7 @@
 								{/if}
 							</span>
 							<span class="cell-rank">{officer.rank}</span>
-							<span class="cell-dept">{officer.department || "-"}</span>
+							<span class="cell-dept">{officer.departmentLabel || "-"}</span>
 							<span class="cell-certs">
 								{#if officer.certifications.length > 0}
 									{#each officer.certifications as cert}

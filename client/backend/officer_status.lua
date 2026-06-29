@@ -24,6 +24,12 @@ RegisterNUICallback("getOfficerStatusConfig", function(_, cb)
     cb(result or { statuses = {}, default = "active" })
 end)
 
+RegisterNUICallback("getOfficerStatusBreakdown", function(_, cb)
+    if not MDTOpen then cb({ total = 0, statuses = {} }) return end
+    local result = ps.callback(resourceName .. ":server:getOfficerStatusBreakdown")
+    cb(result or { total = 0, statuses = {} })
+end)
+
 RegisterNUICallback("setOfficerStatus", function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
     if type(data) ~= "table" or type(data.status) ~= "string" then

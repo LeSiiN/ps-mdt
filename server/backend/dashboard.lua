@@ -177,7 +177,7 @@ ps.registerCallback(resourceName .. ':server:getRecentReports', function(source,
 end)
 
 local function computeActiveBolos(src)
-    local BOLOS = MySQL.query.await('SELECT * FROM mdt_bolos WHERE status = ? ORDER BY id DESC', { 'active' })
+    local BOLOS = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE status = ? ORDER BY id DESC', { 'active' })
     local result = {}
     for _, v in pairs(BOLOS or {}) do
         result[#result + 1] = {

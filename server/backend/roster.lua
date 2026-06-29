@@ -25,6 +25,18 @@ local function getCertifications(citizenid)
     return {}
 end
 
+-- Resolve a human-facing department label. Prefers the live job's label (online
+-- players), falls back to the shared job config's label (offline / DB rows), and
+-- finally the raw job name. Avoids showing the internal id like "police" as DEPT.
+local function deptLabel(jobName, jobObj)
+    if jobObj and jobObj.label and jobObj.label ~= '' then return jobObj.label end
+    if jobName and ps.getSharedJobData then
+        local shared = ps.getSharedJobData(jobName)
+        if shared and shared.label and shared.label ~= '' then return shared.label end
+    end
+    return jobName
+end
+
 local function buildRosterFromQbx(jobList, matchFn, defaultDept)
     local rosterList = {}
     local activeUnits = {}
@@ -67,6 +79,7 @@ local function buildRosterFromQbx(jobList, matchFn, defaultDept)
             local fullname = data.charinfo and (data.charinfo.firstname .. ' ' .. data.charinfo.lastname) or 'Unknown'
             local rank = job.grade and job.grade.name or 'Officer'
             local department = job.name or defaultDept
+            local departmentLabel = deptLabel(job.name, job) or defaultDept
             local certifications = getCertifications(citizenid)
 
             local onlineSrc = onlinePlayer and (onlinePlayer.PlayerData and onlinePlayer.PlayerData.source or onlinePlayer.source) or nil
@@ -78,6 +91,7 @@ local function buildRosterFromQbx(jobList, matchFn, defaultDept)
                 lastName = data.charinfo and data.charinfo.lastname or 'N/A',
                 rank = rank,
                 department = department,
+                departmentLabel = departmentLabel,
                 status = (onlinePlayer and job.onduty) and 'On Duty' or 'Off Duty',
                 certifications = certifications,
                 badgeNumber = callsign,
@@ -180,6 +194,7 @@ ps.registerCallback('ps-mdt:server:getRosterList', function(source)
                 lastName = lastName,
                 rank = rank,
                 department = jobName or employee.job or defaultDept,
+                departmentLabel = deptLabel(jobName, job) or 'Los Santos Police Department',
                 status = status,
                 certifications = getCertifications(citizenid),
                 badgeNumber = callsign,

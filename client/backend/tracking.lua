@@ -208,11 +208,16 @@ end
 
 RegisterNetEvent(resourceName .. ":client:syncPatrols", function(patrols, action, citizenid)
     SendNUIMessage({ type = "syncPatrols", data = patrols, action = action, citizenid = citizenid })
-
     -- Rebuild PolyZones whenever patrol data changes (diffed inside syncZones)
     if type(patrols) == "table" then
         syncZones(patrols)
     end
+end)
+
+-- Lightweight nudge: server says tracking data changed, NUI refetches the
+-- (cached) snapshot immediately instead of waiting for its fallback poll.
+RegisterNetEvent(resourceName .. ':client:trackingDirty', function()
+    SendNUIMessage({ type = 'trackingDirty' })
 end)
 
 -- Called from client.lua after setVisible(true) — send citizenId so map centers on self

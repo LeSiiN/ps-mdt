@@ -96,6 +96,33 @@
 		isLoading = false;
 	}
 
+	async function handleScheduleHearing(warrant: Warrant) {
+		isLoading = true;
+		try {
+			const result = await fetchNui<{
+				success: boolean;
+				error?: string;
+				scheduled_at?: string;
+				defendant_name?: string;
+			}>(
+				NUI_EVENTS.COURT.CREATE_HEARING_FROM_WARRANT,
+				{ reportId: warrant.reportid },
+				{ success: true, scheduled_at: "", defendant_name: warrant.name },
+			);
+			if (result.success) {
+				globalNotifications.success(
+					`Hearing scheduled for ${result.defendant_name ?? warrant.name}` +
+						(result.scheduled_at ? ` · ${result.scheduled_at}` : ""),
+				);
+			} else {
+				globalNotifications.error(result.error || "Failed to schedule hearing");
+			}
+		} catch {
+			globalNotifications.error("Failed to schedule hearing");
+		}
+		isLoading = false;
+	}
+
 	function openReport(reportId: number | string) {
 		if (!reportId) return;
 		openReportInEditor(String(reportId));
@@ -240,6 +267,12 @@
 						</span>
 						<span class="cell-date expiry-{exp.level}" title={formatExpiry(warrant.expirydate)}>{exp.label}</span>
 						<span class="cell-action">
+							{#if confirmingKey !== warrantKey(warrant)}
+								<button class="icon-btn schedule" title="Schedule hearing" aria-label="Schedule hearing" disabled={isLoading}
+									onclick={(e) => { e.stopPropagation(); handleScheduleHearing(warrant); }}>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+								</button>
+							{/if}
 							{#if canClose}
 								{#if confirmingKey === warrantKey(warrant)}
 									<button class="icon-btn confirm" title="Confirm close" aria-label="Confirm close warrant" disabled={isLoading}

@@ -640,6 +640,14 @@ Config.Court = {
     -- How many minutes before a hearing the reminder SMS goes out.
     ReminderLeadMinutes = 15,
 
+    -- When a hearing created from a warrant is completed, auto-resolve the
+    -- linked BOLO (matched on the warrant's reportId). Set false to opt out.
+    ResolveBolosOnComplete = true,
+
+    -- Default lead time (days) for hearings scheduled straight from a warrant
+    -- via the "Schedule hearing" button in the warrants list.
+    WarrantHearingLeadDays = 2,
+
     -- ---- lb-phone integration -------------------------------------------
     Phone = {
         Resource = 'lb-phone',                       -- set '' to disable all phone messaging

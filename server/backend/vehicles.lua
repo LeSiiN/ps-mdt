@@ -240,7 +240,7 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
         FROM player_vehicles pv
     ]])
 
-    local boloRows = MySQL.query.await('SELECT * FROM mdt_bolos WHERE type = ? AND status = ?', {'vehicle', 'active'})
+    local boloRows = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE type = ? AND status = ?', {'vehicle', 'active'})
     local reportIdsByPlate = {}
     local activeBoloByPlate = {}
     local bolos = {}
@@ -437,7 +437,7 @@ ps.registerCallback(resourceName .. ':server:GetVehicle', function(source, plate
     local vehicleData = getVehicleShared(row.vehicle)
     local plateUpper = row.plate and string.upper(row.plate) or 'UNKNOWN'
 
-    local boloRows = MySQL.query.await('SELECT * FROM mdt_bolos WHERE type = ? AND subject_id = ?', { 'vehicle', plate })
+    local boloRows = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE type = ? AND subject_id = ?', { 'vehicle', plate })
     local reportIdSet = {}
     local bolos = {}
     local hasActiveBolo = false

@@ -35,6 +35,7 @@ export const NUI_EVENTS = {
 		GET_HEARINGS: "getHearings",
 		GET_HEARING: "getHearing",
 		CREATE_HEARING: "createHearing",
+		CREATE_HEARING_FROM_WARRANT: "createHearingFromWarrant",
 		UPDATE_HEARING: "updateHearing",
 		DELETE_HEARING: "deleteHearing",
 		ADD_ATTENDEE: "addHearingAttendee",
@@ -250,6 +251,7 @@ export const NUI_EVENTS = {
 		REORDER_PATROLS: "reorderPatrols",
 		SET_PATROL_ZONE: "setPatrolZone",
 		GET_OFFICER_STATUS_CONFIG: "getOfficerStatusConfig",
+		GET_OFFICER_STATUS_BREAKDOWN: "getOfficerStatusBreakdown",
 		SET_OFFICER_STATUS: "setOfficerStatus",
 	},
 	MANAGEMENT: {

@@ -415,18 +415,27 @@ ps.registerCallback(resourceName .. ':server:createHearing', function(source, pa
 
     if not hearingId then return { success = false, error = 'Failed to create hearing' } end
 
-    -- Optional initial attendees in the same call
+    -- Optional initial attendees in the same call.
+    -- Single batched multi-row insert instead of one round-trip per attendee.
     local inviteTargets = {}
-    if type(payload.attendees) == 'table' then
+    if type(payload.attendees) == 'table' and #payload.attendees > 0 then
+        local rows, vals = {}, {}
         for _, a in ipairs(payload.attendees) do
             if a.citizenid and tostring(a.citizenid) ~= '' then
-                MySQL.insert.await([[
-                    INSERT INTO mdt_court_attendees (hearing_id, citizenid, display_name, role)
-                    VALUES (?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), role = VALUES(role)
-                ]], { hearingId, a.citizenid, a.display_name, normalizeRole(a.role) })
+                rows[#rows + 1] = '(?, ?, ?, ?)'
+                vals[#vals + 1] = hearingId
+                vals[#vals + 1] = a.citizenid
+                vals[#vals + 1] = a.display_name
+                vals[#vals + 1] = normalizeRole(a.role)
                 inviteTargets[#inviteTargets + 1] = { citizenid = a.citizenid, display_name = a.display_name }
             end
+        end
+        if #rows > 0 then
+            MySQL.insert.await(
+                'INSERT INTO mdt_court_attendees (hearing_id, citizenid, display_name, role) VALUES '
+                .. table.concat(rows, ', ')
+                .. ' ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), role = VALUES(role)',
+                vals)
         end
     end
 
@@ -452,6 +461,75 @@ end)
 -- ============================================================================
 --  Update (whitelist) + status
 -- ============================================================================
+
+-- Convenience: spin up a hearing straight from an active warrant. Resolves the
+-- defendant from the warrant row and pre-links warrant_reportid so completing
+-- the hearing later auto-resolves the linked BOLO (see setHearingStatus). The
+-- NUI only needs to pass the reportId — one click from the warrants list.
+ps.registerCallback(resourceName .. ':server:createHearingFromWarrant', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+
+    payload = payload or {}
+    local reportId = tonumber(payload.reportId)
+    if not reportId then return { success = false, error = 'Missing report id' } end
+
+    local category = normalizeCategory(payload.category)
+    local domain = callerCalendarDomain(src)
+    if not categoryAllowedForDomain(category, domain) then
+        return { success = false, error = 'Category not allowed for this department' }
+    end
+    if not CheckPermission(src, permForCategory(category, 'create')) then
+        return { success = false, error = 'No permission' }
+    end
+
+    -- Resolve the still-active warrant + defendant name.
+    local w = MySQL.single.await([[
+        SELECT w.reportid, w.citizenid,
+               JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
+               JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))  AS lastname
+        FROM mdt_reports_warrants w
+        LEFT JOIN players p ON p.citizenid COLLATE utf8mb4_general_ci = w.citizenid COLLATE utf8mb4_general_ci
+        WHERE w.reportid = ? AND w.expirydate >= NOW()
+        LIMIT 1
+    ]], { reportId })
+    if not w then return { success = false, error = 'No active warrant for that report' } end
+
+    local name = ((w.firstname or '') .. ' ' .. (w.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+    if name == '' then name = ps.getPlayerNameByIdentifier(w.citizenid) or 'Unknown' end
+
+    -- Default the hearing a few days out at a round hour so it lands cleanly on the calendar.
+    local leadDays = tonumber(courtCfg().WarrantHearingLeadDays) or 2
+    local scheduledAt = os.date('%Y-%m-%d 10:00:00', os.time() + (leadDays * 24 * 60 * 60))
+
+    local citizenid = ps.getIdentifier(src)
+    local hearingId = MySQL.insert.await([[
+        INSERT INTO mdt_court_hearings
+            (title, category, hearing_type, warrant_reportid, defendant_cid, defendant_name,
+             scheduled_at, duration_minutes, status, created_by, created_by_name, job_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ]], {
+        ('Warrant hearing — %s'):format(name),
+        category,
+        normalizeType(payload.hearing_type),
+        reportId,
+        w.citizenid,
+        name,
+        scheduledAt,
+        30,
+        normalizeStatus('scheduled'),
+        citizenid,
+        getOfficerDisplayName(src),
+        domain,
+    })
+
+    if not hearingId then return { success = false, error = 'Failed to create hearing' } end
+
+    if ps.auditLog then
+        ps.auditLog(src, 'court_hearing_from_warrant', 'court_hearing', hearingId, { reportId = reportId, defendant = w.citizenid })
+    end
+    return { success = true, hearingId = hearingId, scheduled_at = scheduledAt, defendant_name = name }
+end)
 
 ps.registerCallback(resourceName .. ':server:updateHearing', function(source, payload)
     local src = source
@@ -628,7 +706,7 @@ ps.registerCallback(resourceName .. ':server:setHearingStatus', function(source,
     local target = payload.status and normalizeStatus(payload.status) or nil
     if not hearingId or not target then return { success = false, error = 'Missing data' } end
 
-    local existing = MySQL.single.await('SELECT category, status FROM mdt_court_hearings WHERE id = ?', { hearingId })
+    local existing = MySQL.single.await('SELECT category, status, warrant_reportid, defendant_cid FROM mdt_court_hearings WHERE id = ?', { hearingId })
     if not existing then return { success = false, error = 'Hearing not found' } end
     if not CheckPermission(src, permForCategory(existing.category, 'edit')) then
         return { success = false, error = 'No permission' }
@@ -637,8 +715,25 @@ ps.registerCallback(resourceName .. ':server:setHearingStatus', function(source,
     local allowed = ALLOWED_TRANSITIONS[existing.status] or {}
     if not allowed[target] then return { success = false, error = 'Invalid status transition' } end
 
+    -- When a hearing that came from a warrant is completed, auto-resolve the
+    -- linked BOLO (matched strictly on the warrant's reportId, so we never touch
+    -- unrelated BOLOs for the same person). Opt-out via Config.Court.ResolveBolosOnComplete.
+    local function resolveLinkedBolos()
+        local cfg = courtCfg()
+        if cfg.ResolveBolosOnComplete == false then return end
+        local rid = tonumber(existing.warrant_reportid)
+        if not rid then return end
+        local affected = MySQL.update.await(
+            "UPDATE mdt_bolos SET status = 'resolved' WHERE reportId = ? AND status = 'active'",
+            { rid })
+        if affected and affected > 0 and ps.auditLog then
+            ps.auditLog(src, 'bolo_auto_resolved', 'court_hearing', hearingId, { reportId = rid, count = affected })
+        end
+    end
+
     -- in_session -> completed: per design, a finished hearing is removed.
     if target == 'completed' then
+        resolveLinkedBolos()
         local auto = courtCfg().AutoStatus or {}
         if auto.DeleteOnComplete == false then
             MySQL.update.await('UPDATE mdt_court_hearings SET status = ? WHERE id = ?', { 'completed', hearingId })
@@ -772,17 +867,40 @@ ps.registerCallback(resourceName .. ':server:addHearingAttendeesBulk', function(
         return { success = false, error = 'No permission' }
     end
 
+    -- Single batched insert, then one lookup to resolve real row ids
+    -- (multi-row INSERT only returns the first id; ON DUPLICATE makes it unreliable).
     local added = {}
+    local rows, vals, cids = {}, {}, {}
     for _, a in ipairs(list) do
         if a.citizenid and tostring(a.citizenid) ~= '' then
-            local id = MySQL.insert.await([[
-                INSERT INTO mdt_court_attendees (hearing_id, citizenid, display_name, role)
-                VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), role = VALUES(role)
-            ]], { hearingId, a.citizenid, a.display_name, normalizeRole(a.role) })
+            rows[#rows + 1] = '(?, ?, ?, ?)'
+            vals[#vals + 1] = hearingId
+            vals[#vals + 1] = a.citizenid
+            vals[#vals + 1] = a.display_name
+            vals[#vals + 1] = normalizeRole(a.role)
+            cids[#cids + 1] = a.citizenid
+        end
+    end
+
+    if #rows > 0 then
+        MySQL.insert.await(
+            'INSERT INTO mdt_court_attendees (hearing_id, citizenid, display_name, role) VALUES '
+            .. table.concat(rows, ', ')
+            .. ' ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), role = VALUES(role)',
+            vals)
+
+        local ph = {}
+        for i = 1, #cids do ph[i] = '?' end
+        local lookupArgs = { hearingId }
+        for _, c in ipairs(cids) do lookupArgs[#lookupArgs + 1] = c end
+        local resolved = MySQL.query.await(
+            'SELECT id, citizenid, display_name, role FROM mdt_court_attendees '
+            .. 'WHERE hearing_id = ? AND citizenid IN (' .. table.concat(ph, ',') .. ')',
+            lookupArgs) or {}
+        for _, r in ipairs(resolved) do
             added[#added + 1] = {
-                id = id, citizenid = a.citizenid,
-                display_name = a.display_name, role = normalizeRole(a.role),
+                id = r.id, citizenid = r.citizenid,
+                display_name = r.display_name, role = r.role,
             }
         end
     end

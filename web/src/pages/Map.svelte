@@ -58,6 +58,7 @@
     let map: L.Map | null = null;
     let mapInitialized = false;
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
+    let dirtyDebounce: ReturnType<typeof setTimeout> | null = null;
 
     let tabVisible = $state(true);
     let showVehicles = $state(localStorage.getItem("mdt_map_vehicles") !== "false");
@@ -910,8 +911,13 @@
             const response = await fetchNui(
                 NUI_EVENTS.MAP.GET_TRACKING,
                 {},
-                { data: { vehicles: [], bodycams: [] } },
-                3000,
+                // Sentinel fallback: on a timeout/abort fetchNui returns THIS, and
+                // the success===false guard below then keeps the current officers
+                // and vehicles instead of clearing every marker. Without it a slow
+                // GET_TRACKING (common right after opening the tab) returns empty
+                // arrays and blanks all officers for a refresh cycle (~3s flicker).
+                { success: false },
+                8000,
             );
 
             const success = (response as any).success;
@@ -1169,6 +1175,16 @@
     function handleNuiMessage(event: MessageEvent) {
         const { type, data } = event.data ?? {};
 
+        if (type === "trackingDirty") {
+            // Debounce: a burst of dirty signals collapses into one refetch.
+            if (dirtyDebounce) clearTimeout(dirtyDebounce);
+            dirtyDebounce = setTimeout(() => {
+                dirtyDebounce = null;
+                refreshTracking();
+            }, 250);
+            return;
+        }
+
         if (type === "setVisible") {
             if (data?.visible === true) {
                 centeredOnSelf = false; // re-center each time MDT opens
@@ -1381,7 +1397,9 @@
 
         syncLayerVisibility();
         refreshTracking();
-        refreshTimer = setInterval(refreshTracking, 4500);
+        // Pushes (trackingDirty) drive freshness now; this poll is only a
+        // safety net in case an event is ever missed, so it can run slower.
+        refreshTimer = setInterval(refreshTracking, 10000);
     }
 
     function getMapBounds(map: Map) {
@@ -1422,6 +1440,7 @@
         removeGhost();
         if (map) { map.remove(); map = null; mapInitialized = false; }
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+        if (dirtyDebounce) { clearTimeout(dirtyDebounce); dirtyDebounce = null; }
         bodycamMarkers.clear();
         vehicleMarkers.clear();
     });

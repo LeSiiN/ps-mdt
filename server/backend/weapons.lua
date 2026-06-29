@@ -1,4 +1,3 @@
-
 local resourceName = tostring(GetCurrentResourceName())
 
 local class = {
@@ -163,7 +162,7 @@ ps.registerCallback('ps-mdt:server:getWeapons', function(source)
         table.insert(newData, weaponInfo)
     end
 
-    local weaponBolos = MySQL.query.await('SELECT * FROM mdt_bolos WHERE type = ? AND status = ?', {'weapon', 'active'})
+    local weaponBolos = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE type = ? AND status = ?', {'weapon', 'active'})
     for k, v in pairs(weaponBolos) do
         table.insert(weaponBolo, {
             id = v.id,

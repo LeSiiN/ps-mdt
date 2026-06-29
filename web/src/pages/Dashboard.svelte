@@ -9,6 +9,7 @@
 	import { createDashboardService } from "../services/dashboardService.svelte";
 	import { createDispatchService } from "../services/dispatchService.svelte";
 	import ReportItem from "../components/dashboard/ReportItem.svelte";
+	import DispatchStatusWidget from "../components/dashboard/DispatchStatusWidget.svelte";
 	import type { PlayerData } from "@/interfaces/IPlayerData";
 
 	interface ActiveBolo {
@@ -296,6 +297,14 @@
 				<div class="stat-content">
 					<span class="stat-value">{dashboardService.activeUnits.count} <span class="stat-badge">On Duty</span></span>
 					<span class="stat-label">Active units</span>
+				</div>
+			</div>
+			<div class="stat-divider"></div>
+
+			<!-- Officer status breakdown (dispatch) -->
+			<div class="stat-item">
+				<div class="stat-content">
+					<DispatchStatusWidget />
 				</div>
 			</div>
 			<div class="stat-divider"></div>
