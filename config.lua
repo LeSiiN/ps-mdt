@@ -356,6 +356,46 @@ Config.Warrants = {
     DefaultExpiryDays = 7, -- Default warrant expiry when no date is provided
 }
 
+-- ---------------------------------------------------------------------------
+-- Personnel data cleanup (Phase 1 core)
+-- ---------------------------------------------------------------------------
+-- When an officer is terminated, the boss panel can optionally wipe that
+-- person's PERSONAL MDT footprint. The guiding rule: remove only data that
+-- belongs to the individual (their own file/footprint) and that cannot harm
+-- ongoing investigations or other officers' records.
+--
+-- DELETED (their own data): profile tags, sessions, identifiers, clock records,
+--   gallery, officer status, SOP acknowledgements, their FTO trainee file,
+--   PPRs written ABOUT them, messages they sent, patrol membership, and audit
+--   log entries about them.
+--
+-- ALWAYS KEPT (investigative / shared / other officers): reports, charges,
+--   evidence, BOLOs, cases, warrants, arrests, weapons, court records,
+--   licenses, the core mdt_profiles identity row (kept so FK-cascaded
+--   investigative rows like warrants are never removed), award/penal/SOP
+--   definitions, and any record the person authored in SOMEONE ELSE'S file
+--   (e.g. DORs they wrote as a trainer, PPRs they authored about others).
+--
+-- The cleanup engine schema-checks every table/column at runtime, so missing
+-- or renamed tables are skipped instead of erroring. Toggle the optional parts:
+Config.PersonnelCleanup = {
+    -- Master switch: even if the boss ticks the box, cleanup only runs when this
+    -- is true. Lets server owners disable the destructive path entirely.
+    Enabled = true,
+
+    -- Remove audit-log rows whose subject (entity_id) is the fired person.
+    -- Their actions-as-actor logs are left intact for accountability unless you
+    -- also enable DeleteActorAuditLogs below.
+    DeleteSubjectAuditLogs = true,
+
+    -- Also remove audit-log rows where the fired person was the ACTOR. Off by
+    -- default because it erases "who did what" history other staff may rely on.
+    DeleteActorAuditLogs = true,
+
+    -- Remove messages the fired person sent.
+    DeleteSentMessages = true,
+}
+
 -- Dashboard Cache TTLs (seconds)
 Config.CacheTTL = {
     ReportStats = 30,

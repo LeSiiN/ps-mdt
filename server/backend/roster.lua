@@ -79,7 +79,7 @@ local function buildRosterFromQbx(jobList, matchFn, defaultDept)
             local fullname = data.charinfo and (data.charinfo.firstname .. ' ' .. data.charinfo.lastname) or 'Unknown'
             local rank = job.grade and job.grade.name or 'Officer'
             local department = job.name or defaultDept
-            local departmentLabel = deptLabel(job.name, job) or defaultDept
+            local departmentLabel = deptLabel(job.name, job) or department
             local certifications = getCertifications(citizenid)
 
             local onlineSrc = onlinePlayer and (onlinePlayer.PlayerData and onlinePlayer.PlayerData.source or onlinePlayer.source) or nil
@@ -194,7 +194,7 @@ ps.registerCallback('ps-mdt:server:getRosterList', function(source)
                 lastName = lastName,
                 rank = rank,
                 department = jobName or employee.job or defaultDept,
-                departmentLabel = deptLabel(jobName, job) or 'Los Santos Police Department',
+                departmentLabel = deptLabel(jobName, job) or jobName or employee.job or defaultDept,
                 status = status,
                 certifications = getCertifications(citizenid),
                 badgeNumber = callsign,
@@ -376,11 +376,31 @@ ps.registerCallback('ps-mdt:server:fireOfficer', function(source, payload)
 
     ps.setJob(targetSrc, 'unemployed', 0)
 
-    if ps.auditLog then
-        ps.auditLog(src, 'officer_fired', 'officers', citizenid, {})
+    -- Optional full personal-data wipe (boss panel toggle). Runs after the job
+    -- change so the person is already off the roster; only touches their own
+    -- footprint, never investigative/shared data. See personnel_cleanup.lua.
+    local cleanup = nil
+    if payload.deleteData and CleanupPersonnelData then
+        cleanup = CleanupPersonnelData(citizenid)
     end
 
-    return { success = true, message = 'Officer has been terminated' }
+    if ps.auditLog then
+        ps.auditLog(src, 'officer_fired', 'officers', citizenid, {
+            dataDeleted = payload.deleteData and true or false,
+            cleanupSteps = cleanup and cleanup.steps or nil,
+        })
+    end
+
+    local message = 'Officer has been terminated'
+    if payload.deleteData then
+        if cleanup and cleanup.ok then
+            message = 'Officer terminated and MDT data removed'
+        elseif cleanup then
+            message = 'Officer terminated, but data cleanup failed: ' .. tostring(cleanup.error)
+        end
+    end
+
+    return { success = true, message = message, cleanup = cleanup }
 end)
 
 -- Update officer callsign (wrapper around existing setCallsign for NUI)

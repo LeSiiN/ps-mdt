@@ -169,8 +169,7 @@
 					firstName: "John",
 					lastName: "Smith",
 					rank: "Chief of Police",
-					department: "police",
-					departmentLabel: "LSPD",
+					department: "lspd",
 					status: "On Duty",
 					certifications: ["FTO", "SWAT", "Interceptor"],
 					badgeNumber: "1001",
@@ -183,8 +182,7 @@
 					firstName: "Jane",
 					lastName: "Doe",
 					rank: "Lieutenant",
-					department: "police",
-					departmentLabel: "LSPD",
+					department: "lspd",
 					status: "On Duty",
 					certifications: ["Air Certified", "FTO"],
 					badgeNumber: "1002",
@@ -197,8 +195,7 @@
 					firstName: "Mike",
 					lastName: "Johnson",
 					rank: "Sergeant",
-					department: "police",
-					departmentLabel: "LSPD",
+					department: "bcso",
 					status: "Off Duty",
 					certifications: ["SWAT"],
 					badgeNumber: "1003",
@@ -211,8 +208,7 @@
 					firstName: "Sarah",
 					lastName: "Wilson",
 					rank: "Officer",
-					department: "police",
-					departmentLabel: "LSPD",
+					department: "lspd",
 					status: "On Duty",
 					certifications: [],
 					badgeNumber: "1004",
@@ -225,8 +221,7 @@
 					firstName: "David",
 					lastName: "Brown",
 					rank: "Detective",
-					department: "police",
-					departmentLabel: "LSPD",
+					department: "sahp",
 					status: "Off Duty",
 					certifications: ["FTO"],
 					badgeNumber: "1005",
@@ -440,13 +435,15 @@
 		}
 	}
 
+	let deleteUserData = $state(false);
+
 	async function fireOfficer() {
 		if (!selectedOfficer?.citizenid) return;
 		isSavingBoss = true;
 		try {
 			const response = await fetchNui<{ success: boolean; message?: string }>(
 				NUI_EVENTS.ROSTER.FIRE_OFFICER,
-				{ citizenid: selectedOfficer.citizenid },
+				{ citizenid: selectedOfficer.citizenid, deleteData: deleteUserData },
 			);
 			if (response?.success) {
 				officers = officers.filter((o) => o.citizenid !== selectedOfficer!.citizenid);
@@ -460,6 +457,7 @@
 		} finally {
 			isSavingBoss = false;
 			showFireConfirm = false;
+			deleteUserData = false;
 		}
 	}
 
@@ -660,7 +658,7 @@
 								{/if}
 							</span>
 							<span class="cell-rank">{officer.rank}</span>
-							<span class="cell-dept">{officer.departmentLabel || "-"}</span>
+							<span class="cell-dept">{officer.departmentLabel || officer.department || "-"}</span>
 							<span class="cell-certs">
 								{#if officer.certifications.length > 0}
 									{#each officer.certifications as cert}
@@ -855,6 +853,13 @@
 						{:else}
 							<div class="fire-confirm">
 								<p class="fire-warning">Are you sure you want to terminate <strong>{selectedOfficer.firstName} {selectedOfficer.lastName}</strong>?</p>
+								<label class="fire-delete-toggle">
+									<input type="checkbox" bind:checked={deleteUserData} />
+									<span>Delete all user data from MDT</span>
+								</label>
+								{#if deleteUserData}
+									<p class="fire-delete-hint">Removes this person's logs, tags, status, FTO/PPR file, clock records and patrol membership. Reports, evidence, cases, warrants and arrests are kept.</p>
+								{/if}
 								<div class="fire-actions">
 									<button class="btn-cancel" onclick={() => showFireConfirm = false}>Cancel</button>
 									<button class="btn-fire-confirm" onclick={fireOfficer} disabled={isSavingBoss}>
@@ -1862,6 +1867,29 @@
 
 	.fire-warning strong {
 		color: rgba(255, 255, 255, 0.85);
+	}
+
+	.fire-delete-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		color: rgba(255, 255, 255, 0.85);
+		cursor: pointer;
+		margin: 0 0 8px;
+		user-select: none;
+	}
+
+	.fire-delete-toggle input {
+		accent-color: #ef4444;
+		cursor: pointer;
+	}
+
+	.fire-delete-hint {
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.5);
+		margin: 0 0 10px;
+		line-height: 1.4;
 	}
 
 	.fire-actions {
