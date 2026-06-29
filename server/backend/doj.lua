@@ -66,12 +66,12 @@ ps.registerCallback(resourceName .. ':server:getCourtCases', function(source, pa
         values[#values + 1] = case_type
     end
 
-    if search and search ~= '' then
-        clauses[#clauses + 1] = '(title LIKE ? OR case_number LIKE ? OR defendant_name LIKE ?)'
-        local term = '%' .. search .. '%'
-        values[#values + 1] = term
-        values[#values + 1] = term
-        values[#values + 1] = term
+    local _, searchLike = NormalizeSearch(search)
+    if searchLike then
+        clauses[#clauses + 1] = '(LOWER(title) LIKE ? OR LOWER(case_number) LIKE ? OR LOWER(defendant_name) LIKE ?)'
+        values[#values + 1] = searchLike
+        values[#values + 1] = searchLike
+        values[#values + 1] = searchLike
     end
 
     local whereClause = ''

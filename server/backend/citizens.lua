@@ -228,18 +228,16 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
     if not CheckAuth(src) then return {} end
     local startTime = os.clock()
 
-    if not query or string.len(query) < 2 then
+    local norm, searchTerm = NormalizeSearch(query)
+    if not searchTerm or #norm < 2 then
         return {}
     end
 
     if ps.auditLog then
         ps.auditLog(src, 'search_citizens', 'search', nil, {
-            query = query
+            query = norm
         })
     end
-
-    -- Sanitize the query for SQL LIKE operations
-    local searchTerm = '%' .. query:lower() .. '%'
 
     -- Build a complex search query that searches across multiple fields and returns same data as getCitizens
     local sqlQuery = [[
@@ -254,7 +252,7 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
             JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.fingerprint')) AS fingerprint,
             JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.dna')) AS dna
         FROM players AS p
-        LEFT JOIN mdt_profiles AS mp ON p.citizenid COLLATE utf8mb4_general_ci = mp.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN mdt_profiles AS mp ON p.citizenid = mp.citizenid
         WHERE 
             LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname'))) LIKE ? OR
             LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))) LIKE ? OR
@@ -381,15 +379,15 @@ ps.registerCallback(resourceName .. ':server:getBOLO', function(source, boloType
     local BOLOS
     if boloType == 'all' then
         if boloStatus == 'all' then
-            BOLOS = MySQL.query.await('SELECT * FROM mdt_bolos ORDER BY id DESC', {})
+            BOLOS = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos ORDER BY id DESC', {})
         else
-            BOLOS = MySQL.query.await('SELECT * FROM mdt_bolos WHERE status = ? ORDER BY id DESC', { boloStatus })
+            BOLOS = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE status = ? ORDER BY id DESC', { boloStatus })
         end
     else
         if boloStatus == 'all' then
-            BOLOS = MySQL.query.await('SELECT * FROM mdt_bolos WHERE type = ? ORDER BY id DESC', { boloType })
+            BOLOS = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE type = ? ORDER BY id DESC', { boloType })
         else
-            BOLOS = MySQL.query.await('SELECT * FROM mdt_bolos WHERE type = ? AND status = ? ORDER BY id DESC', { boloType, boloStatus })
+            BOLOS = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE type = ? AND status = ? ORDER BY id DESC', { boloType, boloStatus })
         end
     end
 
@@ -1286,6 +1284,40 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
             customLicenses = clList,
         }
     }
+end)
+
+-- Unified audit timeline for a citizen: who changed what on this record, when.
+-- Aggregates audit-log entries whose entity_id is this citizenid across the
+-- entity types that key on a citizenid. Paginated (limit+1 for exact hasMore),
+-- served straight off idx_entity_lookup(entity_type, entity_id, created_at).
+ps.registerCallback(resourceName .. ':server:getCitizenTimeline', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { entries = {}, hasMore = false } end
+
+    payload = payload or {}
+    local citizenid = payload.citizenid
+    if not citizenid or citizenid == '' then
+        return { entries = {}, hasMore = false }
+    end
+
+    local page = tonumber(payload.page) or 1
+    if page < 1 then page = 1 end
+    local limit = (Config.Pagination and Config.Pagination.CitizenTimeline) or 25
+    local offset = (page - 1) * limit
+
+    local rows = MySQL.query.await([[
+        SELECT id, actor_citizenid, actor_name, action, entity_type, details,
+               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+        FROM mdt_audit_logs
+        WHERE entity_id = ? AND entity_type IN ('citizen', 'citizens', 'officers')
+        ORDER BY created_at DESC, id DESC
+        LIMIT ? OFFSET ?
+    ]], { citizenid, limit + 1, offset }) or {}
+
+    local hasMore = #rows > limit
+    if hasMore then rows[#rows] = nil end
+
+    return { entries = rows, hasMore = hasMore }
 end)
 
 ps.registerCallback(resourceName .. ':server:getProperty', function(source, propertyId)

@@ -2,6 +2,35 @@ function GetActiveUnits()
     return ps.getJobCount("police")
 end
 
+--- Normalise a free-text search query for consistent, predictable LIKE matching
+--- across every search callback. Trims, collapses internal whitespace to single
+--- spaces, lowercases, and escapes LIKE wildcards (% _ \) so user input is
+--- treated literally (no accidental "match everything" / expensive scans).
+---
+--- Returns three values:
+---   norm       - the cleaned, lowercased term (nil if the query is empty)
+---   likePat    - '%term%' ready to bind to a LIKE placeholder
+---   plateLike  - like likePat but with ALL spaces removed, so "AB 123",
+---                "ab123" and "a b123" all match the same plate
+---
+--- Columns in this schema use a *_ci collation, so LIKE is already
+--- case-insensitive; lowercasing keeps our own handling deterministic and lines
+--- up with any LOWER()-wrapped columns.
+---@param query any
+---@return string|nil norm, string|nil likePat, string|nil plateLike
+function NormalizeSearch(query)
+    if query == nil then return nil end
+    local s = tostring(query)
+    s = s:gsub('%s+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
+    if s == '' then return nil end
+    s = s:lower()
+    -- escape LIKE wildcards so they match literally
+    local escaped = s:gsub('([%%_\\])', '\\%1')
+    local likePat = '%' .. escaped .. '%'
+    local plateLike = '%' .. escaped:gsub(' ', '') .. '%'
+    return s, likePat, plateLike
+end
+
 --- Returns a callsign only if it is safe to write to mdt_profiles for this
 --- citizen. The callsign column has a UNIQUE index, so assigning a value that
 --- another profile already owns throws a "Duplicate entry" error and aborts

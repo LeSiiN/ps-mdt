@@ -1,5 +1,5 @@
-import { fetchNui } from "../utils/fetchNui";
 import { NUI_EVENTS } from "../constants/nuiEvents";
+import { createSearch } from "../utils/searchNui";
 import type { SearchResult } from "../interfaces/IReportEditor";
 
 export interface SearchServiceState {
@@ -17,6 +17,18 @@ export function createSearchService() {
 		lastError: null,
 	});
 
+	// Race-safe runners: only the most recent query per kind delivers results,
+	// and they carry the longer search timeout + [] fallback (so a slow/timed-out
+	// response never blanks the list or overwrites a newer query).
+	const runOfficerSearch = createSearch<SearchResult[]>(
+		NUI_EVENTS.REPORT.SEARCH_OFFICERS,
+		[],
+	);
+	const runPlayerSearch = createSearch<SearchResult[]>(
+		NUI_EVENTS.REPORT.SEARCH_PLAYERS,
+		[],
+	);
+
 	/**
 	 * Search for officers by query
 	 */
@@ -31,21 +43,21 @@ export function createSearchService() {
 		state.lastError = null;
 
 		try {
-			const response = await fetchNui(
-				NUI_EVENTS.REPORT.SEARCH_OFFICERS,
-				{ query },
-			);
+			const { results, stale } = await runOfficerSearch({ query });
+			// A newer query is already in flight — keep current results and let
+			// the newer call own the spinner.
+			if (stale) return state.results;
 
-			const results = response as unknown as SearchResult[];
-			state.results = results;
-			return results;
+			const safe = Array.isArray(results) ? results : [];
+			state.results = safe;
+			state.isSearching = false;
+			return safe;
 		} catch (error) {
 			console.error("Failed to search officers:", error);
 			state.lastError = "Failed to search officers";
 			state.results = [];
-			return [];
-		} finally {
 			state.isSearching = false;
+			return [];
 		}
 	}
 
@@ -63,21 +75,19 @@ export function createSearchService() {
 		state.lastError = null;
 
 		try {
-			const response = await fetchNui(
-				NUI_EVENTS.REPORT.SEARCH_PLAYERS,
-				{ query },
-			);
+			const { results, stale } = await runPlayerSearch({ query });
+			if (stale) return state.results;
 
-			const results = response as unknown as SearchResult[];
-			state.results = results;
-			return results;
+			const safe = Array.isArray(results) ? results : [];
+			state.results = safe;
+			state.isSearching = false;
+			return safe;
 		} catch (error) {
 			console.error("Failed to search players:", error);
 			state.lastError = "Failed to search players";
 			state.results = [];
-			return [];
-		} finally {
 			state.isSearching = false;
+			return [];
 		}
 	}
 

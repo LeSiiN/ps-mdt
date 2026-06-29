@@ -218,7 +218,7 @@ export const TAB_VISIBILITY_KEYS = [
 	{ tabName: "Charges", key: "tab_hidden_charges", label: "Charges" },
 	{ tabName: "Awards", key: "tab_hidden_awards", label: "Awards" },
 	{ tabName: "Roster", key: "tab_hidden_roster", label: "Roster" },
-	{ tabName: "Map", key: "tab_hidden_map", label: "Map" },
+	{ tabName: "Map", key: "tab_hidden_map", label: "Dispatch" },
 	{ tabName: "Cameras", key: "tab_hidden_cameras", label: "Cameras" },
 	{ tabName: "Bodycams", key: "tab_hidden_bodycams", label: "Bodycams" },
 	{ tabName: "IA", key: "tab_hidden_ia", label: "Internal Affairs" },

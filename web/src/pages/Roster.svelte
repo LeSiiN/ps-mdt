@@ -42,6 +42,7 @@
 	import { NUI_EVENTS } from "../constants/nuiEvents";
 	import { globalNotifications } from "../services/notificationService.svelte";
 	import type { AuthService } from "../services/authService.svelte";
+	import ActivityTimeline from "../components/ActivityTimeline.svelte";
 
 	let { authService, tabService }: { authService?: AuthService; tabService?: any } = $props();
 
@@ -96,7 +97,7 @@
 
 	// Boss panel state
 	let showBossPanel = $state(false);
-	let bossPanelTab = $state<"rank" | "callsign" | "certs" | "ppr" | "fto" | "ia_history">("rank");
+	let bossPanelTab = $state<"rank" | "callsign" | "certs" | "ppr" | "fto" | "ia_history" | "activity">("rank");
 	let iaHistory = $state<Array<{ id: number; complaint_number: string; category: string; status: string; created_at: string }>>([]);
 	let iaHistoryLoading = $state(false);
 	let pprHistory = $state<Array<{ id: number; ppr_number: string; category: string; title: string; author_name: string; incident_date?: string; created_at: string }>>([]);
@@ -796,6 +797,10 @@
 					<span class="material-icons boss-tab-icon">shield</span>
 					IA History
 				</button>
+				<button class="boss-tab" class:active={bossPanelTab === "activity"} onclick={() => { bossPanelTab = "activity"; showFireConfirm = false; }}>
+					<span class="material-icons boss-tab-icon">history</span>
+					Activity
+				</button>
 			</div>
 
 			<div class="boss-body">
@@ -1004,6 +1009,15 @@
 									</div>
 								{/each}
 							</div>
+						{/if}
+					</div>
+
+				{:else if bossPanelTab === "activity"}
+					<div class="boss-section">
+						<label class="boss-label">Activity Timeline</label>
+						<p class="boss-hint">Recorded changes involving this officer — rank, callsign, status and more.</p>
+						{#if selectedOfficer?.citizenid}
+							<ActivityTimeline citizenid={selectedOfficer.citizenid} />
 						{/if}
 					</div>
 				{/if}
@@ -1618,7 +1632,8 @@
 		background: var(--card-dark-bg);
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		border-radius: 6px;
-		width: 560px;
+		width: 600px;
+		max-width: 92vw;
 		max-height: 80vh;
 		display: flex;
 		flex-direction: column;
@@ -1627,6 +1642,7 @@
 
 	.boss-tabs {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 		padding: 0 16px;
@@ -1635,8 +1651,8 @@
 	.boss-tab {
 		display: flex;
 		align-items: center;
-		gap: 5px;
-		padding: 8px 12px;
+		gap: 4px;
+		padding: 8px 10px;
 		background: none;
 		border: none;
 		border-bottom: 2px solid transparent;
