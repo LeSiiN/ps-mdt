@@ -114,6 +114,7 @@ export const NUI_EVENTS = {
 		GET_CITIZEN_TAGS: 'getCitizenTags',
 		ADD_CITIZEN_TAG: 'addCitizenTag',
 		REMOVE_CITIZEN_TAG: 'removeCitizenTag',
+		GET_CITIZEN_TIMELINE: 'getCitizenTimeline',
 	},
 	VEHICLE: {
 		GET_VEHICLES: "getVehicles",
