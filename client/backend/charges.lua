@@ -35,3 +35,32 @@ RegisterNUICallback('updateCharge', function(data, cb)
     local result = ps.callback(resourceName .. ':server:updateCharge', data)
     cb(result or { success = false, message = 'Failed to update charge' })
 end)
+
+-- Phase 3: charge CRUD bridges (create / delete / category list)
+RegisterNUICallback('addCharge', function(data, cb)
+    if not MDTOpen then
+        cb({ success = false, message = 'MDT is not open' })
+        return
+    end
+    local result = ps.callback(resourceName .. ':server:createCharge', data)
+    cb(result or { success = false, message = 'Failed to create charge' })
+end)
+
+RegisterNUICallback('deleteCharge', function(data, cb)
+    if not MDTOpen then
+        cb({ success = false, message = 'MDT is not open' })
+        return
+    end
+    if type(data) ~= 'table' or not data.code then
+        cb({ success = false, message = 'Missing charge code' })
+        return
+    end
+    local result = ps.callback(resourceName .. ':server:deleteCharge', data)
+    cb(result or { success = false, message = 'Failed to delete charge' })
+end)
+
+RegisterNUICallback('getChargeCategories', function(data, cb)
+    if not MDTOpen then cb({}) return end
+    local result = ps.callback(resourceName .. ':server:getChargeCategories', false)
+    cb(result or {})
+end)

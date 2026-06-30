@@ -108,6 +108,26 @@ end
 --- The MDT domain for an online player source.
 ---@param src number
 ---@return "police"|"ems"
+--- Self-healing schema helper: add a column if it doesn't already exist.
+--- Lets backends introduce a new column (e.g. a domain marker) without shipping
+--- a manual migration. No-op if the column is already present.
+---@param tableName string
+---@param columnName string
+---@param definition string -- full column definition, e.g. "`job_type` varchar(10) NOT NULL DEFAULT 'police'"
+---@return boolean added
+function EnsureColumn(tableName, columnName, definition)
+    local exists = MySQL.single.await([[
+        SELECT 1 AS x FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+    ]], { tableName, columnName })
+    if exists then return false end
+    local ok = pcall(MySQL.query.await, ('ALTER TABLE `%s` ADD COLUMN %s'):format(tableName, definition))
+    if ok and Config and Config.Debug then
+        print(('[ps-mdt] added column %s.%s'):format(tableName, columnName))
+    end
+    return ok
+end
+
 function GetMdtDomain(src)
     local jobName = ps.getJobName and ps.getJobName(src) or nil
     local jobType = ps.getJobType and ps.getJobType(src) or nil

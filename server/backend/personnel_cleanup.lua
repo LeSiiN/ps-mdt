@@ -98,7 +98,6 @@ function CleanupPersonnelData(citizenid)
     -- Simple "DELETE FROM <t> WHERE <c> = citizenid" steps, schema-checked.
     -- Each pair is a table the person OWNS (subject column).
     local subjectDeletes = {
-        { 'mdt_profiles_tags',          'citizenid' },
         { 'mdt_profile_sessions',       'citizenid' },
         { 'mdt_profiles_identifiers',   'citizenid' },
         { 'mdt_officer_status',         'citizenid' },
@@ -130,18 +129,28 @@ function CleanupPersonnelData(citizenid)
         })
     end
 
-    -- profileId-keyed tables (clock records, gallery): resolve the profile id.
-    if has('mdt_profiles', 'id') then
-        local prof = MySQL.single.await('SELECT id FROM mdt_profiles WHERE citizenid = ?', { citizenid })
-        if prof and prof.id then
-            for _, t in ipairs({ 'mdt_profiles_clocking', 'mdt_profiles_gallery' }) do
-                if has(t, 'profileId') then
-                    queries[#queries + 1] = {
-                        query = ('DELETE FROM %s WHERE profileId = ?'):format(t),
-                        values = { prof.id },
-                    }
-                end
+    -- Officer tags/certifications ("air unit", "swat", etc.) are NOT stored in a
+    -- join table — they live as a JSON array in mdt_profiles.certifications, and
+    -- the callsign/badge/rank/department mark the person as active personnel.
+    -- Since the profile row itself is intentionally kept (to avoid cascading into
+    -- warrants/reports), those officer-identity fields must be cleared in place.
+    do
+        local sets, vals = {}, {}
+        if has('mdt_profiles', 'certifications') then
+            sets[#sets + 1] = '`certifications` = ?'
+            vals[#vals + 1] = '[]'
+        end
+        for _, col in ipairs({ 'callsign', 'badge_number', 'rank', 'department' }) do
+            if has('mdt_profiles', col) then
+                sets[#sets + 1] = ('`%s` = NULL'):format(col)
             end
+        end
+        if #sets > 0 then
+            vals[#vals + 1] = citizenid
+            queries[#queries + 1] = {
+                query = ('UPDATE mdt_profiles SET %s WHERE citizenid = ?'):format(table.concat(sets, ', ')),
+                values = vals,
+            }
         end
     end
 

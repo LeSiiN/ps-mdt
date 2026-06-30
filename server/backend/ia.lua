@@ -1,5 +1,15 @@
 local resourceName = tostring(GetCurrentResourceName())
 
+-- Phase 2: IA complaints are domain-scoped (police vs ems) so each side only
+-- sees its own internal-affairs cases. Existing rows default to 'police'; new
+-- rows take the submitting officer's live domain.
+CreateThread(function()
+    Wait(2500)
+    if EnsureColumn then
+        EnsureColumn('mdt_ia_complaints', 'job_type', "`job_type` varchar(10) NOT NULL DEFAULT 'police'")
+    end
+end)
+
 local function buildComplaintNumber(id)
     local year = os.date('%Y')
     return ('IA-%s-%05d'):format(year, id)
@@ -44,8 +54,8 @@ ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, 
     local complaintId = MySQL.insert.await([[
         INSERT INTO mdt_ia_complaints
         (complaint_number, complainant_citizenid, complainant_name, complainant_phone, officer_name, officer_badge,
-         category, description, incident_date, incident_location, witnesses, evidence, status)
-        VALUES ('', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+         category, description, incident_date, incident_location, witnesses, evidence, status, job_type)
+        VALUES ('', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
     ]], {
         citizenid,
         complainantName,
@@ -57,7 +67,8 @@ ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, 
         incidentDate,
         incidentLocation,
         witnesses or '[]',
-        evidence or '[]'
+        evidence or '[]',
+        GetMdtDomain(src)
     })
 
     if not complaintId then
@@ -91,6 +102,10 @@ ps.registerCallback(resourceName .. ':server:getIAComplaints', function(source, 
 
     local clauses = {}
     local values = {}
+
+    -- Domain scope: each side only sees its own internal-affairs cases.
+    clauses[#clauses + 1] = 'job_type = ?'
+    values[#values + 1] = GetMdtDomain(src)
 
     if filters.status and filters.status ~= '' then
         clauses[#clauses + 1] = 'status = ?'
@@ -190,10 +205,10 @@ ps.registerCallback(resourceName .. ':server:getIAHistoryForOfficer', function(s
     local ok, rows = pcall(MySQL.query.await, [[
         SELECT id, complaint_number, category, status, created_at
         FROM mdt_ia_complaints
-        WHERE officer_name LIKE ?
+        WHERE officer_name LIKE ? AND job_type = ?
         ORDER BY created_at DESC
         LIMIT 50
-    ]], { '%' .. officerName .. '%' })
+    ]], { '%' .. officerName .. '%', GetMdtDomain(src) })
 
     if not ok then return {} end
     return rows or {}

@@ -1,5 +1,15 @@
 local resourceName = tostring(GetCurrentResourceName())
 
+-- Phase 2: PPR records are domain-scoped (police vs ems) so each side only sees
+-- its own personnel reviews. Existing rows default to 'police' (historically the
+-- only domain). New rows are tagged from the author's live domain.
+CreateThread(function()
+    Wait(2500)
+    if EnsureColumn then
+        EnsureColumn('mdt_ppr', 'job_type', "`job_type` varchar(10) NOT NULL DEFAULT 'police'")
+    end
+end)
+
 local function buildPPRNumber(id)
     local year = os.date('%Y')
     return ('PPR-%s-%05d'):format(year, id)
@@ -20,6 +30,10 @@ ps.registerCallback(resourceName .. ':server:getPPRList', function(source, pageN
 
     local clauses = {}
     local values = {}
+
+    -- Domain scope: only show PPRs for the caller's side (police vs ems).
+    clauses[#clauses + 1] = 'job_type = ?'
+    values[#values + 1] = GetMdtDomain(src)
 
     -- If no ppr_view permission, only show own records
     if not hasPPRView then
@@ -120,10 +134,10 @@ ps.registerCallback(resourceName .. ':server:getOfficerPPRHistory', function(sou
     local ok, rows = pcall(MySQL.query.await, [[
         SELECT id, ppr_number, category, title, author_name, incident_date, created_at
         FROM mdt_ppr
-        WHERE officer_citizenid = ?
+        WHERE officer_citizenid = ? AND job_type = ?
         ORDER BY created_at DESC
         LIMIT 50
-    ]], { officerCitizenId })
+    ]], { officerCitizenId, GetMdtDomain(src) })
 
     if not ok then return {} end
     return rows or {}
@@ -153,8 +167,8 @@ ps.registerCallback(resourceName .. ':server:createPPR', function(source, data)
     local pprId = MySQL.insert.await([[
         INSERT INTO mdt_ppr
         (ppr_number, officer_citizenid, officer_name, author_citizenid, author_name,
-         category, title, description, incident_date, incident_location, linked_report_id, linked_case_id)
-        VALUES ('', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         category, title, description, incident_date, incident_location, linked_report_id, linked_case_id, job_type)
+        VALUES ('', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         officerCitizenId,
         officerName,
@@ -166,7 +180,8 @@ ps.registerCallback(resourceName .. ':server:createPPR', function(source, data)
         data.incident_date or nil,
         data.incident_location or nil,
         tonumber(data.linked_report_id) or nil,
-        tonumber(data.linked_case_id) or nil
+        tonumber(data.linked_case_id) or nil,
+        GetMdtDomain(src)
     })
 
     if not pprId then

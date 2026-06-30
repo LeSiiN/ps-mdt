@@ -291,6 +291,34 @@ ps.registerCallback('ps-mdt:server:getJobGrades', function(source, payload)
 end)
 
 -- Promote/demote an officer (change their job grade)
+-- Set a player's job/grade directly through the active framework.
+-- The ps bridge's setJob path depends on a setPlayerData export that isn't
+-- present on this server, so promote/terminate calls silently failed. We talk to
+-- QBX first (the roster already uses qbx_core), then fall back to QBCore.
+---@return boolean ok
+local function setOfficerJob(targetSrc, jobName, grade)
+    grade = tonumber(grade) or 0
+
+    if GetResourceState('qbx_core') == 'started' and exports['qbx_core'] then
+        local ok, res = pcall(function()
+            return exports['qbx_core']:SetJob(targetSrc, jobName, grade)
+        end)
+        -- QBX returns true on success (and may return nil on older builds).
+        if ok and res ~= false then return true end
+    end
+
+    local ok, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
+    if ok and QBCore and QBCore.Functions then
+        local Player = QBCore.Functions.GetPlayer(targetSrc)
+        if Player and Player.Functions and Player.Functions.SetJob then
+            local sok = pcall(function() return Player.Functions.SetJob(jobName, grade) end)
+            if sok then return true end
+        end
+    end
+
+    return false
+end
+
 ps.registerCallback('ps-mdt:server:promoteOfficer', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -329,7 +357,9 @@ ps.registerCallback('ps-mdt:server:promoteOfficer', function(source, payload)
         return { success = false, message = 'You cannot change your own rank' }
     end
 
-    ps.setJob(targetSrc, jobName, newGrade)
+    if not setOfficerJob(targetSrc, jobName, newGrade) then
+        return { success = false, message = 'Failed to update rank (framework error)' }
+    end
 
     local gradeName = gradeData.name or ('Grade ' .. newGrade)
 
@@ -374,7 +404,9 @@ ps.registerCallback('ps-mdt:server:fireOfficer', function(source, payload)
         return { success = false, message = 'You cannot fire yourself' }
     end
 
-    ps.setJob(targetSrc, 'unemployed', 0)
+    if not setOfficerJob(targetSrc, 'unemployed', 0) then
+        return { success = false, message = 'Failed to terminate officer (framework error)' }
+    end
 
     -- Optional full personal-data wipe (boss panel toggle). Runs after the job
     -- change so the person is already off the roster; only touches their own

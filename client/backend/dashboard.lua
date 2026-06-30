@@ -8,12 +8,26 @@ local function _isDojJob(jobName)
     return false
 end
 
+-- Match the server's IsEmsJob: an EMS job is recognised by its TYPE
+-- (Config.MedicalJobType) OR its NAME (Config.MedicalJobs). The client used to
+-- check the type only, so on servers whose EMS job type isn't literally "ems"
+-- the NUI received jobType 'leo' for medics (breaking EMS-specific UI/text).
+local function _isEmsJob(jobName, jobType)
+    if jobType and Config.MedicalJobType and jobType == Config.MedicalJobType then return true end
+    if jobName and Config.MedicalJobs then
+        for _, name in ipairs(Config.MedicalJobs) do
+            if name == jobName then return true end
+        end
+    end
+    return false
+end
+
 RegisterNUICallback('checkAuth', function(_, cb)
     local jobType = ps.getJobType()
     local jobName = ps.getJob() and ps.getJob().name or ''
     local isDoj = _isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
-    local isAuthorized = jobType == Config.PoliceJobType or jobType == Config.MedicalJobType or isDoj
-    local mdtJobType = isDoj and 'doj' or (jobType == Config.MedicalJobType and 'ems' or 'leo')
+    local isAuthorized = jobType == Config.PoliceJobType or _isEmsJob(jobName, jobType) or isDoj
+    local mdtJobType = isDoj and 'doj' or (_isEmsJob(jobName, jobType) and 'ems' or 'leo')
     local onDuty = ps.getJobDuty() or false
     local playerData = ps.getPlayerData()
 
@@ -51,8 +65,8 @@ function NUIUpdateAuth()
     local jobType = ps.getJobType()
     local jobName = ps.getJob() and ps.getJob().name or ''
     local isDoj = _isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
-    local isAuthorized = jobType == Config.PoliceJobType or jobType == Config.MedicalJobType or isDoj
-    local mdtJobType = isDoj and 'doj' or (jobType == Config.MedicalJobType and 'ems' or 'leo')
+    local isAuthorized = jobType == Config.PoliceJobType or _isEmsJob(jobName, jobType) or isDoj
+    local mdtJobType = isDoj and 'doj' or (_isEmsJob(jobName, jobType) and 'ems' or 'leo')
     local playerData = ps.getPlayerData()
     SendNUI('updateAuth', {
         authorized = isAuthorized and (ps.getJobDuty() or false),

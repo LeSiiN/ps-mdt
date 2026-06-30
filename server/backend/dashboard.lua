@@ -9,7 +9,10 @@ local function getEffectiveJobType(src)
         end
     end
     if Config.DojJobType and jobType == Config.DojJobType then return 'doj' end
-    return jobType
+    -- Normalise to a stable MDT domain (name + type aware) instead of returning
+    -- the raw core job type, so EMS is detected even when its type isn't "ems".
+    if IsEmsJob(jobName, jobType) then return 'ems' end
+    return 'leo'
 end
 
 local function computeJobData(src)

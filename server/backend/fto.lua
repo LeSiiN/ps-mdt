@@ -1,5 +1,15 @@
 local resourceName = tostring(GetCurrentResourceName())
 
+-- Phase 2: FTO assignments are domain-scoped so EMS sees its own trainees and
+-- police see theirs. Phases/competencies are already scoped by exact job name.
+-- Existing assignment rows default to 'police'; new ones take the creator's domain.
+CreateThread(function()
+    Wait(2500)
+    if EnsureColumn then
+        EnsureColumn('mdt_fto_assignments', 'job_type', "`job_type` varchar(10) NOT NULL DEFAULT 'police'")
+    end
+end)
+
 local function buildFTONumber(id)
     local year = os.date('%Y')
     return ('FTO-%s-%05d'):format(year, id)
@@ -72,6 +82,10 @@ ps.registerCallback(resourceName .. ':server:getFTOList', function(source, pageN
 
     local clauses = {}
     local values = {}
+
+    -- Domain scope: each side only sees its own FTO assignments.
+    clauses[#clauses + 1] = 'a.job_type = ?'
+    values[#values + 1] = GetMdtDomain(src)
 
     if not hasFTOView then
         clauses[#clauses + 1] = '(a.trainee_citizenid = ? OR a.trainer_citizenid = ?)'
@@ -199,14 +213,15 @@ ps.registerCallback(resourceName .. ':server:createFTOAssignment', function(sour
     local assignmentId = MySQL.insert.await([[
         INSERT INTO mdt_fto_assignments
         (fto_number, trainee_citizenid, trainee_name, trainer_citizenid, trainer_name,
-         current_phase_id, status, start_date, notes)
-        VALUES ('', ?, ?, ?, ?, ?, 'active', ?, ?)
+         current_phase_id, status, start_date, notes, job_type)
+        VALUES ('', ?, ?, ?, ?, ?, 'active', ?, ?, ?)
     ]], {
         data.trainee_citizenid, data.trainee_name or '',
         data.trainer_citizenid, data.trainer_name or '',
         tonumber(data.current_phase_id) or nil,
         data.start_date or os.date('%m/%d/%Y'),
         data.notes or nil,
+        GetMdtDomain(src),
     })
 
     if not assignmentId then return { success = false, error = 'Failed to create assignment' } end

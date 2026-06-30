@@ -115,6 +115,21 @@
 	let canManageOfficers = $derived(authService?.hasPermission("roster_manage_officers") ?? false);
 	let canOpenPanel = $derived(canManageCerts || canManageOfficers);
 
+	// Phase 2: EMS-aware terminology. The roster is shared UI but the wording
+	// should match the caller's domain (police "Officer" vs EMS "Personnel").
+	let isEmsDomain = $derived((authService?.jobType ?? "leo") === "ems");
+	let term = $derived({
+		member: isEmsDomain ? "Personnel" : "Officer",
+		members: isEmsDomain ? "Personnel" : "Officers",
+		memberLower: isEmsDomain ? "member" : "officer",
+		membersLower: isEmsDomain ? "members" : "officers",
+		management: isEmsDomain ? "Personnel Management" : "Officer Management",
+		terminate: isEmsDomain ? "Terminate Member" : "Terminate Officer",
+		removeHint: isEmsDomain
+			? "Remove this person from the department. This sets their job to unemployed."
+			: "Remove this officer from the department. This sets their job to unemployed.",
+	});
+
 	let filteredOfficers = $derived.by(() => {
 		const query = searchQuery.trim().toLowerCase();
 		let filtered = !query
@@ -602,7 +617,7 @@
 			class="search-input"
 		/>
 		<div class="topbar-right">
-			<span class="result-count">{filteredOfficers.length} officer{filteredOfficers.length !== 1 ? "s" : ""}</span>
+			<span class="result-count">{filteredOfficers.length} {term.memberLower}{filteredOfficers.length !== 1 ? "s" : ""}</span>
 			<button class="btn-secondary" onclick={refreshData} disabled={isLoading}>
 				{isLoading ? "Loading..." : "Refresh"}
 			</button>
@@ -629,7 +644,7 @@
 					</div>
 				{:else if filteredOfficers.length === 0}
 					<div class="empty-state">
-						<p class="empty-title">No Officers Found</p>
+						<p class="empty-title">No {term.members} Found</p>
 						<p class="empty-sub">
 							{searchQuery
 								? "No officers match your search criteria."
@@ -766,7 +781,7 @@
 		<div class="boss-panel" onclick={(e) => e.stopPropagation()}>
 			<div class="modal-header">
 				<div class="modal-title-area">
-					<span class="modal-title">Officer Management</span>
+					<span class="modal-title">{term.management}</span>
 					<span class="modal-subtitle">{selectedOfficer.firstName} {selectedOfficer.lastName} &bull; {selectedOfficer.callsign} &bull; {selectedOfficer.rank}</span>
 				</div>
 				<button class="modal-close" onclick={closeBossPanel}>
@@ -843,12 +858,12 @@
 					<div class="boss-divider"></div>
 
 					<div class="boss-section">
-						<label class="boss-label boss-label-danger">Terminate Officer</label>
-						<p class="boss-hint">Remove this officer from the department. This sets their job to unemployed.</p>
+						<label class="boss-label boss-label-danger">{term.terminate}</label>
+						<p class="boss-hint">{term.removeHint}</p>
 						{#if !showFireConfirm}
 							<button class="btn-fire" onclick={() => showFireConfirm = true}>
 								<span class="material-icons">person_remove</span>
-								Terminate Officer
+								{term.terminate}
 							</button>
 						{:else}
 							<div class="fire-confirm">
@@ -1969,6 +1984,4 @@
 	.status-completed { background: rgba(16, 185, 129, 0.2); color: rgb(167, 243, 208); }
 	.status-failed { background: rgba(239, 68, 68, 0.2); color: rgb(252, 165, 165); }
 	.status-suspended { background: rgba(245, 158, 11, 0.2); color: rgb(253, 224, 71); }
-
-
 </style>
