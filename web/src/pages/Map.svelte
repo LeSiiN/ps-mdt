@@ -518,9 +518,9 @@
         if (!map || !patrol.zonePoints || patrol.zonePoints.length < 3) return;
         const latlngs = patrol.zonePoints.map(pt => toMapLatLng(pt) as L.LatLng);
         const poly = L.polygon(latlngs, {
-            color: patrol.color, weight: 2, opacity: 0.85,
-            fillColor: patrol.color, fillOpacity: 0.12,
-            dashArray: "6 4", className: "patrol-zone-poly",
+            color: patrol.color, weight: 2.5, opacity: 0.9,
+            fillColor: patrol.color, fillOpacity: 0.1,
+            lineJoin: "round", className: "patrol-zone-poly",
         }).addTo(zoneLayer);
         const center = poly.getBounds().getCenter();
         const label = L.marker(center, {
@@ -547,6 +547,59 @@
     // ── Zone drawing ──────────────────────────────────────────────────────────
     function getDrawColor() {
         return patrols.find(p => p.id === drawingPatrolId)?.color ?? "#38bdf8";
+    }
+
+    // ── Snap-to-nearest-point ──────────────────────────────────────────────────
+    // While drawing, the cursor snaps to nearby vertices: the points already
+    // placed in THIS zone (so you can close cleanly or align edges) and the
+    // vertices of OTHER patrols' zones (so adjacent zones share exact borders).
+    // Distance is measured in on-screen container pixels so the snap radius feels
+    // consistent regardless of map zoom.
+    const SNAP_PX = 12;
+    let snapMarker: L.CircleMarker | null = null;
+
+    function getSnapCandidates(): L.LatLng[] {
+        const out: L.LatLng[] = [];
+        for (const p of drawPoints) out.push(p);
+        for (const patrol of patrols) {
+            if (patrol.id === drawingPatrolId || !patrol.zonePoints) continue;
+            for (const pt of patrol.zonePoints) {
+                out.push(L.latLng(toMapLatLng(pt) as [number, number]));
+            }
+        }
+        return out;
+    }
+
+    // Returns the nearest snap target within SNAP_PX, or null. firstPointOnly keeps
+    // the close-the-loop behaviour intact even when general snapping is in play.
+    function findSnap(latlng: L.LatLng): L.LatLng | null {
+        if (!map) return null;
+        const cp = map.latLngToContainerPoint(latlng);
+        let best: L.LatLng | null = null;
+        let bestD = SNAP_PX;
+        for (const cand of getSnapCandidates()) {
+            const pp = map.latLngToContainerPoint(cand);
+            const d = Math.hypot(pp.x - cp.x, pp.y - cp.y);
+            if (d < bestD) { bestD = d; best = cand; }
+        }
+        return best;
+    }
+
+    function showSnap(latlng: L.LatLng) {
+        if (!map) return;
+        if (!snapMarker) {
+            snapMarker = L.circleMarker(latlng, {
+                radius: 7, color: "#ffffff", weight: 2, opacity: 0.95,
+                fill: false, interactive: false, className: "zone-snap-ring",
+            }).addTo(map);
+        } else {
+            snapMarker.setLatLng(latlng);
+        }
+    }
+
+    function hideSnap() {
+        snapMarker?.remove();
+        snapMarker = null;
     }
 
     // ── DOM cursor dot (bypasses CSS zoom coordinate issues) ─────────────────
@@ -581,7 +634,7 @@
         createCursorDot();
         map.on("mousemove", onDrawMouseMove);
         map.on("click", onDrawClick);
-        globalNotifications.info("Click to place points • Enter to finish • Backspace to undo • Esc to cancel");
+        globalNotifications.info("Click to place points • snaps to nearby vertices • Enter to finish • Backspace to undo • Esc to cancel");
     }
 
     // The MDT is commonly scaled by CSS `zoom` (and sometimes `transform: scale()`)
@@ -635,10 +688,13 @@
 
     function onDrawMouseMove(e: L.LeafletMouseEvent) {
         if (!map) return;
-        const latlng = mouseEventToLatLng(e);
+        let latlng = mouseEventToLatLng(e);
         // Position cursor dot directly using native mouse coords — no zoom distortion
         const oe = e.originalEvent as MouseEvent;
         moveCursorDot(oe.clientX, oe.clientY);
+        // Snap the preview vertex to a nearby existing point and flag it visually.
+        const snap = findSnap(latlng);
+        if (snap) { latlng = snap; showSnap(snap); } else { hideSnap(); }
         if (drawPoints.length > 0) {
             const pts = [...drawPoints, latlng];
             if (!drawPolyline) {
@@ -655,7 +711,10 @@
 
     function onDrawClick(e: L.LeafletMouseEvent) {
         if (!map) return;
-        const latlng = mouseEventToLatLng(e);
+        let latlng = mouseEventToLatLng(e);
+        // Apply the same snap as the live preview so the stored vertex matches.
+        const snap = findSnap(latlng);
+        if (snap) latlng = snap;
         if (drawPoints.length >= 3) {
             const fp = map.latLngToContainerPoint(drawPoints[0]);
             const np = map.latLngToContainerPoint(latlng);
@@ -691,6 +750,7 @@
         map.off("click", onDrawClick);
         drawPolyline?.remove(); drawPolyline = null;
         drawPolygon?.remove();  drawPolygon  = null;
+        hideSnap();
         removeCursorDot();
         for (const m of drawMarkers) m.remove();
         drawMarkers = [];
@@ -1784,8 +1844,18 @@
     :global(.leaflet-control-zoom a:hover) { background: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.9) !important; }
     :global(.patrol-label) { background: rgba(0,0,0,0.55); border: 1px solid; border-radius: 4px; padding: 2px 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; white-space: nowrap; pointer-events: none; opacity: 0.7; }
     :global(.patrol-label-status-dot) { display: inline-block; vertical-align: middle; width: 5px; height: 5px; border-radius: 50%; margin-right: 4px; margin-bottom: 1px; }
-    :global(.patrol-zone-poly) { transition: fill-opacity 0.2s; }
-    :global(.patrol-zone-poly:hover) { fill-opacity: 0.22 !important; }
+    :global(.patrol-zone-poly) {
+        transition: fill-opacity 0.25s ease, stroke-opacity 0.25s ease, stroke-width 0.15s ease;
+        filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55));
+        animation: zone-fade-in 0.35s ease-out;
+    }
+    :global(.patrol-zone-poly:hover) { fill-opacity: 0.2 !important; stroke-width: 3.5 !important; }
+    @keyframes zone-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    :global(.zone-snap-ring) {
+        filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.85));
+        animation: zone-snap-pulse 0.9s ease-in-out infinite;
+    }
+    @keyframes zone-snap-pulse { 0%, 100% { stroke-opacity: 0.95; } 50% { stroke-opacity: 0.35; } }
     :global(.zone-label) { background: rgba(0,0,0,0.62); border: 1px solid; border-radius: 5px; padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; pointer-events: none; opacity: 0.85; transform: translateX(-50%); display: inline-block; }
     :global(.tracking-icon) { width: 22px; height: 22px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #0c0c0c; }
     :global(.tracking-vehicle) { background: #f97316; }
