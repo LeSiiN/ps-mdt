@@ -1426,7 +1426,7 @@
         const CustomCRS = getCustomCRS();
         map = L.map(mapContainer as HTMLDivElement, {
             crs: CustomCRS,
-            minZoom: 3,
+            minZoom: 2,
             maxZoom: 10,
             zoom: 5,
             preferCanvas: true,
@@ -1987,7 +1987,9 @@
 
     .map-page { height: 100%; padding: 10px 20px 20px; background: var(--card-dark-bg); }
     .map-wrapper { position: relative; width: 100%; height: 100%; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); display: flex; }
-    .map-container { flex: 1; height: 100%; }
+    .map-container { flex: 1; height: 100%; background: #0fa8d2; }
+    /* Ocean-blue backdrop around the map image instead of bare white. */
+    :global(.map-container .leaflet-container) { background: #0fa8d2 !important; }
     .map-no-pointer { pointer-events: none !important; }
     .officer-card.dragging { opacity: 0.35; }
 
