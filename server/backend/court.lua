@@ -118,22 +118,21 @@ end
 
 -- Returns the configured phone resource name only if it is actually running.
 local function phoneResource()
-    local cfg = courtCfg().Phone
-    local res = cfg and cfg.Resource
+    local cfg = (Config and Config.Phone) or {}
+    local res = cfg.Resource
     if not res or res == '' then return nil end
     if GetResourceState(res) ~= 'started' then return nil end
     return res
 end
 
 -- Resolve a player's equipped phone number from their citizenid (works offline).
+-- Number resolution is centralised in functions.lua (config-based); phoneResource()
+-- is still used for the send-side export.
 local function getPhoneNumberFor(citizenid)
     local res = phoneResource()
-    if not res or not citizenid then return nil, res end
-    local ok, num = pcall(function()
-        return exports[res]:GetEquippedPhoneNumber(citizenid)
-    end)
-    if ok and num and tostring(num) ~= '' then return num, res end
-    return nil, res
+    if not citizenid then return nil, res end
+    local num = GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid) or nil
+    return num, res
 end
 
 -- Format a "YYYY-MM-DD HH:MM:SS" timestamp according to Config.DateTime.
@@ -165,7 +164,7 @@ local function sendHearingSms(citizenid, body)
     if not (cfg.Sms and cfg.Sms.enabled) then return false end
     local to, res = getPhoneNumberFor(citizenid)
     if not to then return false end
-    local from = (cfg.Phone and cfg.Phone.SmsSenderNumber) or 'COURT'
+    local from = (Config and Config.Phone and Config.Phone.SmsSenderNumber) or 'COURT'
     local ok = pcall(function()
         exports[res]:SendMessage(from, to, body)
     end)
@@ -180,7 +179,7 @@ local function sendHearingMail(citizenid, subject, message)
     if not number then return false end
     local mok, email = pcall(function() return exports[res]:GetEmailAddress(number) end)
     if not mok or not email or tostring(email) == '' then return false end
-    local sender = (cfg.Phone and cfg.Phone.MailSender) or 'Court'
+    local sender = (Config and Config.Phone and Config.Phone.MailSender) or 'Court'
     local sok = pcall(function()
         exports[res]:SendMail({
             to = email,

@@ -453,3 +453,42 @@ ps.registerCallback('ps-mdt:hasProfile', function(source)
 
     return EnsureProfileExists(citizenId)
 end)
+-- ---------------------------------------------------------------------------
+-- Phone number resolution (config-based, export-driven)
+-- ---------------------------------------------------------------------------
+-- Resolve a citizen's phone number through the configured phone resource so the
+-- MDT shows the correct number even when it isn't stored in charinfo.phone
+-- (lb-phone, gksphone, yseries, …). `fallback` is the charinfo.phone value; it is
+-- returned when the phone resource yields nothing and Config.Phone.UseCharinfoFallback
+-- is not disabled. Returns nil only when neither source produces a number.
+function GetCitizenPhoneNumber(citizenid, fallback)
+    local cfg = (Config and Config.Phone) or {}
+
+    local function withFallback(num)
+        if num ~= nil and tostring(num) ~= '' then return tostring(num) end
+        if cfg.UseCharinfoFallback ~= false and fallback ~= nil and tostring(fallback) ~= '' then
+            return tostring(fallback)
+        end
+        return nil
+    end
+
+    if not citizenid or citizenid == '' then return withFallback(nil) end
+
+    local res = cfg.Resource
+    if not res or res == '' then return withFallback(nil) end
+    if GetResourceState(res) ~= 'started' then return withFallback(nil) end
+
+    local exportName = cfg.NumberExport
+    if not exportName or exportName == '' then exportName = 'GetEquippedPhoneNumber' end
+
+    local ok, num = pcall(function()
+        return exports[res][exportName](exports[res], citizenid)
+    end)
+    if ok then return withFallback(num) end
+    return withFallback(nil)
+end
+
+-- Convenience export so other resources can reuse the same resolution.
+exports('GetCitizenPhoneNumber', function(citizenid, fallback)
+    return GetCitizenPhoneNumber(citizenid, fallback)
+end)

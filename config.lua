@@ -108,6 +108,21 @@ Config.FingerprintScan = {
 -- Fuel Resource Name
 Config.Fuel = 'LegacyFuel' -- Fuel resource name for vehicle fuel management
 
+-- Phone integration (single source of truth) ---------------------------------
+-- One place for everything phone-related: resolving a citizen's number for the
+-- MDT profile AND sending court reminder SMS / invite e-mails. Point this at your
+-- phone resource once and both features use it, so they can never drift apart.
+-- Leave Resource = '' to use charinfo.phone for display and disable court SMS/mail.
+Config.Phone = {
+    Resource     = 'lb-phone',                    -- phone script resource name ('' = charinfo.phone only, no SMS/mail)
+    NumberExport = 'GetEquippedPhoneNumber',      -- export returning a citizen's number for a citizenid
+    UseCharinfoFallback = true,                   -- if the export returns nothing, fall back to charinfo.phone
+
+    -- Court messaging (uses the same Resource above)
+    SmsSenderNumber = 'SA-COURT',                 -- "from" number shown on reminder SMS (any string lb-phone accepts)
+    MailSender      = 'San Andreas Judicial System', -- sender shown in the recipient's inbox
+}
+
 
 -- Housing / Properties Integration
 -- The MDT shows the properties a citizen owns on their profile. Every housing
@@ -390,7 +405,7 @@ Config.PersonnelCleanup = {
 
     -- Also remove audit-log rows where the fired person was the ACTOR. Off by
     -- default because it erases "who did what" history other staff may rely on.
-    DeleteActorAuditLogs = true,
+    DeleteActorAuditLogs = false,
 
     -- Remove messages the fired person sent.
     DeleteSentMessages = true,
@@ -687,13 +702,6 @@ Config.Court = {
     -- Default lead time (days) for hearings scheduled straight from a warrant
     -- via the "Schedule hearing" button in the warrants list.
     WarrantHearingLeadDays = 2,
-
-    -- ---- lb-phone integration -------------------------------------------
-    Phone = {
-        Resource = 'lb-phone',                       -- set '' to disable all phone messaging
-        SmsSenderNumber = 'SA-COURT',                -- "from" number shown on reminder SMS (any string lb-phone accepts)
-        MailSender = 'San Andreas Judicial System',  -- sender shown in the recipient's inbox
-    },
 
     -- ---- Reminder SMS (replaces the old MDT notify) ----------------------
     Sms = {
