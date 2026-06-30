@@ -531,6 +531,89 @@ ps.registerCallback(resourceName .. ':server:createHearingFromWarrant', function
     return { success = true, hearingId = hearingId, scheduled_at = scheduledAt, defendant_name = name }
 end)
 
+-- ---------------------------------------------------------------------------
+-- Warrant hearings are now scheduled by the DOJ during warrant-request review
+-- (not by officers). These two helpers are global so doj.lua / warrants.lua can
+-- reuse them. They close over this file's local helpers (normalize*, perm*,
+-- courtCfg, getOfficerDisplayName), so they must live after those declarations.
+-- ---------------------------------------------------------------------------
+
+-- Create a court hearing tied to a report's active warrant. `opts` may carry an
+-- explicit scheduled_at ('YYYY-MM-DD HH:MM' or '...:SS'), hearing_type, duration
+-- and notes. Returns hearingId on success, or nil + error string.
+function CreateWarrantHearingForReport(src, reportId, opts)
+    reportId = tonumber(reportId)
+    if not reportId then return nil, 'Missing report id' end
+    opts = opts or {}
+
+    local category = normalizeCategory(opts.category or 'court')
+    local domain = callerCalendarDomain(src)
+    if not categoryAllowedForDomain(category, domain) then return nil, 'Category not allowed for this department' end
+    if not CheckPermission(src, permForCategory(category, 'create')) then return nil, 'No permission to schedule hearings' end
+
+    local w = MySQL.single.await([[
+        SELECT w.reportid, w.citizenid,
+               JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
+               JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))  AS lastname
+        FROM mdt_reports_warrants w
+        LEFT JOIN players p ON p.citizenid COLLATE utf8mb4_general_ci = w.citizenid COLLATE utf8mb4_general_ci
+        WHERE w.reportid = ? AND w.expirydate >= NOW()
+        LIMIT 1
+    ]], { reportId })
+    if not w then return nil, 'No active warrant for that report' end
+
+    local name = ((w.firstname or '') .. ' ' .. (w.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+    if name == '' then name = ps.getPlayerNameByIdentifier(w.citizenid) or 'Unknown' end
+
+    -- Use the DOJ-provided date/time when valid, otherwise fall back to a sensible
+    -- default a couple of days out at a round hour.
+    local scheduledAt = opts.scheduled_at and tostring(opts.scheduled_at) or nil
+    if scheduledAt and scheduledAt:match('^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d$') then
+        scheduledAt = scheduledAt .. ':00'
+    elseif not (scheduledAt and scheduledAt:match('^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d$')) then
+        local leadDays = tonumber(courtCfg().WarrantHearingLeadDays) or 2
+        scheduledAt = os.date('%Y-%m-%d 10:00:00', os.time() + (leadDays * 24 * 60 * 60))
+    end
+
+    local citizenid = ps.getIdentifier(src)
+    local hearingId = MySQL.insert.await([[
+        INSERT INTO mdt_court_hearings
+            (title, category, hearing_type, warrant_reportid, defendant_cid, defendant_name,
+             scheduled_at, duration_minutes, status, notes, created_by, created_by_name, job_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ]], {
+        ('Warrant hearing — %s'):format(name),
+        category,
+        normalizeType(opts.hearing_type),
+        reportId,
+        w.citizenid,
+        name,
+        scheduledAt,
+        tonumber(opts.duration_minutes) or 30,
+        normalizeStatus('scheduled'),
+        (type(opts.notes) == 'string' and opts.notes ~= '') and opts.notes or nil,
+        citizenid,
+        getOfficerDisplayName(src),
+        domain,
+    })
+    if not hearingId then return nil, 'Failed to create hearing' end
+
+    if ps.auditLog then
+        ps.auditLog(src, 'court_hearing_from_warrant', 'court_hearing', hearingId, {
+            reportId = reportId, defendant = w.citizenid, scheduled_at = scheduledAt,
+        })
+    end
+    return hearingId, scheduledAt
+end
+
+-- Delete every hearing tied to a report's warrant (attendees cascade via FK).
+-- Called when a warrant is closed so its calendar entry disappears with it.
+function RemoveWarrantHearingsForReport(reportId)
+    reportId = tonumber(reportId)
+    if not reportId then return 0 end
+    return MySQL.update.await('DELETE FROM mdt_court_hearings WHERE warrant_reportid = ?', { reportId }) or 0
+end
+
 ps.registerCallback(resourceName .. ':server:updateHearing', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end

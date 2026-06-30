@@ -252,5 +252,6 @@ if not Config.Keys.OpenMDT.enabled then
     ps.debug('MDT Open Keybind Disabled')
 else
     ps.debug('MDT Open Keybind Enabled: ' .. Config.Keys.OpenMDT.key)
-    ps.addKeybind(Config.Keys.OpenMDT.key, Config.Commands.Open.command)
+    local message = 'Open MDT'
+    ps.addKeybind(Config.Keys.OpenMDT.key, Config.Commands.Open.command, message)
 end

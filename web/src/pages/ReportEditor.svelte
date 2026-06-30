@@ -1279,7 +1279,7 @@
 		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 	}
 	:global(.bw-modal-title) {
-		font-size: 12px; font-weight: 600;
+		font-size: 15px; font-weight: 600;
 		color: rgba(255, 255, 255, 0.85);
 	}
 	:global(.bw-modal-close) {
@@ -1287,7 +1287,7 @@
 		background: transparent;
 		color: rgba(255, 255, 255, 0.3);
 		border: 1px solid rgba(255, 255, 255, 0.06);
-		font-size: 14px; line-height: 1;
+		font-size: 18px; line-height: 1;
 		padding: 2px 7px; border-radius: 3px;
 		cursor: pointer; transition: all 0.1s;
 	}
@@ -1301,29 +1301,29 @@
 	}
 	:global(.bw-field) { display: flex; flex-direction: column; gap: 3px; }
 	:global(.bw-label) {
-		color: rgba(255, 255, 255, 0.35);
-		font-size: 9px; font-weight: 600;
+		color: rgba(255, 255, 255, 0.4);
+		font-size: 12px; font-weight: 600;
 		text-transform: uppercase; letter-spacing: 0.6px;
 	}
 	:global(.bw-required) { color: rgba(239, 68, 68, 0.8); }
-	:global(.bw-value) { font-size: 11px; color: rgba(255, 255, 255, 0.8); }
+	:global(.bw-value) { font-size: 13px; color: rgba(255, 255, 255, 0.8); }
 	:global(.bw-charges) { display: flex; flex-wrap: wrap; gap: 4px; }
 	:global(.bw-charge-chip) {
 		padding: 2px 8px;
 		background: rgba(255, 255, 255, 0.04);
 		border: 1px solid rgba(255, 255, 255, 0.06);
-		border-radius: 3px; font-size: 10px;
+		border-radius: 3px; font-size: 12px;
 		color: rgba(255, 255, 255, 0.65);
 	}
-	:global(.bw-no-charges) { font-size: 10px; color: rgba(255, 255, 255, 0.3); font-style: italic; }
+	:global(.bw-no-charges) { font-size: 12px; color: rgba(255, 255, 255, 0.3); font-style: italic; }
 	:global(.bw-textarea) {
 		width: 100%; min-height: 70px;
 		padding: 5px 8px;
 		background: rgba(255, 255, 255, 0.03);
 		border: 1px solid rgba(255, 255, 255, 0.06);
 		border-radius: 3px;
-		color: rgba(255, 255, 255, 0.8);
-		font-size: 11px; font-family: inherit;
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 13px; font-family: inherit;
 		resize: vertical; outline: none;
 		transition: border-color 0.1s;
 	}
@@ -1335,8 +1335,8 @@
 		border-top: 1px solid rgba(255, 255, 255, 0.06);
 	}
 	:global(.bw-btn) {
-		padding: 4px 12px; border-radius: 3px;
-		font-size: 10px; font-weight: 600;
+		padding: 6px 16px; border-radius: 3px;
+		font-size: 12px; font-weight: 600;
 		cursor: pointer; border: 1px solid transparent;
 		transition: all 0.1s;
 	}

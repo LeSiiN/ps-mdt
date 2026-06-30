@@ -42,6 +42,82 @@
 	let statusFilter = $state<string>("pending");
 	let reviewReason = $state("");
 
+	// Court hearing the DOJ can schedule AFTER a warrant request is approved.
+	type WarrantHearing = { id: number; scheduled_at: string; hearing_type: string; status: string };
+	let existingHearing = $state<WarrantHearing | null>(null);
+	let hearingLoading = $state(false);
+	let hearingDate = $state("");
+	let hearingTime = $state("10:00");
+	let hearingType = $state("arraignment");
+
+	// Default the hearing date to two days out whenever a request is opened.
+	function defaultHearingDate(): string {
+		const d = new Date();
+		d.setDate(d.getDate() + 2);
+		return d.toISOString().slice(0, 10);
+	}
+
+	async function loadWarrantHearing(reportId: number | undefined) {
+		existingHearing = null;
+		if (!reportId || isEnvBrowser()) return;
+		try {
+			const res = await fetchNui<{ success: boolean; hearing?: WarrantHearing }>(
+				NUI_EVENTS.DOJ.GET_WARRANT_HEARING,
+				{ reportId },
+				{ success: true },
+			);
+			existingHearing = res?.hearing ?? null;
+		} catch {
+			existingHearing = null;
+		}
+	}
+
+	async function handleScheduleHearing() {
+		if (!selectedRequest?.linked_report_id || !hearingDate || !hearingTime) return;
+		hearingLoading = true;
+		try {
+			const res = await fetchNui<{ success: boolean; error?: string; scheduled_at?: string }>(
+				NUI_EVENTS.DOJ.SCHEDULE_WARRANT_HEARING,
+				{
+					reportId: selectedRequest.linked_report_id,
+					scheduled_at: `${hearingDate} ${hearingTime}`,
+					hearing_type: hearingType,
+				},
+				{ success: true },
+			);
+			if (res.success) {
+				globalNotifications.success("Hearing scheduled");
+				await loadWarrantHearing(selectedRequest.linked_report_id);
+			} else {
+				globalNotifications.error(res.error || "Failed to schedule hearing");
+			}
+		} catch {
+			globalNotifications.error("Failed to schedule hearing");
+		}
+		hearingLoading = false;
+	}
+
+	async function handleRemoveHearing() {
+		if (!selectedRequest?.linked_report_id) return;
+		hearingLoading = true;
+		try {
+			const res = await fetchNui<{ success: boolean; error?: string }>(
+				NUI_EVENTS.DOJ.REMOVE_WARRANT_HEARING,
+				{ reportId: selectedRequest.linked_report_id },
+				{ success: true },
+			);
+			if (res.success) {
+				globalNotifications.success("Hearing removed");
+				existingHearing = null;
+			} else {
+				globalNotifications.error(res.error || "Failed to remove hearing");
+			}
+		} catch {
+			globalNotifications.error("Failed to remove hearing");
+		}
+		hearingLoading = false;
+	}
+
 	let canApprove = $derived(authService?.hasPermission("warrants_approve") ?? false);
 	let canClose = $derived(authService?.hasPermission("warrants_close") ?? false);
 
@@ -193,6 +269,13 @@
 	function selectRequest(id: number) {
 		selectedRequest = requests.find((r) => r.id === id) || null;
 		reviewReason = "";
+		hearingDate = defaultHearingDate();
+		hearingTime = "10:00";
+		hearingType = "arraignment";
+		existingHearing = null;
+		if (selectedRequest?.status === "approved") {
+			loadWarrantHearing(selectedRequest.linked_report_id);
+		}
 	}
 
 	function goBack() {
@@ -381,6 +464,57 @@
 									Close Warrant
 								</button>
 							</div>
+						</div>
+					{/if}
+					{#if selectedRequest.status === "approved" && selectedRequest.linked_report_id && canApprove}
+						<div class="section">
+							<div class="section-title">Court Hearing</div>
+							{#if existingHearing}
+								<div class="field-row">
+									<span class="field-label">Scheduled</span>
+									<span class="field-value">{formatDateTimeValue(existingHearing.scheduled_at)}</span>
+								</div>
+								<div class="field-row">
+									<span class="field-label">Type</span>
+									<span class="field-value">{formatLabel(existingHearing.hearing_type)}</span>
+								</div>
+								<p class="muted-text">This hearing is on the court calendar. Closing the warrant removes it automatically.</p>
+								<div class="review-actions">
+									<button class="deny-btn" disabled={hearingLoading} onclick={handleRemoveHearing}>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
+										Remove hearing
+									</button>
+								</div>
+							{:else}
+								<p class="muted-text">Schedule a hearing for this warrant. It appears on the court calendar and is removed automatically if the warrant is closed.</p>
+								<div class="hearing-fields">
+									<div class="hearing-field">
+										<label class="form-label" for="h-date">Date</label>
+										<input id="h-date" type="date" class="form-input" bind:value={hearingDate} />
+									</div>
+									<div class="hearing-field">
+										<label class="form-label" for="h-time">Time</label>
+										<input id="h-time" type="time" class="form-input" bind:value={hearingTime} />
+									</div>
+									<div class="hearing-field">
+										<label class="form-label" for="h-type">Type</label>
+										<select id="h-type" class="form-input" bind:value={hearingType}>
+											<option value="arraignment">Arraignment</option>
+											<option value="trial">Trial</option>
+											<option value="sentencing">Sentencing</option>
+											<option value="motion">Motion</option>
+											<option value="appeal">Appeal</option>
+											<option value="hearing">Hearing</option>
+										</select>
+									</div>
+								</div>
+								<div class="review-actions">
+									<button class="approve-btn" disabled={hearingLoading || !hearingDate || !hearingTime} onclick={handleScheduleHearing}>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+										Schedule hearing
+									</button>
+								</div>
+							{/if}
 						</div>
 					{/if}
 					<div class="section">
@@ -892,6 +1026,35 @@
 		display: flex;
 		gap: 8px;
 		margin-top: 4px;
+	}
+
+	.form-input {
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 5px 8px;
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 11px;
+		outline: none;
+		width: 100%;
+		box-sizing: border-box;
+		font-family: inherit;
+	}
+
+	.form-input:focus {
+		border-color: rgba(255, 255, 255, 0.1);
+	}
+
+	.hearing-fields {
+		display: grid;
+		grid-template-columns: 1fr 1fr 1fr;
+		gap: 8px;
+	}
+
+	.hearing-field {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
 	}
 
 	.approve-btn {
