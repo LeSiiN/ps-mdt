@@ -492,11 +492,8 @@
     const bodycamMarkers = new globalThis.Map<string, L.Marker>();
     const vehicleMarkers = new globalThis.Map<string, L.Marker>();
 
-    const offsetX = 40;
-    const offsetY = 31;
-
     function toMapLatLng(coords: { x: number; y: number }) {
-        return [coords.y - offsetY, coords.x + offsetX];
+        return [coords.y, coords.x];
     }
     function toGtaCoords(latlng: L.LatLng): GtaPoint {
         return { x: latlng.lng - offsetX, y: latlng.lat + offsetY };
@@ -1413,7 +1410,7 @@
                 const dy = pos2.lat - pos1.lat;
                 return Math.sqrt(dx * dx + dy * dy);
             },
-            transformation: new Transformation(0.02072, 117.3, -0.0205, 172.8),
+            transformation: new Transformation(0.02061188, 117.41909, -0.02059566, 172.62816),
             infinite: false,
         });
     }
