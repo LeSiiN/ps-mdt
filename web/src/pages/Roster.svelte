@@ -462,13 +462,13 @@
 			);
 			if (response?.success) {
 				officers = officers.filter((o) => o.citizenid !== selectedOfficer!.citizenid);
-				globalNotifications.success(response.message || "Officer has been terminated");
+				globalNotifications.success(response.message || `${term.member} has been terminated`);
 				closeBossPanel();
 			} else {
-				globalNotifications.error(response?.message || "Failed to terminate officer");
+				globalNotifications.error(response?.message || `Failed to terminate ${term.memberLower}`);
 			}
 		} catch {
-			globalNotifications.error("Failed to terminate officer");
+			globalNotifications.error(`Failed to terminate ${term.memberLower}`);
 		} finally {
 			isSavingBoss = false;
 			showFireConfirm = false;
@@ -647,8 +647,8 @@
 						<p class="empty-title">No {term.members} Found</p>
 						<p class="empty-sub">
 							{searchQuery
-								? "No officers match your search criteria."
-								: "No officers are currently in the roster."}
+								? `No ${term.membersLower} match your search criteria.`
+								: `No ${term.membersLower} are currently in the roster.`}
 						</p>
 					</div>
 				{:else}
@@ -732,7 +732,7 @@
 					<div class="no-tags">
 						<span class="material-icons no-tags-icon">label_off</span>
 						<p>No certifications available.</p>
-						<p class="no-tags-hint">Create officer tags in Management &gt; Tags</p>
+						<p class="no-tags-hint">Create {term.memberLower} tags in Management &gt; Tags</p>
 					</div>
 				{:else}
 					<div class="cert-grid">
@@ -826,7 +826,7 @@
 				{#if bossPanelTab === "rank"}
 					<div class="boss-section">
 						<label class="boss-label">Change Rank</label>
-						<p class="boss-hint">Select a new rank for this officer. Officer must be online.</p>
+						<p class="boss-hint">Select a new rank for this {term.memberLower}. {term.member} must be online.</p>
 						<div class="grade-grid">
 							{#if jobGrades.length === 0}
 								<div class="no-tags">
@@ -888,7 +888,7 @@
 				{:else if bossPanelTab === "callsign"}
 					<div class="boss-section">
 						<label class="boss-label">Edit Callsign</label>
-						<p class="boss-hint">Update this officer's callsign/badge number. Officer must be online.</p>
+						<p class="boss-hint">Update this {term.memberLower}'s callsign/badge number. {term.member} must be online.</p>
 						<div class="callsign-input-row">
 							<input
 								type="text"
@@ -907,7 +907,7 @@
 							<div class="no-tags">
 								<span class="material-icons no-tags-icon">label_off</span>
 								<p>No certifications available.</p>
-								<p class="no-tags-hint">Create officer tags in Management &gt; Tags</p>
+								<p class="no-tags-hint">Create {term.memberLower} tags in Management &gt; Tags</p>
 							</div>
 						{:else}
 							<div class="cert-grid">
@@ -937,13 +937,13 @@
 				{:else if bossPanelTab === "ppr"}
 					<div class="boss-section">
 						<label class="boss-label">Performance Reviews</label>
-						<p class="boss-hint">Performance planning and review entries for this officer.</p>
+						<p class="boss-hint">Performance planning and review entries for this {term.memberLower}.</p>
 						{#if pprHistoryLoading}
 							<p class="boss-hint">Loading...</p>
 						{:else if pprHistory.length === 0}
 							<div class="no-tags">
 								<span class="material-icons no-tags-icon">rate_review</span>
-								<p>No PPR entries found for this officer.</p>
+								<p>No PPR entries found for this {term.memberLower}.</p>
 							</div>
 						{:else}
 							<div class="ia-history-list">
@@ -969,13 +969,13 @@
 				{:else if bossPanelTab === "fto"}
 					<div class="boss-section">
 						<label class="boss-label">Field Training History</label>
-						<p class="boss-hint">FTO training assignments for this officer.</p>
+						<p class="boss-hint">FTO training assignments for this {term.memberLower}.</p>
 						{#if ftoHistoryLoading}
 							<p class="boss-hint">Loading...</p>
 						{:else if ftoHistory.length === 0}
 							<div class="no-tags">
 								<span class="material-icons no-tags-icon">school</span>
-								<p>No FTO records found for this officer.</p>
+								<p>No FTO records found for this {term.memberLower}.</p>
 							</div>
 						{:else}
 							<div class="ia-history-list">
@@ -1012,13 +1012,13 @@
 				{:else if bossPanelTab === "ia_history"}
 					<div class="boss-section">
 						<label class="boss-label">IA Complaint History</label>
-						<p class="boss-hint">Internal affairs complaints involving this officer.</p>
+						<p class="boss-hint">Internal affairs complaints involving this {term.memberLower}.</p>
 						{#if iaHistoryLoading}
 							<p class="boss-hint">Loading...</p>
 						{:else if iaHistory.length === 0}
 							<div class="no-tags">
 								<span class="material-icons no-tags-icon">verified_user</span>
-								<p>No IA complaints found for this officer.</p>
+								<p>No IA complaints found for this {term.memberLower}.</p>
 							</div>
 						{:else}
 							<div class="ia-history-list">
@@ -1041,7 +1041,7 @@
 				{:else if bossPanelTab === "activity"}
 					<div class="boss-section">
 						<label class="boss-label">Activity Timeline</label>
-						<p class="boss-hint">Recorded changes involving this officer — rank, callsign, status and more.</p>
+						<p class="boss-hint">Recorded changes involving this {term.memberLower} — rank, callsign, status and more.</p>
 						{#if selectedOfficer?.citizenid}
 							<ActivityTimeline citizenid={selectedOfficer.citizenid} />
 						{/if}
