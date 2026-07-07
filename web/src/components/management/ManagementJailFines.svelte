@@ -102,10 +102,24 @@
 </script>
 
 <div class="jf-page">
+	<div class="jf-header">
+		<div class="jf-header-info">
+			<span class="card-label">Jail & Fines Configuration</span>
+			<span class="card-subtitle">Configure reduction offers and fine limits. Changes apply department-wide.</span>
+		</div>
+		{#if !isLoading}
+			<div class="jf-header-actions">
+				{#if statusMsg}
+					<span class="save-status {statusMsg.type}">{statusMsg.text}</span>
+				{/if}
+				<button class="btn-save" onclick={saveConfig} disabled={isSaving}>
+					<span class="material-icons btn-save-icon">save</span>
+					{isSaving ? "Saving..." : "Save Settings"}
+				</button>
+			</div>
+		{/if}
+	</div>
 	<div class="jf-card">
-		<span class="card-label">Jail & Fines Configuration</span>
-		<p class="card-subtitle">Configure reduction offers and fine limits. Changes apply department-wide.</p>
-
 		{#if isLoading}
 			<div class="jf-loading">
 				<div class="loading-spinner"></div>
@@ -113,11 +127,15 @@
 			</div>
 		{:else}
 			<div class="jf-scroll">
+				<div class="jf-grid">
 				<!-- Reduction Offers -->
 				<div class="setting-group">
 					<div class="setting-group-header">
+						<span class="material-icons group-icon">percent</span>
+						<div class="group-head-text">
 						<span class="group-label">Reduction Offers</span>
 						<span class="group-desc">Percentage options shown when offering a reduction on charges</span>
+						</div>
 					</div>
 
 					<div class="offers-list">
@@ -152,8 +170,11 @@
 				<!-- Max Fine Amount -->
 				<div class="setting-group">
 					<div class="setting-group-header">
+						<span class="material-icons group-icon">payments</span>
+						<div class="group-head-text">
 						<span class="group-label">Maximum Fine Amount</span>
 						<span class="group-desc">The highest fine amount that can be processed through the MDT</span>
+						</div>
 					</div>
 
 					<div class="fine-input-row">
@@ -166,21 +187,10 @@
 						/>
 					</div>
 				</div>
+				</div>
 			</div>
 		{/if}
 	</div>
-
-	{#if !isLoading}
-		<div class="save-bar">
-			<button class="btn-save" onclick={saveConfig} disabled={isSaving}>
-				<span class="material-icons btn-save-icon">save</span>
-				{isSaving ? "Saving..." : "Save Settings"}
-			</button>
-			{#if statusMsg}
-				<span class="save-status {statusMsg.type}">{statusMsg.text}</span>
-			{/if}
-		</div>
-	{/if}
 </div>
 
 <style>
@@ -191,13 +201,20 @@
 		overflow: hidden;
 	}
 
-	.save-bar {
+	.jf-header {
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
 		gap: 10px;
 		flex-shrink: 0;
 		padding: 10px 16px;
-		border-top: 1px solid rgba(255, 255, 255, 0.06);
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	}
+	.jf-header-info { display: flex; flex-direction: column; gap: 2px; }
+	.jf-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 10px;
 	}
 
 	.save-status {
@@ -246,7 +263,7 @@
 		background: transparent;
 		border: none;
 		border-radius: 0;
-		padding: 12px 16px;
+		padding: 0;
 		flex: 1;
 		min-height: 0;
 		display: flex;
@@ -285,9 +302,6 @@
 	.card-subtitle {
 		color: rgba(255, 255, 255, 0.4);
 		font-size: 10px;
-		margin: 6px 0 12px 0;
-		padding-bottom: 10px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 	}
 
 	.jf-loading {
@@ -317,12 +331,33 @@
 
 	/* Setting Groups */
 	.setting-group {
-		margin-bottom: 16px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 6px;
+		padding: 12px 14px;
+	}
+	.jf-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+		align-items: start;
+		padding: 14px 16px;
 	}
 
 	.setting-group-header {
-		margin-bottom: 8px;
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		padding-bottom: 8px;
+		margin-bottom: 10px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 	}
+	.group-icon {
+		font-size: 15px;
+		color: rgba(var(--accent-text-rgb), 0.55);
+		margin-top: 1px;
+	}
+	.group-head-text { display: flex; flex-direction: column; gap: 1px; }
 
 	.group-label {
 		display: block;

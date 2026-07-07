@@ -636,13 +636,13 @@
 		align-items: center;
 		gap: 8px;
 		padding: 8px 10px;
-		background: transparent;
-		border: 1px solid transparent;
+		background: rgba(255, 255, 255, 0.015);
+		border: 1px solid rgba(255, 255, 255, 0.04);
 		border-radius: 6px;
 		cursor: pointer;
 		text-align: left;
 		transition: all 0.12s;
-		margin-bottom: 2px;
+		margin-bottom: 4px;
 	}
 
 	.cat-row:hover { background: rgba(255, 255, 255, 0.03); }
@@ -699,7 +699,15 @@
 		align-items: center;
 		gap: 8px;
 		padding: 8px 12px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 5px;
+		margin-bottom: 4px;
+		transition: border-color 0.1s, background 0.1s;
+	}
+	.sec-row:hover {
+		background: rgba(255, 255, 255, 0.035);
+		border-color: rgba(255, 255, 255, 0.1);
 	}
 
 	.sec-num {
@@ -929,7 +937,10 @@
 	.publish-card {
 		text-align: center;
 		max-width: 400px;
-		padding: 32px;
+		padding: 28px 32px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 8px;
 	}
 
 	.publish-icon {
