@@ -56,8 +56,9 @@ end)
 
 RegisterNUICallback('deleteFTODor', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    if not data or not data.id then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:deleteFTODor', data.id)
+    local dorId = data and (data.id or data.dor_id) or nil
+    if not dorId then cb({ success = false, error = 'Missing DOR id' }) return end
+    local result = ps.callback(resourceName .. ':server:deleteFTODor', dorId)
     cb(result or { success = false })
 end)
 
@@ -85,4 +86,15 @@ RegisterNUICallback('saveFTOCompetencies', function(data, cb)
     if not data or not data.competencies then cb({ success = false }) return end
     local result = ps.callback(resourceName .. ':server:saveFTOCompetencies', data.competencies)
     cb(result or { success = false })
+end)
+
+-- FTO phase progression + status (trainer tool)
+RegisterNUICallback('advanceFTOPhase', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    cb(ps.callback(resourceName .. ':server:advanceFTOPhase', data or {}) or { success = false })
+end)
+
+RegisterNUICallback('setFTOStatus', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    cb(ps.callback(resourceName .. ':server:setFTOStatus', data or {}) or { success = false })
 end)

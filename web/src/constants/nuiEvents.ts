@@ -181,6 +181,8 @@ export const NUI_EVENTS = {
 		DELETE_FTO_ASSIGNMENT: "deleteFTOAssignment",
 		CREATE_FTO_DOR: "createFTODor",
 		DELETE_FTO_DOR: "deleteFTODor",
+		ADVANCE_FTO_PHASE: "advanceFTOPhase",
+		SET_FTO_STATUS: "setFTOStatus",
 		GET_FTO_PHASES: "getFTOPhases",
 		SAVE_FTO_PHASES: "saveFTOPhases",
 		GET_FTO_COMPETENCIES: "getFTOCompetencies",
