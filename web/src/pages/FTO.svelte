@@ -387,6 +387,25 @@
 	);
 	let isLastPhase = $derived(currentPhaseIndex === phases.length - 1 && phases.length > 0);
 	let isActive = $derived(selectedDetail?.assignment.status === "active");
+	let isCompleted = $derived(selectedDetail?.assignment.status === "completed");
+	let isFailed = $derived(selectedDetail?.assignment.status === "failed");
+	// Editing is only possible while the assignment is active.
+	let canEdit = $derived(canManage && isActive);
+
+	// Sidebar analytics
+	let overallAvgAll = $derived.by(() => {
+		const d = selectedDetail?.dors ?? [];
+		if (!d.length) return 0;
+		return d.reduce((s, x) => s + (Number(x.overall_rating) || 0), 0) / d.length;
+	});
+	let phaseBreakdown = $derived.by(() => {
+		if (!selectedDetail) return [] as { name: string; count: number; avg: number }[];
+		return phases.map(p => {
+			const ds = selectedDetail!.dors.filter(x => x.phase_id === p.id);
+			const avg = ds.length ? ds.reduce((s, x) => s + (Number(x.overall_rating) || 0), 0) / ds.length : 0;
+			return { name: p.name, count: ds.length, avg };
+		});
+	});
 
 	// DOR counts per phase id (strict — each DOR only counts for its own phase).
 	let phaseDorCounts = $derived.by(() => {
@@ -416,6 +435,7 @@
 
 	// Program-wide progress: fully-cleared phases + how far through the current one.
 	let overallProgress = $derived.by(() => {
+		if (selectedDetail?.assignment.status === "completed") return 100;
 		const total = phases.length;
 		if (total === 0 || currentPhaseIndex < 0) return 0;
 		const completed = currentPhaseIndex; // phases before the current one are done
@@ -450,6 +470,9 @@
 		if (isNaN(start.getTime())) return null;
 		return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
 	});
+
+	let bestCompetency = $derived.by(() => [...competencyAverages].sort((a, b) => b.avg - a.avg)[0] ?? null);
+	let weakestCompetency = $derived.by(() => [...competencyAverages].sort((a, b) => a.avg - b.avg)[0] ?? null);
 
 	// Confirmation flow for consequential actions
 	let phaseAction = $state<null | { kind: "advance" | "complete" | "back" | "fail" | "suspend"; note: string }>(null);
@@ -571,6 +594,11 @@
 		</div>
 
 		<div class="detail-scroll">
+			{#if isCompleted}
+				<div class="status-watermark wm-complete">COMPLETE</div>
+			{:else if isFailed}
+				<div class="status-watermark wm-failed">FAILED</div>
+			{/if}
 			<div class="detail-layout">
 				<!-- Left Column: Main Content -->
 				<div class="detail-main">
@@ -633,9 +661,9 @@
 						<!-- Phase stepper -->
 						<div class="phase-stepper">
 							{#each phases as p, i}
-								<div class="phase-step {i < currentPhaseIndex ? 'done' : ''} {i === currentPhaseIndex ? 'active' : ''}" title={p.description || p.name}>
+								<div class="phase-step {isCompleted || i < currentPhaseIndex ? 'done' : ''} {!isCompleted && i === currentPhaseIndex ? 'active' : ''}" title={p.description || p.name}>
 									<div class="phase-step-dot">
-										{#if i < currentPhaseIndex}
+										{#if isCompleted || i < currentPhaseIndex}
 											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
 										{:else}
 											{i + 1}
@@ -658,12 +686,12 @@
 								<span class="phase-stat-label">Phase</span>
 							</div>
 							<div class="phase-stat">
-								<span class="phase-stat-value" style="color:{ratingColor(avgOverall)}">{avgOverall ? avgOverall.toFixed(1) : "—"}</span>
-								<span class="phase-stat-label">Avg rating</span>
+								<span class="phase-stat-value" style="color:{ratingColor(isCompleted ? overallAvgAll : avgOverall)}">{(isCompleted ? overallAvgAll : avgOverall) ? (isCompleted ? overallAvgAll : avgOverall).toFixed(1) : "—"}</span>
+								<span class="phase-stat-label">{isCompleted ? "Final avg" : "Avg rating"}</span>
 							</div>
 							<div class="phase-stat">
-								<span class="phase-stat-value">{currentPhaseDors.length}</span>
-								<span class="phase-stat-label">DORs this phase</span>
+								<span class="phase-stat-value">{isCompleted ? selectedDetail.dors.length : currentPhaseDors.length}</span>
+								<span class="phase-stat-label">{isCompleted ? "Total DORs" : "DORs this phase"}</span>
 							</div>
 							<div class="phase-stat">
 								<span class="phase-stat-value">{daysInProgram ?? "—"}</span>
@@ -733,7 +761,7 @@
 					<div class="section">
 						<div class="section-header">
 							<div class="section-title" style="margin-bottom:0;">Daily Observation Reports ({selectedDetail.dors.length})</div>
-							{#if canManage && !showDorForm}
+							{#if canEdit && !showDorForm}
 								<button class="action-btn" onclick={initDorForm}>
 									<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 									New DOR
@@ -812,7 +840,7 @@
 											{#if dor.author_name}
 												<span class="dor-author">{dor.author_name}</span>
 											{/if}
-											{#if canManage}
+											{#if canEdit}
 												<button class="chip-remove" onclick={() => handleDeleteDor(dor.id)}>
 													<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 												</button>
@@ -839,21 +867,106 @@
 
 				<!-- Right Column: Sidebar -->
 				<div class="detail-side">
+					{#if isCompleted || isFailed}
+						<div class="section outcome-card {isCompleted ? 'outcome-complete' : 'outcome-failed'}">
+							<div class="outcome-icon">
+								{#if isCompleted}
+									<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+								{:else}
+									<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+								{/if}
+							</div>
+							<div class="outcome-title">{isCompleted ? "Training Completed" : "Training Failed"}</div>
+							<div class="outcome-sub">
+								{#if selectedDetail.assignment.end_date}Closed {formatDateValue(selectedDetail.assignment.end_date)}{/if}
+								{#if daysInProgram != null} · {daysInProgram} day{daysInProgram === 1 ? "" : "s"}{/if}
+							</div>
+						</div>
+					{/if}
+
 					<div class="section">
 						<div class="section-title">Summary</div>
 						<div class="field-group">
-							<span class="field-label">DOR Count</span>
-							<span class="field-value">{selectedDetail.assignment.dor_count}</span>
+							<span class="field-label">FTO Number</span>
+							<span class="field-value">{selectedDetail.assignment.fto_number || "—"}</span>
 						</div>
 						<div class="field-group">
-							<span class="field-label">Latest Rating</span>
-							<span class="field-value">{selectedDetail.assignment.latest_rating ?? '-'}</span>
+							<span class="field-label">Trainer</span>
+							<span class="field-value">{selectedDetail.assignment.trainer_name}</span>
 						</div>
 						<div class="field-group">
-							<span class="field-label">Created</span>
-							<span class="field-value">{formatDateTimeValue(selectedDetail.assignment.created_at)}</span>
+							<span class="field-label">Current Phase</span>
+							<span class="field-value">{selectedDetail.assignment.current_phase || "—"}</span>
+						</div>
+						<div class="field-group">
+							<span class="field-label">Start Date</span>
+							<span class="field-value">{formatDateValue(selectedDetail.assignment.start_date)}</span>
+						</div>
+						<div class="field-group">
+							<span class="field-label">Days in Program</span>
+							<span class="field-value">{daysInProgram ?? "—"}</span>
 						</div>
 					</div>
+
+					<div class="section">
+						<div class="section-title">Performance</div>
+						<div class="perf-grid">
+							<div class="perf-cell">
+								<span class="perf-value" style="color:{ratingColor(overallAvgAll)}">{overallAvgAll ? overallAvgAll.toFixed(1) : "—"}</span>
+								<span class="perf-label">Overall avg</span>
+							</div>
+							{#if isCompleted}
+								<div class="perf-cell">
+									<span class="perf-value" style="color:rgba(74,222,128,0.95)">{phaseProgress.total}/{phaseProgress.total}</span>
+									<span class="perf-label">Phases done</span>
+								</div>
+							{:else}
+								<div class="perf-cell">
+									<span class="perf-value" style="color:{ratingColor(avgOverall)}">{avgOverall ? avgOverall.toFixed(1) : "—"}</span>
+									<span class="perf-label">This phase</span>
+								</div>
+							{/if}
+							<div class="perf-cell">
+								<span class="perf-value">{selectedDetail.dors.length}</span>
+								<span class="perf-label">Total DORs</span>
+							</div>
+						</div>
+					</div>
+
+					{#if phaseBreakdown.some(p => p.count > 0)}
+						<div class="section">
+							<div class="section-title">By Phase</div>
+							<div class="pb-list">
+								{#each phaseBreakdown as pb}
+									<div class="pb-row">
+										<span class="pb-name">{pb.name}</span>
+										<span class="pb-count">{pb.count} DOR{pb.count === 1 ? "" : "s"}</span>
+										<span class="pb-avg" style="color:{ratingColor(pb.avg)}">{pb.avg ? pb.avg.toFixed(1) : "—"}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if bestCompetency || weakestCompetency}
+						<div class="section">
+							<div class="section-title">Highlights</div>
+							{#if bestCompetency}
+								<div class="hl-row">
+									<span class="hl-tag hl-good">Strongest</span>
+									<span class="hl-name">{bestCompetency.name}</span>
+									<span class="hl-val" style="color:{ratingColor(bestCompetency.avg)}">{bestCompetency.avg.toFixed(1)}</span>
+								</div>
+							{/if}
+							{#if weakestCompetency && weakestCompetency.id !== bestCompetency?.id}
+								<div class="hl-row">
+									<span class="hl-tag hl-bad">Needs work</span>
+									<span class="hl-name">{weakestCompetency.name}</span>
+									<span class="hl-val" style="color:{ratingColor(weakestCompetency.avg)}">{weakestCompetency.avg.toFixed(1)}</span>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -1389,7 +1502,78 @@
 		flex-direction: column;
 		gap: 0;
 		padding-bottom: 12px;
+		position: relative;
 	}
+
+	/* Completion / failure watermark across the page — readable underneath. */
+	.status-watermark {
+		position: absolute;
+		top: 42%;
+		left: 50%;
+		transform: translate(-50%, -50%) rotate(-18deg);
+		font-size: clamp(60px, 12vw, 150px);
+		font-weight: 900;
+		letter-spacing: 6px;
+		pointer-events: none;
+		user-select: none;
+		z-index: 5;
+		white-space: nowrap;
+	}
+	.wm-complete { color: rgba(34, 197, 94, 0.14); text-shadow: 0 0 30px rgba(34, 197, 94, 0.15); }
+	.wm-failed { color: rgba(239, 68, 68, 0.14); text-shadow: 0 0 30px rgba(239, 68, 68, 0.15); }
+
+	/* Outcome card in sidebar */
+	.outcome-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: 4px;
+		padding: 16px 12px;
+	}
+	.outcome-complete { border: 1px solid rgba(34, 197, 94, 0.3); background: rgba(34, 197, 94, 0.06); }
+	.outcome-failed { border: 1px solid rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.06); }
+	.outcome-complete .outcome-icon { color: rgba(74, 222, 128, 0.95); }
+	.outcome-failed .outcome-icon { color: rgba(248, 113, 113, 0.95); }
+	.outcome-title { font-size: 14px; font-weight: 700; color: rgba(255, 255, 255, 0.9); }
+	.outcome-sub { font-size: 10px; color: rgba(255, 255, 255, 0.45); }
+
+	/* Performance grid */
+	.perf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+	.perf-cell {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+		padding: 8px 4px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 5px;
+	}
+	.perf-value { font-size: 17px; font-weight: 700; color: rgba(255, 255, 255, 0.9); line-height: 1; }
+	.perf-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.3px; color: rgba(255, 255, 255, 0.4); }
+
+	/* Phase breakdown */
+	.pb-list { display: flex; flex-direction: column; gap: 4px; }
+	.pb-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 8px;
+		background: rgba(255, 255, 255, 0.02);
+		border-radius: 4px;
+	}
+	.pb-name { flex: 1; font-size: 11px; color: rgba(255, 255, 255, 0.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.pb-count { font-size: 9px; color: rgba(255, 255, 255, 0.4); }
+	.pb-avg { font-size: 12px; font-weight: 700; min-width: 26px; text-align: right; }
+
+	/* Highlights */
+	.hl-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+	.hl-tag { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; padding: 2px 6px; border-radius: 3px; }
+	.hl-good { color: rgba(74, 222, 128, 0.9); background: rgba(34, 197, 94, 0.1); }
+	.hl-bad { color: rgba(251, 146, 60, 0.9); background: rgba(249, 115, 22, 0.1); }
+	.hl-name { flex: 1; font-size: 11px; color: rgba(255, 255, 255, 0.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.hl-val { font-size: 12px; font-weight: 700; }
 
 	/* ===== SECTIONS ===== */
 	.section {

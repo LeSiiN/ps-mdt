@@ -210,6 +210,14 @@ ps.registerCallback(resourceName .. ':server:createFTOAssignment', function(sour
         return { success = false, error = 'Trainer is required' }
     end
 
+    -- Only one open (active or suspended) assignment per trainee.
+    local existing = MySQL.single.await(
+        "SELECT id FROM mdt_fto_assignments WHERE trainee_citizenid = ? AND status IN ('active','suspended') LIMIT 1",
+        { data.trainee_citizenid })
+    if existing then
+        return { success = false, error = 'This trainee already has an active FTO assignment' }
+    end
+
     -- Default a new trainee to the first phase of the program if none was chosen,
     -- so they never sit "phase-less" (which breaks DOR/phase tallies).
     local phaseId = tonumber(data.current_phase_id)
