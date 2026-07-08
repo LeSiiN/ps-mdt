@@ -129,6 +129,283 @@
     let patrols         = $state<Patrol[]>([]);
     let officerSearch   = $state("");
 
+    // ─── Dispatch calls on the map ─────────────────────────────────────────
+    type DispatchUnitLite = {
+        citizenid: string;
+        charinfo?: { firstname?: string; lastname?: string };
+        metadata?: { callsign?: string };
+    };
+    type MapDispatch = {
+        id: string | number;
+        message?: string;
+        code?: string;
+        codename?: string;
+        priority?: number;
+        coords?: unknown;
+        street?: string;
+        time?: number;
+        units?: DispatchUnitLite[];
+    };
+    let dispatches         = $state<MapDispatch[]>([]);
+    // Calls a dispatcher has dismissed locally (cleared from ticker + map).
+    let dismissedCallIds   = $state<Set<string>>(new Set());
+    let showCalls          = $state(localStorage.getItem("mdt_map_calls") !== "false");
+    let selectedDispatchId = $state<string | null>(null);
+    let assignBusy         = $state(false);
+    let visibleDispatches  = $derived(dispatches.filter(d => !dismissedCallIds.has(String(d.id))));
+    let selectedDispatch   = $derived(visibleDispatches.find(d => String(d.id) === selectedDispatchId) ?? null);
+    let canAssignUnits     = $derived(authService ? (authService.hasPermission("dispatch_assign") ?? false) : true);
+    const dispatchMarkers: globalThis.Map<string, L.Marker> = new globalThis.Map();
+
+    function dispatchCoords(d: MapDispatch): GtaPoint | null {
+        const c = d.coords as any;
+        if (!c) return null;
+        if (typeof c.x === "number" && typeof c.y === "number") return { x: c.x, y: c.y };
+        if (Array.isArray(c) && c.length >= 2) {
+            const x = Number(c[0]), y = Number(c[1]);
+            if (!isNaN(x) && !isNaN(y)) return { x, y };
+        }
+        return null;
+    }
+
+    function priorityColor(p?: number): string {
+        if (p === 1) return "#ef4444";
+        if (p === 2) return "#f59e0b";
+        return "#38bdf8";
+    }
+
+    // Small inline SVG paths (24x24 viewBox) per call type — self-contained so
+    // they work inside Leaflet divIcons without any font dependency (CEF-safe).
+    const CALL_ICON_SVGS: Record<string, string> = {
+        gun:   '<path fill="currentColor" d="M2 6.5h20v4h-3.1l-.55 1.65A2 2 0 0 1 16.45 13.5H12.6l-1.5 5.4a1.5 1.5 0 0 1-1.45 1.1H6.2l1.8-6.5H5a3 3 0 0 1-3-3v-4zm16 1.5h-2v1h2v-1z"/>',
+        car:   '<path fill="currentColor" d="M6 6h12a1 1 0 0 1 .95.68L20.5 11H21a1 1 0 0 1 1 1v4.5h-2.35a2.4 2.4 0 0 1-4.7 0h-5.9a2.4 2.4 0 0 1-4.7 0H2V12a1 1 0 0 1 1-1h.5L5.05 6.68A1 1 0 0 1 6 6zm.7 2-1 3h12.6l-1-3H6.7z"/>',
+        fight: '<path fill="currentColor" d="M12 1.8l1.9 4.8 4.9-1.9-1.9 4.9 4.8 1.9-4.8 1.9 1.9 4.9-4.9-1.9-1.9 4.8-1.9-4.8-4.9 1.9 1.9-4.9-4.8-1.9 4.8-1.9-1.9-4.9 4.9 1.9L12 1.8z"/>',
+        rob:   '<path fill="currentColor" d="M9.2 3h5.6a.8.8 0 0 1 .7 1.2L14 7h-4L8.5 4.2A.8.8 0 0 1 9.2 3zM10 8h4c3.9 1.4 6 5 6 8.4A4.6 4.6 0 0 1 15.4 21H8.6A4.6 4.6 0 0 1 4 16.4C4 13 6.1 9.4 10 8zm2.6 3.2h-1.8v.9c-.9.2-1.6.9-1.6 1.9 0 1.2.9 1.7 2.1 2 .9.3 1.2.5 1.2.9 0 .5-.5.7-1.1.7-.7 0-1.4-.3-1.9-.6l-.5 1.4c.5.3 1.1.5 1.8.6v.9h1.8v-1c1-.2 1.7-1 1.7-2 0-1.3-1-1.8-2.2-2.1-.8-.2-1.1-.4-1.1-.8s.4-.7 1-.7 1.2.2 1.6.4l.5-1.3a4 4 0 0 0-1.5-.4v-.8z"/>',
+        fire:  '<path fill="currentColor" d="M12 2s6 4.8 6 10a6 6 0 0 1-12 0c0-2.2 1.1-4 2.4-5.7.4 1.2 1.2 2.2 2 2.4.4-2.3-.3-4.6 1.6-6.7zm0 16.5A2.5 2.5 0 0 0 14.5 16c0-1.7-1.3-2.6-2.5-4-1.2 1.4-2.5 2.3-2.5 4a2.5 2.5 0 0 0 2.5 2.5z"/>',
+        drugs: '<path fill="currentColor" d="M9.8 3.6a5 5 0 0 1 7.1 7.1l-6.4 6.4a5 5 0 1 1-7.1-7.1l6.4-6.4zm-2 3.4L4.6 10.2a3 3 0 1 0 4.2 4.2l3.2-3.2-4.2-4.2z"/>',
+        alarm: '<path fill="currentColor" d="M12 2.5a1.5 1.5 0 0 1 1.5 1.5v.6A6 6 0 0 1 18 10.5V14l2 3H4l2-3v-3.5a6 6 0 0 1 4.5-5.9V4A1.5 1.5 0 0 1 12 2.5zM9.8 18.5h4.4a2.2 2.2 0 0 1-4.4 0z"/>',
+        shield:'<path fill="currentColor" d="M12 1.8l8.5 3.2v6.2c0 5.2-3.6 9.4-8.5 11.6C7.1 20.6 3.5 16.4 3.5 11.2V5L12 1.8zm-1.2 13.4 5.5-5.5-1.4-1.4-4.1 4.1-1.7-1.7-1.4 1.4 3.1 3.1z"/>',
+        knife: '<path fill="currentColor" d="M21.4 2.6c1.1 1.9-.6 5.6-4.4 7.8l-1.3.7-2.8-2.8.7-1.3c2.2-3.8 5.9-5.5 7.8-4.4zM11.6 9.6l2.8 2.8-8.2 8.2a1 1 0 0 1-1.4 0l-1.4-1.4a1 1 0 0 1 0-1.4l8.2-8.2z"/>',
+        warn:  '<path fill="currentColor" d="M12 2.2 23 21H1L12 2.2zM11 10v5h2v-5h-2zm0 6.5v2h2v-2h-2z"/>',
+    };
+
+    // Map a dispatch to its icon by scanning code/codename/message/icon text.
+    function callIconSvg(d: MapDispatch): string {
+        const hay = `${d.code || ""} ${d.codename || ""} ${d.message || ""} ${(d as any).icon || ""} ${(d as any).name || ""}`.toLowerCase();
+        const pick = (k: string) => CALL_ICON_SVGS[k];
+        if (/shoot|shots|gun|firearm|weapon|10-?71|armed/.test(hay)) return pick("gun");
+        if (/stab|knife|melee/.test(hay)) return pick("knife");
+        if (/vehicle|car ?jack|speed|racing|pursuit|traffic|driving|carjack|stolen/.test(hay)) return pick("car");
+        if (/fight|assault|brawl|battery/.test(hay)) return pick("fight");
+        if (/robbery|store|bank|heist|jewel|burglar|theft|fleeca|vangelico/.test(hay)) return pick("rob");
+        if (/fire|explosion|arson/.test(hay)) return pick("fire");
+        if (/drug|deal|substance|weed|coke|meth/.test(hay)) return pick("drugs");
+        if (/alarm|panic|intrusion/.test(hay)) return pick("alarm");
+        if (/officer|backup|10-?13|down|distress|emergency/.test(hay)) return pick("shield");
+        return pick("warn");
+    }
+
+    function dispatchAge(t?: number): string {
+        if (!t) return "";
+        const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+        if (mins < 1) return "now";
+        if (mins < 60) return `${mins}m ago`;
+        return `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+    }
+
+    function unitLabel(u: DispatchUnitLite): string {
+        const cs = u.metadata?.callsign && u.metadata.callsign !== "NO CALLSIGN" ? u.metadata.callsign : null;
+        const name = [u.charinfo?.firstname, u.charinfo?.lastname].filter(Boolean).join(" ");
+        return cs ? `${cs} · ${name || u.citizenid}` : (name || u.citizenid);
+    }
+
+    async function loadDispatches() {
+        try {
+            const res = await fetchNui<MapDispatch[]>(NUI_EVENTS.DASHBOARD.GET_RECENT_DISPATCHES, {}, []);
+            dispatches = Array.isArray(res) ? res : [];
+            renderDispatchMarkers();
+        } catch { /* keep last known list */ }
+    }
+
+    function esc(v: unknown): string {
+        return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function dispatchTooltip(d: MapDispatch): string {
+        const parts = [
+            `<b>${esc(d.code || d.codename || "Call")}</b>`,
+            d.message ? esc(d.message) : "",
+            [d.street ? esc(d.street) : "", d.time ? esc(dispatchAge(d.time)) : ""].filter(Boolean).join(" · "),
+            `${(d.units || []).length} unit${(d.units || []).length === 1 ? "" : "s"} attached`,
+        ].filter(Boolean);
+        return parts.join("<br>");
+    }
+
+    function dispatchIcon(d: MapDispatch, selected: boolean) {
+        const col = priorityColor(d.priority);
+        const svg = callIconSvg(d);
+        return L.divIcon({
+            className: "",
+            html: `<div class="disp-marker${selected ? " sel" : ""}" style="--dc:${col}">`
+                + `<div class="disp-ring"></div>`
+                + `<div class="disp-badge"><svg viewBox="0 0 24 24">${svg}</svg></div>`
+                + `</div>`,
+            iconSize: [38, 38],
+            iconAnchor: [19, 19],
+        });
+    }
+
+    function renderDispatchMarkers() {
+        if (!map) return;
+        const seen = new Set<string>();
+        if (showCalls) {
+            for (const d of visibleDispatches) {
+                const gp = dispatchCoords(d);
+                if (!gp) continue;
+                const id = String(d.id);
+                seen.add(id);
+                const ll = toMapLatLng(gp) as L.LatLngExpression;
+                let m = dispatchMarkers.get(id);
+                if (m) {
+                    m.setLatLng(ll);
+                    m.setIcon(dispatchIcon(d, selectedDispatchId === id));
+                    m.setTooltipContent(dispatchTooltip(d));
+                } else {
+                    m = L.marker(ll, { icon: dispatchIcon(d, selectedDispatchId === id), zIndexOffset: 800 });
+                    m.on("click", () => selectDispatch(id));
+                    m.bindTooltip(dispatchTooltip(d), { direction: "top", offset: [0, -16], className: "disp-tt", opacity: 1 });
+                    m.addTo(map);
+                    dispatchMarkers.set(id, m);
+                }
+            }
+        }
+        for (const [id, m] of dispatchMarkers) {
+            if (!seen.has(id)) { m.remove(); dispatchMarkers.delete(id); }
+        }
+    }
+
+    function selectDispatch(id: string) {
+        selectedDispatchId = selectedDispatchId === id ? null : id;
+        renderDispatchMarkers();
+        if (selectedDispatchId && map) {
+            const d = visibleDispatches.find(x => String(x.id) === id);
+            const gp = d ? dispatchCoords(d) : null;
+            if (gp) map.panTo(toMapLatLng(gp) as L.LatLngExpression);
+        }
+    }
+
+    function attachedIds(d: MapDispatch): Set<string> {
+        return new Set((d.units || []).map(u => u.citizenid));
+    }
+
+    // Nearest online units not yet on the call — the dispatcher's quick-assign list.
+    let nearbyUnits = $derived.by(() => {
+        const d = selectedDispatch;
+        if (!d) return [] as { o: Bodycam; dist: number }[];
+        const gp = dispatchCoords(d);
+        if (!gp) return [];
+        const attached = attachedIds(d);
+        // Only truly free units: not on the call, not part of a patrol
+        // (patrols are assigned as a whole below) and not busy.
+        return officers
+            .filter(o =>
+                !attached.has(o.citizenid) &&
+                !getOfficerPatrol(o.citizenid) &&
+                (o.status ?? defaultStatusId) !== "busy")
+            .map(o => ({ o, dist: Math.hypot(o.coords.x - gp.x, o.coords.y - gp.y) }))
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, 6);
+    });
+
+    function fmtDist(m: number): string {
+        return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
+    }
+
+    async function assignUnits(citizenids: string[], action: "attach" | "detach") {
+        const d = selectedDispatch;
+        if (!d || assignBusy || citizenids.length === 0) return;
+        assignBusy = true;
+        try {
+            const gp = dispatchCoords(d);
+            const res = await fetchNui<{ success: boolean; assigned?: number; offline?: number; error?: string }>(
+                NUI_EVENTS.DISPATCH.ASSIGN_TO_DISPATCH,
+                { dispatch_id: d.id, citizenids, action, coords: gp ? { x: gp.x, y: gp.y } : undefined },
+                { success: true, assigned: citizenids.length, offline: 0 },
+            );
+            if (res?.success) {
+                const n = res.assigned ?? citizenids.length;
+                globalNotifications.success(action === "attach"
+                    ? `Assigned ${n} unit${n === 1 ? "" : "s"} to the call — waypoint set`
+                    : "Unit removed from the call");
+                if (res.offline) globalNotifications.error(`${res.offline} unit(s) offline — skipped`);
+                setTimeout(loadDispatches, 400);
+            } else {
+                globalNotifications.error(res?.error || "Assignment failed");
+            }
+        } catch {
+            globalNotifications.error("Assignment failed");
+        } finally {
+            assignBusy = false;
+        }
+    }
+
+    // Patrols eligible for assignment: at least one member online ("staffed")
+    // and the derived patrol status isn't busy — sorted by distance to the call
+    // so a dispatcher on a big server sees the closest active patrol first.
+    let nearbyPatrols = $derived.by(() => {
+        const d = selectedDispatch;
+        if (!d) return [] as { p: Patrol; dist: number; count: number; st: StatusDef }[];
+        const gp = dispatchCoords(d);
+        if (!gp) return [];
+        const attached = attachedIds(d);
+        const out: { p: Patrol; dist: number; count: number; st: StatusDef }[] = [];
+        for (const p of patrols) {
+            const members = officers.filter(o => p.memberIds.includes(o.citizenid));
+            if (members.length === 0) continue; // not staffed
+            const st = getPatrolStatus(p);
+            if (!st || st.id === "busy") continue; // occupied
+            const assignable = members.filter(o => !attached.has(o.citizenid));
+            if (assignable.length === 0) continue; // everyone already on the call
+            const dist = Math.min(...members.map(o => Math.hypot(o.coords.x - gp.x, o.coords.y - gp.y)));
+            out.push({ p, dist, count: assignable.length, st });
+        }
+        return out.sort((a, b) => a.dist - b.dist).slice(0, 4);
+    });
+
+    function assignPatrolToCall(p: Patrol) {
+        if (!selectedDispatch) return;
+        const attached = attachedIds(selectedDispatch);
+        const ids = p.memberIds.filter(cid => officers.some(o => o.citizenid === cid) && !attached.has(cid));
+        if (ids.length === 0) { globalNotifications.error("No online members left to assign"); return; }
+        assignUnits(ids, "attach");
+    }
+
+    async function selfAttachToCall(attach: boolean) {
+        const d = selectedDispatch;
+        if (!d) return;
+        try {
+            await fetchNui(
+                attach ? NUI_EVENTS.DISPATCH.ATTACH_TO_DISPATCH : NUI_EVENTS.DISPATCH.DETACH_FROM_DISPATCH,
+                d.id, [],
+            );
+            setTimeout(loadDispatches, 300);
+        } catch { /* ignore */ }
+    }
+
+    function removeUnitFromCall(cid: string) {
+        if (ownCitizenId && cid === ownCitizenId) { selfAttachToCall(false); return; }
+        assignUnits([cid], "detach");
+    }
+
+    // Newest three calls for the ticker (server list is oldest→newest).
+    let tickerCalls = $derived(visibleDispatches.slice(-3).reverse());
+
+    function dismissCall(id: string) {
+        dismissedCallIds = new Set([...dismissedCallIds, id]);
+        if (selectedDispatchId === id) selectedDispatchId = null;
+        renderDispatchMarkers();
+    }
+
     // ─── Officer Status ────────────────────────────────────────────────────
     // Status definitions (id/label/color) come from the server so the UI never
     // hardcodes them — Config.OfficerStatus.list is the single source of truth
@@ -257,7 +534,10 @@
     // One-time centering flag — pan to own position on first data load
     let centeredOnSelf = false;
     // Own citizenId sent from Lua on open
-    let ownCitizenId: string | null = null;
+    let ownCitizenId = $state<string | null>(null);
+    let isSelfAttached = $derived(
+        !!(selectedDispatch && ownCitizenId && attachedIds(selectedDispatch).has(ownCitizenId))
+    );
 
     // Officer highlight state
     let selectedOfficerId = $state<string | null>(null);
@@ -492,8 +772,11 @@
     const bodycamMarkers = new globalThis.Map<string, L.Marker>();
     const vehicleMarkers = new globalThis.Map<string, L.Marker>();
 
+    const offsetX = 40;
+    const offsetY = 31;
+
     function toMapLatLng(coords: { x: number; y: number }) {
-        return [coords.y, coords.x];
+        return [coords.y - offsetY, coords.x + offsetX];
     }
     function toGtaCoords(latlng: L.LatLng): GtaPoint {
         return { x: latlng.lng - offsetX, y: latlng.lat + offsetY };
@@ -1275,6 +1558,14 @@
             return;
         }
 
+        if (type === "updateRecentDispatches") {
+            if (Array.isArray(data)) {
+                dispatches = data;
+                renderDispatchMarkers();
+            }
+            return;
+        }
+
         if (type === "syncOfficerStatus") {
             // Real-time push from server/backend/officer_status.lua — fires for
             // ANY officer in this player's domain (police vs ems), including our
@@ -1410,7 +1701,7 @@
                 const dy = pos2.lat - pos1.lat;
                 return Math.sqrt(dx * dx + dy * dy);
             },
-            transformation: new Transformation(0.02061188, 117.41909, -0.02059566, 172.62816),
+            transformation: new Transformation(0.02072, 117.3, -0.0205, 172.8),
             infinite: false,
         });
     }
@@ -1423,20 +1714,38 @@
         const CustomCRS = getCustomCRS();
         map = L.map(mapContainer as HTMLDivElement, {
             crs: CustomCRS,
-            minZoom: 2,
+            minZoom: 3,
             maxZoom: 10,
             zoom: 5,
             preferCanvas: true,
             center: [0, -1024],
-            maxBoundsViscosity: 1.0,
+            // Soft, elastic edge instead of a hard wall — you can drag a bit
+            // past the image and it eases back, which feels far more natural.
+            maxBoundsViscosity: 0.25,
             zoomControl: false,
+            // Smooth scroll-zoom: quarter-step snapping with a fast, light
+            // wheel response (lower px/level = quicker, less "sticky").
+            zoomSnap: 0.25,
+            zoomDelta: 0.5,
+            wheelPxPerZoomLevel: 70,
+            wheelDebounceTime: 20,
+            zoomAnimation: true,
+            zoomAnimationThreshold: 8,
+            bounceAtZoomLimits: false,
+            // Drag momentum — a flick keeps gliding and eases out.
+            inertia: true,
+            inertiaDeceleration: 2600,
+            inertiaMaxSpeed: 2000,
+            easeLinearity: 0.22,
         } as any);
 
         L.control.zoom({ position: "topright" }).addTo(map);
 
         const bounds = getMapBounds(map);
         map.setView([-300, -1500], 3);
-        map.setMaxBounds(bounds);
+        // Padded bounds: leave breathing room around the island so the view
+        // isn't glued to the image edges (combined with the soft viscosity).
+        map.setMaxBounds(bounds.pad(0.18));
         map.attributionControl.setPrefix(false);
 
         L.imageOverlay("./images/map.jpeg", bounds).addTo(map);
@@ -1454,9 +1763,10 @@
 
         syncLayerVisibility();
         refreshTracking();
+        loadDispatches();
         // Pushes (trackingDirty) drive freshness now; this poll is only a
         // safety net in case an event is ever missed, so it can run slower.
-        refreshTimer = setInterval(refreshTracking, 10000);
+        refreshTimer = setInterval(() => { refreshTracking(); loadDispatches(); }, 10000);
     }
 
     function getMapBounds(map: Map) {
@@ -1500,15 +1810,115 @@
         if (dirtyDebounce) { clearTimeout(dirtyDebounce); dirtyDebounce = null; }
         bodycamMarkers.clear();
         vehicleMarkers.clear();
+        dispatchMarkers.clear();
     });
 
     $effect(() => { syncLayerVisibility(); });
     $effect(() => { iconStyle; refreshTracking(); });
     $effect(() => { showPatrols; refreshPatrolLabels(); });
     $effect(() => { showZones; renderAllZones(); });
+    $effect(() => { showCalls; renderDispatchMarkers(); });
 </script>
 <div class="map-page">
-    <div class="map-wrapper" style="--sidebar-width:{sidebarWidth}px">
+    <div class="map-wrapper" style="--sidebar-width:{sidebarWidth}px; --zoom-offset:{sidebarOpen ? sidebarWidth + 46 : 12}px">
+
+        <!-- ─── Dispatch call ticker (newest calls, click to focus) ─── -->
+        {#if showCalls && tickerCalls.length > 0}
+            <div class="call-ticker">
+                {#each tickerCalls as d (d.id)}
+                    <div class="ticker-chip" class:active={String(d.id) === selectedDispatchId}>
+                        <button class="ticker-main" onclick={() => selectDispatch(String(d.id))}>
+                            <span class="ticker-dot" style="background:{priorityColor(d.priority)}"></span>
+                            <span class="ticker-code">{d.code || d.codename || "CALL"}</span>
+                            <span class="ticker-text">{d.message || d.street || ""}</span>
+                            <span class="ticker-age">{dispatchAge(d.time)}</span>
+                        </button>
+                        <button class="ticker-x" title="Dismiss call" onclick={() => dismissCall(String(d.id))}>✕</button>
+                    </div>
+                {/each}
+            </div>
+        {/if}
+
+        <!-- ─── Selected call card ─── -->
+        {#if selectedDispatch}
+            <div class="call-card">
+                <div class="call-card-header">
+                    <span class="call-prio-dot" style="background:{priorityColor(selectedDispatch.priority)}"></span>
+                    <span class="call-title">{selectedDispatch.code || selectedDispatch.codename || "Call"}{#if selectedDispatch.codename && selectedDispatch.code} · {selectedDispatch.codename}{/if}</span>
+                    <button class="call-close call-dismiss" title="Dismiss call (remove from map and ticker)" aria-label="Dismiss" onclick={() => dismissCall(String(selectedDispatch!.id))}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
+                    <button class="call-close" aria-label="Close" onclick={() => { selectedDispatchId = null; renderDispatchMarkers(); }}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="call-card-body">
+                    {#if selectedDispatch.message}
+                        <div class="call-message">{selectedDispatch.message}</div>
+                    {/if}
+                    <div class="call-meta">
+                        {#if selectedDispatch.street}<span>{selectedDispatch.street}</span>{/if}
+                        {#if selectedDispatch.time}<span>{dispatchAge(selectedDispatch.time)}</span>{/if}
+                    </div>
+
+                    <!-- Attached units -->
+                    <div class="call-section-label">Units on call ({(selectedDispatch.units || []).length})</div>
+                    {#if (selectedDispatch.units || []).length > 0}
+                        <div class="call-units">
+                            {#each selectedDispatch.units || [] as u (u.citizenid)}
+                                <span class="call-unit-chip">
+                                    {unitLabel(u)}
+                                    {#if canAssignUnits || (ownCitizenId && u.citizenid === ownCitizenId)}
+                                        <button class="unit-remove" title="Remove from call" disabled={assignBusy} onclick={() => removeUnitFromCall(u.citizenid)}>✕</button>
+                                    {/if}
+                                </span>
+                            {/each}
+                        </div>
+                    {:else}
+                        <div class="call-empty">No units attached yet</div>
+                    {/if}
+
+                    <div class="call-self-row">
+                        {#if isSelfAttached}
+                            <button class="call-btn call-btn-ghost" disabled={assignBusy} onclick={() => selfAttachToCall(false)}>Detach yourself</button>
+                        {:else}
+                            <button class="call-btn call-btn-accent" disabled={assignBusy} onclick={() => selfAttachToCall(true)}>Attach yourself</button>
+                        {/if}
+                    </div>
+
+                    <!-- Dispatcher: quick-assign -->
+                    {#if canAssignUnits}
+                        {#if nearbyUnits.length > 0}
+                            <div class="call-section-label">Assign nearby units</div>
+                            <div class="call-nearby">
+                                {#each nearbyUnits as { o, dist } (o.citizenid)}
+                                    <div class="nearby-row">
+                                        <span class="nearby-dot" style="background:{statusDef(o.status).color}"></span>
+                                        <span class="nearby-name">{o.callsign ? `${o.callsign} · ` : ""}{o.name}</span>
+                                        <span class="nearby-dist">{fmtDist(dist)}</span>
+                                        <button class="nearby-add" title="Assign — sets their waypoint" disabled={assignBusy} onclick={() => assignUnits([o.citizenid], "attach")}>+</button>
+                                    </div>
+                                {/each}
+                            </div>
+                        {/if}
+                        {#if nearbyPatrols.length > 0}
+                            <div class="call-section-label">Nearest available patrols</div>
+                            <div class="call-nearby">
+                                {#each nearbyPatrols as { p, dist, count, st } (p.id)}
+                                    <div class="nearby-row">
+                                        <span class="nearby-dot" style="background:{p.color}"></span>
+                                        <span class="nearby-name">{p.name}</span>
+                                        <span class="patrol-status-mini" style="color:{st.color}">{st.label}</span>
+                                        <span class="nearby-dist">{count} 👤 · {fmtDist(dist)}</span>
+                                        <button class="nearby-add" title="Assign all online members — sets their waypoints" disabled={assignBusy} onclick={() => assignPatrolToCall(p)}>+</button>
+                                    </div>
+                                {/each}
+                            </div>
+                        {/if}
+                    {/if}
+                </div>
+            </div>
+        {/if}
 
         <div class="map-controls">
             <span class="controls-header">Tracking</span>
@@ -1516,6 +1926,10 @@
                 <label class="control-toggle">
                     <input type="checkbox" bind:checked={showVehicles} onchange={() => localStorage.setItem("mdt_map_vehicles", String(showVehicles))} />
                     <span class="toggle-label">Vehicles</span>
+                </label>
+                <label class="control-toggle">
+                    <input type="checkbox" bind:checked={showCalls} onchange={() => localStorage.setItem("mdt_map_calls", String(showCalls))} />
+                    <span class="toggle-label">Calls</span>
                 </label>
                 <label class="control-toggle">
                     <input type="checkbox" bind:checked={showBodycams} onchange={() => localStorage.setItem("mdt_map_bodycams", String(showBodycams))} />
@@ -1832,13 +2246,265 @@
 </div>
 
 <style>
+    /* ═══ Dispatch calls ═══ */
+    :global(.disp-marker) {
+        position: relative;
+        width: 38px;
+        height: 38px;
+        cursor: pointer;
+    }
+    :global(.disp-marker .disp-badge) {
+        position: absolute;
+        top: 50%; left: 50%;
+        width: 26px; height: 26px;
+        transform: translate(-50%, -50%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--dc, #38bdf8);
+        border: 2px solid rgba(0, 0, 0, 0.6);
+        border-radius: 50%;
+        color: #0c0c0c;
+        box-shadow: 0 0 10px var(--dc, #38bdf8), 0 2px 6px rgba(0, 0, 0, 0.5);
+    }
+    :global(.disp-marker .disp-badge svg) {
+        width: 15px;
+        height: 15px;
+    }
+    :global(.disp-marker .disp-ring) {
+        position: absolute;
+        top: 50%; left: 50%;
+        width: 34px; height: 34px;
+        transform: translate(-50%, -50%);
+        border: 3px solid var(--dc, #38bdf8);
+        border-radius: 50%;
+        opacity: 0.7;
+        animation: dispPulse 1.5s ease-out infinite;
+    }
+    :global(.disp-marker.sel .disp-badge) {
+        transform: translate(-50%, -50%) scale(1.18);
+        border-color: rgba(255, 255, 255, 0.85);
+    }
+    :global(.disp-marker.sel .disp-ring) { animation-duration: 0.85s; opacity: 1; }
+    @keyframes dispPulse {
+        0%   { transform: translate(-50%, -50%) scale(0.5); opacity: 0.9; }
+        100% { transform: translate(-50%, -50%) scale(1.45); opacity: 0; }
+    }
+
+    .call-ticker {
+        position: absolute;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 6px;
+        z-index: 1000;
+        max-width: min(720px, calc(100% - 120px));
+    }
+    .ticker-chip {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        background: rgba(17, 17, 17, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        min-width: 0;
+        transition: border-color 0.1s, background 0.1s;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    }
+    .ticker-chip:hover { border-color: rgba(255, 255, 255, 0.2); }
+    .ticker-chip.active { border-color: rgba(56, 189, 248, 0.5); background: rgba(56, 189, 248, 0.1); }
+    .ticker-main {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 10px;
+        cursor: pointer;
+        min-width: 0;
+    }
+    .ticker-x {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 0;
+        padding: 0;
+        overflow: hidden;
+        opacity: 0;
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.35);
+        font-size: 10px;
+        cursor: pointer;
+        transition: all 0.12s;
+    }
+    .ticker-chip:hover .ticker-x { width: 20px; opacity: 1; }
+    .ticker-x:hover { color: rgba(248, 113, 113, 1); }
+    .ticker-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .ticker-code { font-weight: 700; flex-shrink: 0; }
+    .ticker-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; color: rgba(255, 255, 255, 0.55); }
+    .ticker-age { flex-shrink: 0; color: rgba(255, 255, 255, 0.35); font-size: 9px; }
+
+    .call-card {
+        position: absolute;
+        bottom: 46px;
+        left: 12px;
+        width: 280px;
+        max-height: min(430px, calc(100% - 90px));
+        display: flex;
+        flex-direction: column;
+        background: rgba(17, 17, 17, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        z-index: 1001;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+    .call-card-header {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        flex-shrink: 0;
+    }
+    .call-prio-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .call-title { flex: 1; font-size: 11px; font-weight: 700; color: rgba(255, 255, 255, 0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .call-close {
+        display: flex; align-items: center; justify-content: center;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 3px;
+        padding: 3px;
+        color: rgba(255, 255, 255, 0.35);
+        cursor: pointer;
+        transition: all 0.1s;
+    }
+    .call-close:hover { color: rgba(255, 255, 255, 0.8); border-color: rgba(255, 255, 255, 0.14); }
+    .call-dismiss:hover { color: rgba(248, 113, 113, 0.95); border-color: rgba(239, 68, 68, 0.35); }
+    .call-card-body { padding: 9px 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+    .call-card-body::-webkit-scrollbar { width: 4px; }
+    .call-card-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 2px; }
+    .call-message { font-size: 11px; color: rgba(255, 255, 255, 0.85); line-height: 1.4; }
+    .call-meta { display: flex; gap: 10px; font-size: 9px; color: rgba(255, 255, 255, 0.4); }
+    .call-section-label {
+        font-size: 8px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: rgba(255, 255, 255, 0.35);
+        margin-top: 2px;
+    }
+    .call-units { display: flex; flex-wrap: wrap; gap: 4px; }
+    .call-unit-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 6px;
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.75);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 3px;
+    }
+    .unit-remove {
+        background: none;
+        border: none;
+        color: rgba(255, 255, 255, 0.3);
+        font-size: 9px;
+        cursor: pointer;
+        padding: 0 1px;
+        transition: color 0.1s;
+    }
+    .unit-remove:hover:not(:disabled) { color: rgba(248, 113, 113, 0.9); }
+    .call-empty { font-size: 10px; color: rgba(255, 255, 255, 0.3); font-style: italic; }
+    .call-self-row { display: flex; }
+    .call-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: all 0.1s;
+    }
+    .call-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .call-btn-accent {
+        background: rgba(56, 189, 248, 0.1);
+        border-color: rgba(56, 189, 248, 0.2);
+        color: rgba(125, 211, 252, 0.9);
+    }
+    .call-btn-accent:hover:not(:disabled) { background: rgba(56, 189, 248, 0.18); }
+    .call-btn-ghost {
+        background: rgba(255, 255, 255, 0.03);
+        border-color: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.55);
+    }
+    .call-btn-ghost:hover:not(:disabled) { color: rgba(255, 255, 255, 0.85); }
+    .call-nearby { display: flex; flex-direction: column; gap: 3px; }
+    .nearby-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 6px;
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 3px;
+    }
+    .nearby-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .nearby-name { flex: 1; font-size: 10px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .nearby-dist { font-size: 9px; color: rgba(255, 255, 255, 0.35); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .nearby-add {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px; height: 18px;
+        flex-shrink: 0;
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        border-radius: 3px;
+        color: rgba(125, 211, 252, 0.9);
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        transition: all 0.1s;
+    }
+    .nearby-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.2); }
+    .nearby-add:disabled { opacity: 0.4; cursor: not-allowed; }
+    .patrol-status-mini { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0; }
+
+    /* Marker hover tooltip */
+    :global(.disp-tt) {
+        background: rgba(17, 17, 17, 0.96) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 4px !important;
+        color: rgba(255, 255, 255, 0.85) !important;
+        font-size: 10px !important;
+        line-height: 1.45 !important;
+        padding: 6px 9px !important;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5) !important;
+        white-space: nowrap;
+    }
+    :global(.disp-tt::before) { border-top-color: rgba(255, 255, 255, 0.12) !important; }
+
     :global(.leaflet-popup-content-wrapper) { background: var(--dark-bg); color: rgba(255,255,255,0.8); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); box-shadow: none; }
     :global(.leaflet-popup-tip) { background: var(--dark-bg); }
     :global(.leaflet-tooltip) { background: var(--dark-bg); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; font-size: 11px; padding: 4px 8px; box-shadow: none; }
     :global(.leaflet-tooltip-top::before) { border-top-color: #111111; }
-    :global(.leaflet-control-zoom) { border: 1px solid rgba(255,255,255,0.06) !important; border-radius: 8px !important; overflow: hidden; box-shadow: none !important; }
-    :global(.leaflet-control-zoom a) { background: rgba(17,17,17,0.92) !important; color: rgba(255,255,255,0.6) !important; border-color: rgba(255,255,255,0.04) !important; width: 30px !important; height: 30px !important; line-height: 30px !important; font-size: 14px !important; }
-    :global(.leaflet-control-zoom a:hover) { background: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.9) !important; }
+    /* Zoom control: shifts left out from under the patrols/officers panel when
+       it's open, and animates smoothly with the panel. */
+    :global(.leaflet-top.leaflet-right) { right: var(--zoom-offset, 12px) !important; transition: right 0.25s cubic-bezier(0.4,0,0.2,1); }
+    :global(.leaflet-control-zoom) { border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 10px !important; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.45) !important; margin-top: 12px !important; }
+    :global(.leaflet-control-zoom a) { background: rgba(17,17,17,0.94) !important; color: rgba(255,255,255,0.7) !important; border-color: rgba(255,255,255,0.06) !important; width: 32px !important; height: 32px !important; line-height: 32px !important; font-size: 16px !important; font-weight: 600 !important; transition: background 0.12s, color 0.12s; }
+    :global(.leaflet-control-zoom a:hover) { background: rgba(56,189,248,0.18) !important; color: #fff !important; }
+    :global(.leaflet-control-zoom a:active) { background: rgba(56,189,248,0.3) !important; }
     :global(.patrol-label) { background: rgba(0,0,0,0.55); border: 1px solid; border-radius: 4px; padding: 2px 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; white-space: nowrap; pointer-events: none; opacity: 0.7; }
     :global(.patrol-label-status-dot) { display: inline-block; vertical-align: middle; width: 5px; height: 5px; border-radius: 50%; margin-right: 4px; margin-bottom: 1px; }
     :global(.patrol-zone-poly) {
@@ -1984,9 +2650,9 @@
 
     .map-page { height: 100%; padding: 10px 20px 20px; background: var(--card-dark-bg); }
     .map-wrapper { position: relative; width: 100%; height: 100%; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); display: flex; }
-    .map-container { flex: 1; height: 100%; background: #0fa8d2; }
+    .map-container { flex: 1; height: 100%; background: #163b4d; }
     /* Ocean-blue backdrop around the map image instead of bare white. */
-    :global(.map-container .leaflet-container) { background: #0fa8d2 !important; }
+    :global(.map-container .leaflet-container) { background: #163b4d !important; }
     .map-no-pointer { pointer-events: none !important; }
     .officer-card.dragging { opacity: 0.35; }
 

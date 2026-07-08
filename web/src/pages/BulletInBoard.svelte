@@ -628,7 +628,7 @@
 
 <style>
     /* ── Layout ──────────────────────────────────────────────── */
-    .bulletin-page { display: flex; height: 100%; overflow: hidden; }
+    .bulletin-page { display: flex; height: 100%; overflow: hidden; background: var(--card-dark-bg); color: rgba(255, 255, 255, 0.9); }
 
     /* ── Sidebar ─────────────────────────────────────────────── */
     .bulletin-sidebar {

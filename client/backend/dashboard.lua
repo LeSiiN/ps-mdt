@@ -350,3 +350,35 @@ RegisterNUICallback("routeToDispatch", function(data, cb)
     cb('ok')
     ps.notify('Set Route to Dispatch Location', 'success')
 end)
+-- ---------------------------------------------------------------------------
+-- Dispatcher assignment (runs on the ASSIGNED player's client).
+-- Attaching through the target client mirrors the normal self-attach flow in
+-- ps-dispatch exactly, and lets us set their waypoint + notify locally.
+-- ---------------------------------------------------------------------------
+RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
+    data = data or {}
+    if not data.id then return end
+
+    if data.action == 'detach' then
+        TriggerServerEvent('ps-dispatch:server:detach', data.id, buildPlayerData())
+        ps.notify('Dispatch has removed you from a call', 'inform')
+        return
+    end
+
+    TriggerServerEvent('ps-dispatch:server:attach', data.id, buildPlayerData())
+
+    local c = data.coords
+    if c then
+        local x = tonumber(c.x) or tonumber(c[1])
+        local y = tonumber(c.y) or tonumber(c[2])
+        if x and y then SetNewWaypoint(x, y) end
+    end
+    ps.notify('Dispatch assigned you to a call — waypoint set', 'success')
+end)
+
+-- Dispatcher-side NUI bridge: assign/detach a set of units to a call.
+RegisterNUICallback('assignToDispatch', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:assignToDispatch', data or {})
+    cb(result or { success = false })
+end)

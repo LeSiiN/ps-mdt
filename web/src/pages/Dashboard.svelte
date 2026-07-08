@@ -7,7 +7,6 @@
 	import { mdtStore } from "../stores/mdtStore";
 	import { PRIORITY_COLORS } from "../constants";
 	import { createDashboardService } from "../services/dashboardService.svelte";
-	import { createDispatchService } from "../services/dispatchService.svelte";
 	import ReportItem from "../components/dashboard/ReportItem.svelte";
 	import DispatchStatusWidget from "../components/dashboard/DispatchStatusWidget.svelte";
 	import type { PlayerData } from "@/interfaces/IPlayerData";
@@ -36,6 +35,33 @@
 
 	let isLEO = $derived(jobType === 'leo');
 	let isDOJ = $derived(jobType === 'doj');
+	let isLEOJob = $derived(jobType !== 'doj' && jobType !== 'ems');
+
+	// ── Upcoming hearings / open cases helpers ──
+	function hearingWhen(v: string | number | undefined): string {
+		if (!v) return "";
+		const d = typeof v === "number" ? new Date(v) : new Date(String(v).replace(" ", "T"));
+		if (isNaN(d.getTime())) return String(v);
+		const now = new Date();
+		const sameDay = d.toDateString() === now.toDateString();
+		const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
+		const isTomorrow = d.toDateString() === tomorrow.toDateString();
+		const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+		if (sameDay) return `Today ${hm}`;
+		if (isTomorrow) return `Tomorrow ${hm}`;
+		return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} ${hm}`;
+	}
+	function hearingCatColor(cat?: string): string {
+		if (cat === "training") return "#22c55e";
+		if (cat === "meeting") return "#f59e0b";
+		if (cat === "other") return "#a78bfa";
+		return "#60a5fa"; // court
+	}
+	function casePrioColor(p?: string): string {
+		if (p === "high") return "#ef4444";
+		if (p === "low") return "#22c55e";
+		return "#f59e0b";
+	}
 
 	// DOJ dashboard data
 	let dojWarrantReviews = $state<any[]>([]);
@@ -62,10 +88,8 @@
 		recentReportsHasMore?: boolean;
 		loadMoreRecentReports?: () => Promise<void>;
 	};
-	const dispatchService = createDispatchService();
 
 	// UI state
-	let expandedDispatch: string | null = $state(null);
 	let reportOpened: number | null = $state(null);
 
 	// Pagination
@@ -179,13 +203,6 @@
 		if (activeInstance) tabService.setInstanceTab(activeInstance.id, "Reports");
 	}
 
-	function toggleDispatch(dispatchId: string) {
-		expandedDispatch = expandedDispatch === dispatchId ? null : dispatchId;
-	}
-
-	function getPriorityColor(priority: number | string): string {
-		return PRIORITY_COLORS[String(priority)] || PRIORITY_COLORS.default;
-	}
 
 	function toggleDuty() {
 		fetchNui(NUI_EVENTS.NAVIGATION.TOGGLE_DUTY);
@@ -196,38 +213,7 @@
 		signOut();
 	}
 
-	function getTimeTranslated(time: number): string {
-		const now = Date.now();
-		let diffInMs = now - time;
-		if (diffInMs < 0) return "in the future";
-		const units = [
-			{ label: "year", ms: 1000 * 60 * 60 * 24 * 365 },
-			{ label: "month", ms: 1000 * 60 * 60 * 24 * 30 },
-			{ label: "week", ms: 1000 * 60 * 60 * 24 * 7 },
-			{ label: "day", ms: 1000 * 60 * 60 * 24 },
-			{ label: "hour", ms: 1000 * 60 * 60 },
-			{ label: "minute", ms: 1000 * 60 },
-		];
-		const parts = [];
-		for (const unit of units) {
-			const count = Math.floor(diffInMs / unit.ms);
-			if (count >= 1) {
-				parts.push(`${count} ${unit.label}${count !== 1 ? "s" : ""}`);
-				diffInMs -= count * unit.ms;
-			}
-		}
-		return parts.length === 0 ? "just now" : parts.join(", ") + " ago";
-	}
 
-	async function attachYourselfToDispatch(dispatchId: string) {
-		const result = await dispatchService.attachYourselfToDispatch(dispatchId);
-		if (result) dashboardService.setRecentDispatches(result);
-	}
-
-	async function detachYourselfFromDispatch(dispatchId: string) {
-		const result = await dispatchService.detachYourselfFromDispatch(dispatchId);
-		if (result) dashboardService.setRecentDispatches(result);
-	}
 
 	function openReport(id: number) {
 		reportOpened = reportOpened === id ? null : id;
@@ -539,43 +525,55 @@
 					</div>
 				</div>
 			{:else}
-				<div class="panel">
+				<!-- Upcoming hearings (dispatches now live on the Map tab) -->
+				<div class="panel" class:panel--half={isLEOJob}>
 					<div class="panel-header">
-						<span class="panel-title">Dispatches</span>
-						<span class="panel-count">{(dashboardService.recentDispatches && Array.isArray(dashboardService.recentDispatches) ? dashboardService.recentDispatches : []).length}</span>
+						<span class="panel-title">Upcoming Hearings</span>
+						<span class="panel-count">{dashboardService.upcomingHearings.length}</span>
 					</div>
 					<div class="panel-body">
-						{#each dashboardService.recentDispatches && Array.isArray(dashboardService.recentDispatches) ? dashboardService.recentDispatches.slice().reverse() : [] as dispatch}
-							<div class="dispatch-item" class:expanded={expandedDispatch === dispatch.id}>
-								<button class="dispatch-btn" onclick={() => toggleDispatch(dispatch.id)} aria-expanded={expandedDispatch === dispatch.id}>
-									<div class="priority-bar" style="background: {getPriorityColor(dispatch.priority)}"></div>
-									<div class="item-left">
-										<span class="item-name">{dispatch.message}</span>
-										<span class="item-meta">{dispatch.street} · {getTimeTranslated(dispatch.time)}</span>
-									</div>
-								</button>
-								{#if expandedDispatch === dispatch.id}
-									<div class="dispatch-detail">
-										<div class="dispatch-detail-header">
-											<span class="detail-label">Attached Units</span>
-											<div class="dispatch-btns">
-												<button class="d-action-btn" onclick={() => dispatchService.isUserAttachedToDispatch(dispatch, playerData) ? detachYourselfFromDispatch(dispatch.id) : attachYourselfToDispatch(dispatch.id)}>
-													{dispatchService.isUserAttachedToDispatch(dispatch, playerData) ? "Detach" : "Attach"}
-												</button>
-												<button class="d-action-btn" onclick={() => dispatchService.routeToDispatch(dispatch)}>Route</button>
-											</div>
-										</div>
-										<div class="unit-chips">
-											{#each dispatch.units as unit}
-												<span class="unit-chip">{dispatchService.getCallSign(unit.metadata?.callsign)} - {unit.charinfo?.firstname} {unit.charinfo?.lastname}</span>
-											{/each}
-										</div>
-									</div>
+						{#if dashboardService.upcomingHearings.length === 0}
+							<span class="panel-empty">No upcoming appointments</span>
+						{/if}
+						{#each dashboardService.upcomingHearings as h (h.id)}
+							<div class="list-row">
+								<div class="priority-bar" style="background: {hearingCatColor(h.category)}"></div>
+								<div class="item-left">
+									<span class="item-name">{h.title}</span>
+									<span class="item-meta">
+										{hearingWhen(h.scheduled_at)}{#if h.location} · {h.location}{/if}{#if h.defendant_name} · {h.defendant_name}{/if}
+									</span>
+								</div>
+								{#if h.status === "in_session"}
+									<span class="live-pill">LIVE</span>
 								{/if}
 							</div>
 						{/each}
 					</div>
 				</div>
+
+				{#if isLEOJob}
+					<div class="panel panel--half">
+						<div class="panel-header">
+							<span class="panel-title">Open Cases</span>
+							<span class="panel-count">{dashboardService.openCases.length}</span>
+						</div>
+						<div class="panel-body">
+							{#if dashboardService.openCases.length === 0}
+								<span class="panel-empty">No open investigations</span>
+							{/if}
+							{#each dashboardService.openCases as c (c.id)}
+								<div class="list-row">
+									<div class="priority-bar" style="background: {casePrioColor(c.priority)}"></div>
+									<div class="item-left">
+										<span class="item-name">{c.case_number} · {c.title}</span>
+										<span class="item-meta">{c.status === "in_progress" ? "In progress" : "Open"}{#if c.priority} · {c.priority} priority{/if}</span>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -695,18 +693,56 @@
 	.qa-signout:hover { background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.25); }
 
 	/* Main Grid */
-	.main-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; flex: 1; min-height: 0; }
-	.column { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid rgba(255, 255, 255, 0.06); }
-	.column:last-child { border-right: none; }
+	.main-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; flex: 1; min-height: 0; gap: 12px; padding: 12px 16px 14px; }
+	.column { display: flex; flex-direction: column; min-height: 0; gap: 12px; }
 
 	/* Panels */
-	.panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+	.panel {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 6px;
+	}
+	.panel--half { flex: 1 1 0; }
 	.panel + .panel { border-top: 1px solid rgba(255, 255, 255, 0.06); }
-	.panel-header { display: flex; align-items: center; gap: 8px; padding: 12px 16px 10px; flex-shrink: 0; }
+	.panel-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px 8px; flex-shrink: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
 	.panel-title { color: rgba(255, 255, 255, 0.4); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 	.panel-count { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.35); font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 4px; line-height: 16px; }
 
-	.panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.08) transparent; }
+	.panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.08) transparent; }
+
+	/* Hearings / open cases rows + helpers */
+	.list-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 7px 10px;
+		border-radius: 5px;
+		background: rgba(255, 255, 255, 0.015);
+		border: 1px solid rgba(255, 255, 255, 0.03);
+	}
+	.panel-empty {
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.3);
+		font-style: italic;
+		padding: 8px 10px;
+	}
+	.live-pill {
+		font-size: 8px;
+		font-weight: 800;
+		letter-spacing: 0.6px;
+		color: rgba(248, 113, 113, 1);
+		background: rgba(239, 68, 68, 0.12);
+		border: 1px solid rgba(239, 68, 68, 0.35);
+		padding: 1px 6px;
+		border-radius: 3px;
+		animation: livePulse 1.4s ease-in-out infinite;
+	}
+	@keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 	.panel-body::-webkit-scrollbar { width: 3px; }
 	.panel-body::-webkit-scrollbar-track { background: transparent; }
 	.panel-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 2px; }
@@ -742,19 +778,7 @@
 	.load-more-btn:hover { color: rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.02); }
 
 	/* Dispatch */
-	.dispatch-item { border-radius: 6px; overflow: hidden; transition: background 0.1s; }
-	.dispatch-item:hover { background: rgba(255, 255, 255, 0.02); }
-	.dispatch-item.expanded { background: rgba(255, 255, 255, 0.03); }
-	.dispatch-btn { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: none; border: none; cursor: pointer; color: inherit; font: inherit; text-align: left; }
 	.priority-bar { width: 3px; height: 24px; border-radius: 2px; flex-shrink: 0; }
-	.dispatch-detail { padding: 0 10px 10px 23px; }
-	.dispatch-detail-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 6px; }
-	.detail-label { color: rgba(255, 255, 255, 0.3); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-	.dispatch-btns { display: flex; gap: 4px; }
-	.d-action-btn { background: rgba(var(--accent-rgb), 0.1); color: #60a5fa; border: 1px solid rgba(var(--accent-rgb), 0.15); padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.12s; }
-	.d-action-btn:hover { background: rgba(var(--accent-rgb), 0.18); border-color: rgba(var(--accent-rgb), 0.3); }
-	.unit-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-	.unit-chip { background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.5); padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 500; }
 
 	.list-item-btn { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 12px; background: none; border: none; border-bottom: 1px solid rgba(255, 255, 255, 0.04); cursor: pointer; text-align: left; color: inherit; }
 	.list-item-btn:hover { background: rgba(255, 255, 255, 0.04); }

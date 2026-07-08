@@ -265,6 +265,33 @@ local function sanitizeDispatch(call)
     return sanitized
 end
 
+-- Latest open investigations for the dashboard.
+local function computeOpenCases()
+    local rows = MySQL.query.await([[
+        SELECT id, case_number, title, status, priority, updated_at
+        FROM mdt_cases
+        WHERE status IN ('open', 'in_progress')
+        ORDER BY updated_at DESC
+        LIMIT 6
+    ]])
+    return rows or {}
+end
+
+-- Next few calendar entries (court/training/meetings) for the dashboard.
+local function computeUpcomingHearings(src)
+    local domain = (GetMdtDomain and GetMdtDomain(src)) or 'police'
+    local rows = MySQL.query.await([[
+        SELECT id, title, category, hearing_type, defendant_name, scheduled_at, location, status
+        FROM mdt_court_hearings
+        WHERE job_type = ?
+          AND status IN ('scheduled', 'in_session')
+          AND scheduled_at >= (NOW() - INTERVAL 1 HOUR)
+        ORDER BY scheduled_at ASC
+        LIMIT 6
+    ]], { domain })
+    return rows or {}
+end
+
 local function computeRecentDispatches(src)
     local dispatchResource = Config and Config.Dispatch and Config.Dispatch.Resource or 'ps-dispatch'
     local ok, recentDispatches = pcall(function()
@@ -350,6 +377,8 @@ ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
     if not CheckAuth(src) then return {} end
     return {
         jobData          = computeJobData(src),
+        upcomingHearings = computeUpcomingHearings(src),
+        openCases        = computeOpenCases(),
         reportStatistics = computeReportStatistics(),
         timeStatistics   = computeTimeStatistics(src),
         activeWarrants   = (GetActiveWarrantsData and GetActiveWarrantsData(src)) or {},
@@ -359,4 +388,57 @@ ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
         recentDispatches = computeRecentDispatches(src),
         usageMetrics     = computeUsageMetrics(),
     }
+end)
+-- ---------------------------------------------------------------------------
+-- Dispatcher: assign or detach OTHER units to/from a dispatch call.
+-- The actual attach runs on the TARGET client (same path as self-attach via
+-- ps-dispatch), which also sets their waypoint and notifies them. This keeps
+-- ps-dispatch's unit bookkeeping identical to a self-attach.
+-- ---------------------------------------------------------------------------
+ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source, data)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+    if not CheckPermission(src, 'dispatch_assign') then
+        return { success = false, error = 'No permission' }
+    end
+
+    data = data or {}
+    local dispatchId = data.dispatch_id
+    local action = data.action == 'detach' and 'detach' or 'attach'
+    local citizenids = type(data.citizenids) == 'table' and data.citizenids or {}
+    if not dispatchId or #citizenids == 0 then
+        return { success = false, error = 'Invalid request' }
+    end
+
+    local okCore, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
+    if not okCore then QBCore = nil end
+
+    local hit, miss = 0, 0
+    for _, cid in ipairs(citizenids) do
+        local targetSrc = nil
+        if ps.getPlayerByIdentifier then
+            local p = ps.getPlayerByIdentifier(cid)
+            targetSrc = p and (p.PlayerData and p.PlayerData.source or p.source) or nil
+        end
+        if not targetSrc and QBCore and QBCore.Functions.GetPlayerByCitizenId then
+            local p = QBCore.Functions.GetPlayerByCitizenId(cid)
+            targetSrc = p and p.PlayerData and p.PlayerData.source or nil
+        end
+        if targetSrc then
+            TriggerClientEvent(resourceName .. ':client:dispatchAssign', targetSrc, {
+                id = dispatchId,
+                action = action,
+                coords = data.coords, -- {x, y} for waypoint (attach only)
+            })
+            hit = hit + 1
+        else
+            miss = miss + 1
+        end
+    end
+
+    if ps.auditLog then
+        ps.auditLog(src, 'dispatch_' .. action .. '_units', 'dispatch', 0,
+            { dispatch = tostring(dispatchId), count = hit })
+    end
+    return { success = hit > 0, assigned = hit, offline = miss }
 end)

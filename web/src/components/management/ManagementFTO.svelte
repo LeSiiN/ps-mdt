@@ -48,13 +48,20 @@
 		await Promise.all([loadPhases(), loadCompetencies()]);
 	});
 
+	// "Unsaved changes" tracking — add/edit/move/delete are all local until
+	// "Save All" is pressed, so we compare against the last loaded state.
+	let phasesSnap = $state("");
+	let compsSnap = $state("");
+	let phasesDirty = $derived(phasesSnap !== "" && JSON.stringify(phases) !== phasesSnap);
+	let compsDirty = $derived(compsSnap !== "" && JSON.stringify(competencies) !== compsSnap);
+
 	async function loadPhases() {
 		loading = true;
 		try {
 			const result = await fetchNui<FTOPhase[]>(NUI_EVENTS.FTO.GET_FTO_PHASES, {}, []);
 			phases = result || [];
 		} catch { phases = []; }
-		finally { loading = false; }
+		finally { loading = false; phasesSnap = JSON.stringify(phases); }
 	}
 
 	async function loadCompetencies() {
@@ -63,7 +70,7 @@
 			const result = await fetchNui<FTOCompetency[]>(NUI_EVENTS.FTO.GET_FTO_COMPETENCIES, {}, []);
 			competencies = result || [];
 		} catch { competencies = []; }
-		finally { loading = false; }
+		finally { loading = false; compsSnap = JSON.stringify(competencies); }
 	}
 
 	// ---- Phase CRUD ----
@@ -211,9 +218,14 @@
 			<div class="list-section">
 				<div class="panel-header">
 					<h3>FTO Phases</h3>
-					<button class="btn-save" onclick={saveAllPhases}>
-						<span class="material-icons">save</span> Save All Phases
-					</button>
+					<div class="panel-header-actions">
+						{#if phasesDirty}
+							<span class="dirty-hint">Unsaved changes</span>
+						{/if}
+						<button class="btn-save" class:dirty={phasesDirty} onclick={saveAllPhases}>
+							<span class="material-icons">save</span> Save All Phases
+						</button>
+					</div>
 				</div>
 
 				{#if phases.length === 0 && !loading}
@@ -282,9 +294,14 @@
 			<div class="list-section">
 				<div class="panel-header">
 					<h3>FTO Competencies</h3>
-					<button class="btn-save" onclick={saveAllCompetencies}>
-						<span class="material-icons">save</span> Save All Competencies
-					</button>
+					<div class="panel-header-actions">
+						{#if compsDirty}
+							<span class="dirty-hint">Unsaved changes</span>
+						{/if}
+						<button class="btn-save" class:dirty={compsDirty} onclick={saveAllCompetencies}>
+							<span class="material-icons">save</span> Save All Competencies
+						</button>
+					</div>
 				</div>
 
 				{#if competencies.length === 0 && !loading}
@@ -355,14 +372,15 @@
 
 	.status-toast {
 		position: absolute;
-		top: 12px;
-		right: 12px;
-		background: rgba(34, 197, 94, 0.15);
-		color: rgba(34, 197, 94, 0.9);
+		top: 8px;
+		right: 16px;
+		background: rgba(34, 197, 94, 0.12);
+		color: rgba(110, 231, 183, 0.9);
 		border: 1px solid rgba(34, 197, 94, 0.25);
-		padding: 8px 16px;
-		border-radius: 6px;
-		font-size: 12px;
+		padding: 4px 12px;
+		border-radius: 3px;
+		font-size: 10px;
+		font-weight: 500;
 		z-index: 10;
 		animation: fadeInOut 3s ease forwards;
 	}
@@ -434,7 +452,7 @@
 	}
 
 	.panel-header h3 {
-		font-size: 13px;
+		font-size: 12px;
 		font-weight: 600;
 		color: rgba(255, 255, 255, 0.8);
 		margin: 0;
@@ -560,16 +578,17 @@
 	/* Inputs */
 	.input-sm {
 		flex: 1;
-		padding: 6px 10px;
-		background: rgba(255, 255, 255, 0.04);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 4px;
-		color: rgba(255, 255, 255, 0.9);
-		font-size: 12px;
+		padding: 6px 9px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 11px;
 		outline: none;
+		transition: border-color 0.1s;
 	}
+	.input-sm:focus { border-color: rgba(255, 255, 255, 0.14); }
 
-	.input-sm:focus { border-color: var(--accent-35); }
 
 	.input-narrow {
 		max-width: 70px;
@@ -617,46 +636,68 @@
 
 	.add-row {
 		display: flex;
+		align-items: center;
 		gap: 6px;
-		padding: 8px;
+		padding: 10px 12px;
 		border-top: 1px solid rgba(255, 255, 255, 0.06);
+		background: rgba(255, 255, 255, 0.015);
 		flex-shrink: 0;
 	}
 
 	.btn-add {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		padding: 6px;
-		background: var(--accent-15);
-		border: 1px solid var(--accent-20);
-		border-radius: 4px;
-		color: var(--accent-text);
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+		background: rgba(var(--accent-rgb), 0.08);
+		border: 1px solid rgba(var(--accent-rgb), 0.18);
+		border-radius: 3px;
+		color: rgba(var(--accent-text-rgb), 0.85);
 		cursor: pointer;
-		transition: all 0.12s;
+		transition: all 0.1s;
 	}
+	.btn-add:hover:not(:disabled) {
+		background: rgba(var(--accent-rgb), 0.16);
+		border-color: rgba(var(--accent-rgb), 0.3);
+		color: rgba(var(--accent-text-rgb), 1);
+	}
+	.btn-add:disabled { opacity: 0.35; cursor: not-allowed; }
 
 	.btn-add .material-icons { font-size: 16px; }
 
-	.btn-add:hover:not(:disabled) { background: var(--accent-25); }
-	.btn-add:disabled { opacity: 0.4; cursor: not-allowed; }
 
 	.btn-save {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 4px 10px;
+		border-radius: 3px;
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		border: 1px solid rgba(var(--accent-rgb), 0.1);
+		background: rgba(var(--accent-rgb), 0.06);
+		color: rgba(var(--accent-text-rgb), 0.7);
+		transition: all 0.1s;
+	}
+	.btn-save:hover { background: rgba(var(--accent-rgb), 0.12); color: rgba(var(--accent-text-rgb), 0.9); }
+	.btn-save.dirty {
+		background: rgba(var(--accent-rgb), 0.14);
+		border-color: rgba(var(--accent-rgb), 0.25);
+		color: rgba(var(--accent-text-rgb), 0.95);
+	}
+	.panel-header-actions {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		padding: 8px 16px;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 500;
-		cursor: pointer;
-		border: 1px solid var(--accent-20);
-		background: var(--accent-15);
-		color: var(--accent-text);
-		transition: all 0.12s;
+		gap: 10px;
+	}
+	.dirty-hint {
+		font-size: 10px;
+		color: rgba(234, 179, 8, 0.75);
 	}
 
-	.btn-save:hover { background: var(--accent-25); }
 
-	.btn-save .material-icons { font-size: 15px; }
+	.btn-save .material-icons { font-size: 13px; }
 </style>

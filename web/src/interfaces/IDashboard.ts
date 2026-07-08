@@ -75,6 +75,26 @@ interface Dispatch {
 	units: DispatchUnit[];
 	time: number;
 }
+export interface UpcomingHearing {
+	id: number;
+	title: string;
+	category?: string;
+	hearing_type?: string;
+	defendant_name?: string;
+	scheduled_at: string | number;
+	location?: string;
+	status?: string;
+}
+
+export interface OpenCase {
+	id: number;
+	case_number: string;
+	title: string;
+	status: string;
+	priority?: string;
+	updated_at?: string | number;
+}
+
 export interface DashboardData {
 	jobData: jobData;
 	reportStatistics: reportStatistics;
@@ -83,6 +103,8 @@ export interface DashboardData {
 	recentReports: Report[];
 	activeBolos: Bolo[];
 	bulletins: Bulletin[];
+	upcomingHearings?: UpcomingHearing[];
+	openCases?: OpenCase[];
 	activeUnits: ActiveUnits;
 	recentDispatches: Dispatch[];
 	usageMetrics: {

@@ -19,13 +19,20 @@
 	let statusMsg: { text: string; type: "success" | "error" } | null = $state(null);
 	let newOfferValue = $state("");
 
+	// "Unsaved changes" tracking against the last loaded/saved config.
+	let savedSnapshot = $state("");
+	function snapshot(): string {
+		return JSON.stringify({ o: [...config.reductionOffers].sort((a, b) => a - b), m: config.maxFineAmount });
+	}
+	let isDirty = $derived(savedSnapshot !== "" && snapshot() !== savedSnapshot);
+
 	function showStatus(text: string, type: "success" | "error" = "success") {
 		statusMsg = { text, type };
 		setTimeout(() => { statusMsg = null; }, 3000);
 	}
 
 	async function loadConfig() {
-		if (isEnvBrowser()) return;
+		if (isEnvBrowser()) { savedSnapshot = snapshot(); return; }
 		try {
 			isLoading = true;
 			const response = await fetchNui<JailFinesConfig>(
@@ -39,6 +46,7 @@
 					maxFineAmount: response.maxFineAmount ?? 100000,
 				};
 			}
+			savedSnapshot = snapshot();
 		} catch (error) {
 			console.error("Failed to load jail/fines config:", error);
 		} finally {
@@ -48,6 +56,7 @@
 
 	async function saveConfig() {
 		if (isEnvBrowser()) {
+			savedSnapshot = snapshot();
 			showStatus("Settings saved");
 			return;
 		}
@@ -59,6 +68,7 @@
 				{ success: false },
 			);
 			if (result?.success) {
+				savedSnapshot = snapshot();
 				showStatus("Jail & Fines settings saved");
 			} else {
 				showStatus(result?.message || "Failed to save settings", "error");
@@ -111,8 +121,10 @@
 			<div class="jf-header-actions">
 				{#if statusMsg}
 					<span class="save-status {statusMsg.type}">{statusMsg.text}</span>
+				{:else if isDirty}
+					<span class="dirty-hint">Unsaved changes</span>
 				{/if}
-				<button class="btn-save" onclick={saveConfig} disabled={isSaving}>
+				<button class="btn-save" class:dirty={isDirty} onclick={saveConfig} disabled={isSaving}>
 					<span class="material-icons btn-save-icon">save</span>
 					{isSaving ? "Saving..." : "Save Settings"}
 				</button>
@@ -220,6 +232,16 @@
 	.save-status {
 		font-size: 10px;
 		animation: fadeIn 0.2s ease-out;
+	}
+	.dirty-hint {
+		font-size: 10px;
+		color: rgba(234, 179, 8, 0.75);
+		animation: fadeIn 0.2s ease-out;
+	}
+	.btn-save.dirty {
+		background: rgba(var(--accent-rgb), 0.14);
+		border-color: rgba(var(--accent-rgb), 0.25);
+		color: rgba(var(--accent-text-rgb), 0.95);
 	}
 
 	.save-status.success { color: rgba(110, 231, 183, 0.8); }

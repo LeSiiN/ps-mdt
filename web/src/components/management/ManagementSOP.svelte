@@ -38,6 +38,12 @@
 	let loading = $state(true);
 	let statusMsg = $state("");
 
+	// "Unsaved changes" flags — set when an editor's content changes, cleared
+	// after the matching save succeeds.
+	let missionDirty = $state(false);
+	let introDirty = $state(false);
+	let sectionDirty = $state(false);
+
 	// Category editing
 	let selectedCategoryId = $state<number | null>(null);
 	let newCategoryTitle = $state("");
@@ -83,7 +89,7 @@
 			missionEditorService.initializeEditor(
 				missionEditorEl,
 				settings.mission_statement || "",
-				(content) => { settings.mission_statement = content; }
+				(content) => { settings.mission_statement = content; missionDirty = true; }
 			);
 			missionInitialized = true;
 		}
@@ -95,7 +101,7 @@
 			introEditorService.initializeEditor(
 				introEditorEl,
 				settings.introduction || "",
-				(content) => { settings.introduction = content; }
+				(content) => { settings.introduction = content; introDirty = true; }
 			);
 			introInitialized = true;
 		}
@@ -108,7 +114,7 @@
 			sectionEditorService.initializeEditor(
 				sectionEditorEl,
 				section?.content || "",
-				(content) => { sectionContent = content; }
+				(content) => { sectionContent = content; sectionDirty = true; }
 			);
 			sectionInitialized = true;
 		}
@@ -215,11 +221,13 @@
 			sectionInitialized = false;
 			editingSectionId = null;
 			await loadCategories();
+			sectionDirty = false;
 			showStatus("Section saved");
 		}
 	}
 
 	function cancelEditSection() {
+		sectionDirty = false;
 		sectionEditorService.destroyEditor();
 		sectionInitialized = false;
 		editingSectionId = null;
@@ -248,6 +256,7 @@
 			{ success: true }
 		);
 		if (result?.success) {
+			missionDirty = false;
 			showStatus("Mission statement saved");
 		}
 	}
@@ -262,6 +271,7 @@
 			{ success: true }
 		);
 		if (result?.success) {
+			introDirty = false;
 			showStatus("Introduction saved");
 		}
 	}
@@ -323,9 +333,12 @@
 				<p class="intro-desc">The mission statement is displayed at the top of the SOP page and in the agreement overlay. Define your department's mission, values, and M.O.S. requirements.</p>
 				<div class="editor-container" bind:this={missionEditorEl}></div>
 				<div class="editor-actions">
-					<button class="btn-save" onclick={saveMission}>
+					<button class="btn-save" class:dirty={missionDirty} onclick={saveMission}>
 						<span class="material-icons">save</span> Save Mission Statement
 					</button>
+					{#if missionDirty}
+						<span class="dirty-hint">Unsaved changes</span>
+					{/if}
 				</div>
 			</div>
 
@@ -408,12 +421,15 @@
 								<input type="text" bind:value={editSectionTitle} placeholder="Section title" class="input-full" />
 								<div class="editor-container" bind:this={sectionEditorEl}></div>
 								<div class="editor-actions">
-									<button class="btn-save" onclick={saveSection}>
+									<button class="btn-save" class:dirty={sectionDirty} onclick={saveSection}>
 										<span class="material-icons">check</span> Save Section
 									</button>
 									<button class="btn-cancel" onclick={cancelEditSection}>
 										<span class="material-icons">close</span> Cancel
 									</button>
+									{#if sectionDirty}
+										<span class="dirty-hint">Unsaved changes</span>
+									{/if}
 								</div>
 							</div>
 						{:else}
@@ -450,9 +466,12 @@
 				<p class="intro-desc">This introduction is shown to officers when they are required to acknowledge the SOP. Use it to summarize key policies and expectations.</p>
 				<div class="editor-container" bind:this={introEditorEl}></div>
 				<div class="editor-actions">
-					<button class="btn-save" onclick={saveIntro}>
+					<button class="btn-save" class:dirty={introDirty} onclick={saveIntro}>
 						<span class="material-icons">save</span> Save Introduction
 					</button>
+					{#if introDirty}
+						<span class="dirty-hint">Unsaved changes</span>
+					{/if}
 				</div>
 			</div>
 
@@ -499,14 +518,15 @@
 
 	.status-toast {
 		position: absolute;
-		top: 12px;
-		right: 12px;
-		background: rgba(34, 197, 94, 0.15);
-		color: rgba(34, 197, 94, 0.9);
+		top: 8px;
+		right: 16px;
+		background: rgba(34, 197, 94, 0.12);
+		color: rgba(110, 231, 183, 0.9);
 		border: 1px solid rgba(34, 197, 94, 0.25);
-		padding: 8px 16px;
-		border-radius: 6px;
-		font-size: 12px;
+		padding: 4px 12px;
+		border-radius: 3px;
+		font-size: 10px;
+		font-weight: 500;
 		z-index: 10;
 		animation: fadeInOut 3s ease forwards;
 	}
@@ -743,16 +763,17 @@
 	/* Inputs */
 	.input-sm {
 		flex: 1;
-		padding: 6px 10px;
-		background: rgba(255, 255, 255, 0.04);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 4px;
-		color: rgba(255, 255, 255, 0.9);
-		font-size: 12px;
+		padding: 6px 9px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 11px;
 		outline: none;
+		transition: border-color 0.1s;
 	}
+	.input-sm:focus { border-color: rgba(255, 255, 255, 0.14); }
 
-	.input-sm:focus { border-color: var(--accent-35); }
 
 	.input-full {
 		width: 100%;
@@ -820,28 +841,36 @@
 
 	.add-row {
 		display: flex;
+		align-items: center;
 		gap: 6px;
-		padding: 8px;
+		padding: 10px 12px;
 		border-top: 1px solid rgba(255, 255, 255, 0.06);
+		background: rgba(255, 255, 255, 0.015);
 		flex-shrink: 0;
 	}
 
 	.btn-add {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		padding: 6px;
-		background: var(--accent-15);
-		border: 1px solid var(--accent-20);
-		border-radius: 4px;
-		color: var(--accent-text);
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+		background: rgba(var(--accent-rgb), 0.08);
+		border: 1px solid rgba(var(--accent-rgb), 0.18);
+		border-radius: 3px;
+		color: rgba(var(--accent-text-rgb), 0.85);
 		cursor: pointer;
-		transition: all 0.12s;
+		transition: all 0.1s;
+	}
+	.btn-add:hover:not(:disabled) {
+		background: rgba(var(--accent-rgb), 0.16);
+		border-color: rgba(var(--accent-rgb), 0.3);
+		color: rgba(var(--accent-text-rgb), 1);
 	}
 
 	.btn-add .material-icons { font-size: 16px; }
 
-	.btn-add:hover:not(:disabled) { background: var(--accent-25); }
 	.btn-add:disabled { opacity: 0.4; cursor: not-allowed; }
 
 	/* Editor Container */
@@ -880,28 +909,39 @@
 	}
 
 	.btn-save, .btn-cancel {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 6px;
-		padding: 8px 16px;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 500;
+		gap: 5px;
+		padding: 4px 10px;
+		border-radius: 3px;
+		font-size: 10px;
+		font-weight: 600;
 		cursor: pointer;
 		border: none;
-		transition: all 0.12s;
+		transition: all 0.1s;
 	}
 
 	.btn-save {
-		background: var(--accent-15);
-		color: var(--accent-text);
-		border: 1px solid var(--accent-20);
+		background: rgba(var(--accent-rgb), 0.06);
+		color: rgba(var(--accent-text-rgb), 0.7);
+		border: 1px solid rgba(var(--accent-rgb), 0.1);
 	}
 
-	.btn-save:hover { background: var(--accent-25); }
+	.btn-save:hover { background: rgba(var(--accent-rgb), 0.12); color: rgba(var(--accent-text-rgb), 0.9); }
+	.btn-save.dirty {
+		background: rgba(var(--accent-rgb), 0.14);
+		border-color: rgba(var(--accent-rgb), 0.25);
+		color: rgba(var(--accent-text-rgb), 0.95);
+	}
+
+	.dirty-hint {
+		font-size: 10px;
+		color: rgba(234, 179, 8, 0.75);
+		align-self: center;
+	}
 
 	.btn-save .material-icons,
-	.btn-cancel .material-icons { font-size: 15px; }
+	.btn-cancel .material-icons { font-size: 13px; }
 
 	.btn-cancel {
 		background: rgba(255, 255, 255, 0.04);
@@ -981,21 +1021,21 @@
 	.btn-publish {
 		display: inline-flex;
 		align-items: center;
-		gap: 8px;
-		padding: 10px 24px;
-		background: var(--accent-15);
-		color: var(--accent-text);
-		border: 1px solid var(--accent-20);
-		border-radius: 8px;
-		font-size: 13px;
+		gap: 6px;
+		padding: 6px 18px;
+		background: rgba(var(--accent-rgb), 0.08);
+		color: rgba(var(--accent-text-rgb), 0.85);
+		border: 1px solid rgba(var(--accent-rgb), 0.18);
+		border-radius: 3px;
+		font-size: 11px;
 		font-weight: 600;
 		cursor: pointer;
-		transition: all 0.15s;
+		transition: all 0.1s;
 	}
 
-	.btn-publish:hover { background: var(--accent-25); }
+	.btn-publish:hover { background: rgba(var(--accent-rgb), 0.16); color: rgba(var(--accent-text-rgb), 1); }
 
-	.btn-publish .material-icons { font-size: 18px; }
+	.btn-publish .material-icons { font-size: 14px; }
 
 	.confirm-box {
 		background: rgba(239, 68, 68, 0.06);
@@ -1017,28 +1057,31 @@
 	}
 
 	.btn-confirm {
-		padding: 8px 20px;
-		background: rgba(239, 68, 68, 0.15);
-		color: rgba(239, 68, 68, 0.9);
-		border: 1px solid rgba(239, 68, 68, 0.25);
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 500;
+		padding: 4px 14px;
+		background: rgba(239, 68, 68, 0.08);
+		color: rgba(248, 113, 113, 0.9);
+		border: 1px solid rgba(239, 68, 68, 0.3);
+		border-radius: 3px;
+		font-size: 10px;
+		font-weight: 600;
 		cursor: pointer;
+		transition: all 0.1s;
 	}
+	.btn-confirm:hover:not(:disabled) { background: rgba(239, 68, 68, 0.16); }
 
-	.btn-confirm:hover { background: rgba(239, 68, 68, 0.25); }
 	.btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	.btn-cancel-sm {
-		padding: 8px 20px;
-		background: rgba(255, 255, 255, 0.04);
+		padding: 4px 14px;
+		background: rgba(255, 255, 255, 0.03);
 		color: rgba(255, 255, 255, 0.5);
 		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 6px;
-		font-size: 12px;
+		border-radius: 3px;
+		font-size: 10px;
+		font-weight: 600;
 		cursor: pointer;
+		transition: all 0.1s;
 	}
+	.btn-cancel-sm:hover { color: rgba(255, 255, 255, 0.8); border-color: rgba(255, 255, 255, 0.15); }
 
-	.btn-cancel-sm:hover { background: rgba(255, 255, 255, 0.08); }
 </style>

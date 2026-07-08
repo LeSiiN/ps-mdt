@@ -45,6 +45,8 @@ export function createDashboardService() {
 	const recentReportsPageSize = 10;
 	let activeBolos = $state(defaultState.activeBolos);
 	let bulletins = $state(defaultState.bulletins);
+	let upcomingHearings = $state<import("../interfaces/IDashboard").UpcomingHearing[]>([]);
+	let openCases = $state<import("../interfaces/IDashboard").OpenCase[]>([]);
 	let activeUnits = $state(defaultState.activeUnits);
 	let recentDispatches = $state(defaultState.recentDispatches);
 	let usageMetrics = $state(defaultState.usageMetrics);
@@ -230,6 +232,8 @@ export function createDashboardService() {
 			timeStatistics?: typeof weeklyTimeData;
 			activeWarrants?: typeof activeWarrants;
 			bulletins?: typeof bulletins;
+			upcomingHearings?: typeof upcomingHearings;
+			openCases?: typeof openCases;
 			activeBolos?: typeof activeBolos;
 			activeUnits?: typeof activeUnits;
 			recentDispatches?: typeof recentDispatches;
@@ -255,6 +259,8 @@ export function createDashboardService() {
 					checkAndStartCarousel();
 				}
 				activeBolos = data.activeBolos || activeBolos;
+				upcomingHearings = Array.isArray(data.upcomingHearings) ? data.upcomingHearings : upcomingHearings;
+				openCases = Array.isArray(data.openCases) ? data.openCases : openCases;
 				activeUnits = data.activeUnits || activeUnits;
 				recentDispatches = data.recentDispatches || recentDispatches;
 				usageMetrics = data.usageMetrics || usageMetrics;
@@ -368,6 +374,12 @@ export function createDashboardService() {
 		},
 		get activeBolos() {
 			return activeBolos;
+		},
+		get upcomingHearings() {
+			return upcomingHearings;
+		},
+		get openCases() {
+			return openCases;
 		},
 		get bulletins() {
 			return bulletins;

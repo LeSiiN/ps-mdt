@@ -125,8 +125,12 @@
 						{#if currentRole.isBoss}
 							<span class="boss-note">Boss roles always see all tabs</span>
 						{:else}
+							{#if mgmt.isDirty}
+								<span class="dirty-hint">Unsaved changes</span>
+							{/if}
 							<button
 								class="save-btn"
+								class:dirty={mgmt.isDirty}
 								onclick={() => mgmt.saveAllRoles()}
 								disabled={mgmt.isSaving}
 							>
@@ -319,7 +323,20 @@
 		z-index: 5;
 		background: var(--card-dark-bg, #16181d);
 	}
+	.role-title-row .dirty-hint {
+		margin-left: auto;
+		font-size: 10px;
+		color: rgba(234, 179, 8, 0.75);
+		animation: fadeIn 0.2s ease-out;
+	}
+	.role-title-row .dirty-hint + .save-btn { margin-left: 0; }
 	.role-title-row .save-btn { margin-left: auto; }
+	.save-btn.dirty {
+		background: rgba(var(--accent-rgb), 0.14);
+		border-color: rgba(var(--accent-rgb), 0.25);
+		color: rgba(var(--accent-text-rgb), 0.95);
+	}
+	@keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
 
 	.role-title { font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.8); }
 	.boss-note { font-size: 10px; color: rgba(110, 231, 183, 0.6); }
