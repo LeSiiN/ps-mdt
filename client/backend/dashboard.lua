@@ -382,3 +382,16 @@ RegisterNUICallback('assignToDispatch', function(data, cb)
     local result = ps.callback(resourceName .. ':server:assignToDispatch', data or {})
     cb(result or { success = false })
 end)
+
+-- A dispatcher dismissed a call globally — refresh our MDT's dispatch list
+-- (the server already filters the dismissed id out of every response).
+RegisterNetEvent(resourceName .. ':client:dispatchDismissed', function(_)
+    if not MDTOpen then return end
+    SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
+end)
+
+RegisterNUICallback('dismissDispatch', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:dismissDispatch', data or {})
+    cb(result or { success = false })
+end)

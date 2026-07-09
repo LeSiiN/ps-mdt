@@ -65,9 +65,6 @@
     let showBodycams = $state(localStorage.getItem("mdt_map_bodycams") !== "false");
     let showPatrols  = $state(localStorage.getItem("mdt_map_patrols_layer") !== "false");
     let showZones    = $state(localStorage.getItem("mdt_map_zones") !== "false");
-    let iconStyle = $state<"dot" | "badge">(
-        (localStorage.getItem("mdt_map_icon_style") as "dot" | "badge") ?? "dot"
-    );
 
     let vehicleLayer = L.layerGroup();
     let bodycamLayer = L.layerGroup();
@@ -150,6 +147,8 @@
     // Calls a dispatcher has dismissed locally (cleared from ticker + map).
     let dismissedCallIds   = $state<Set<string>>(new Set());
     let showCalls          = $state(localStorage.getItem("mdt_map_calls") !== "false");
+    // Shown when the view has drifted away from the island — one click glides back.
+    let showBackToMap      = $state(false);
     let selectedDispatchId = $state<string | null>(null);
     let assignBusy         = $state(false);
     let visibleDispatches  = $derived(dispatches.filter(d => !dismissedCallIds.has(String(d.id))));
@@ -287,10 +286,18 @@
     function selectDispatch(id: string) {
         selectedDispatchId = selectedDispatchId === id ? null : id;
         renderDispatchMarkers();
+        // Only one focus at a time: opening a call closes the officer popup.
+        if (selectedDispatchId) clearOfficerHighlight();
         if (selectedDispatchId && map) {
             const d = visibleDispatches.find(x => String(x.id) === id);
             const gp = d ? dispatchCoords(d) : null;
-            if (gp) map.panTo(toMapLatLng(gp) as L.LatLngExpression);
+            if (gp) {
+                // Glide over to the call instead of jumping.
+                map.flyTo(toMapLatLng(gp) as L.LatLngExpression, Math.max(map.getZoom(), 6), {
+                    duration: 1.1,
+                    easeLinearity: 0.25,
+                });
+            }
         }
     }
 
@@ -397,13 +404,42 @@
         assignUnits([cid], "detach");
     }
 
-    // Newest three calls for the ticker (server list is oldest→newest).
-    let tickerCalls = $derived(visibleDispatches.slice(-3).reverse());
+    // Ticker paging: browse ALL calls three at a time (newest first),
+    // navigated with the on-screen arrows or the keyboard arrow keys.
+    let tickerPage = $state(0);
+    let tickerAll = $derived(visibleDispatches.slice().reverse());
+    let tickerPages = $derived(Math.max(1, Math.ceil(tickerAll.length / 3)));
+    let tickerCalls = $derived(tickerAll.slice(tickerPage * 3, tickerPage * 3 + 3));
+    $effect(() => { if (tickerPage >= tickerPages) tickerPage = Math.max(0, tickerPages - 1); });
 
-    function dismissCall(id: string) {
+    function tickerNav(dir: number) {
+        tickerPage = Math.min(tickerPages - 1, Math.max(0, tickerPage + dir));
+    }
+
+    function handleTickerKeys(e: KeyboardEvent) {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        if (e.key === "ArrowLeft") { e.preventDefault(); tickerNav(-1); }
+        else if (e.key === "ArrowRight") { e.preventDefault(); tickerNav(1); }
+    }
+
+    async function dismissCall(id: string) {
+        // Optimistic local hide, then the server removes it for EVERYONE —
+        // the broadcast refresh keeps all open MDTs in sync.
         dismissedCallIds = new Set([...dismissedCallIds, id]);
         if (selectedDispatchId === id) selectedDispatchId = null;
         renderDispatchMarkers();
+        try {
+            const res = await fetchNui<{ success: boolean; error?: string }>(
+                NUI_EVENTS.DISPATCH.DISMISS_DISPATCH, { dispatch_id: id }, { success: true });
+            if (res?.success) {
+                globalNotifications.success("Call dismissed for all units");
+            } else {
+                globalNotifications.error(res?.error || "Failed to dismiss call");
+            }
+        } catch {
+            globalNotifications.error("Failed to dismiss call");
+        }
     }
 
     // ─── Officer Status ────────────────────────────────────────────────────
@@ -549,6 +585,11 @@
         if (selectedOfficerId === citizenid) {
             clearOfficerHighlight();
             return;
+        }
+        // Only one focus at a time: opening an officer closes the call card.
+        if (selectedDispatchId) {
+            selectedDispatchId = null;
+            renderDispatchMarkers();
         }
         selectedOfficerId = citizenid;
         highlightOfficerOnMap(citizenid);
@@ -735,8 +776,8 @@
 
             highlightPopup.on("remove", () => { clearOfficerHighlight(); });
 
-            // Pan only on first selection
-            map.panTo(latlng, { animate: true, duration: 0.5 });
+            // Glide over on first selection
+            map.flyTo(latlng, Math.max(map.getZoom(), 6), { duration: 0.9, easeLinearity: 0.25 });
         }
 
         // Always update popup: position + full content (so all live data refreshes)
@@ -772,14 +813,28 @@
     const bodycamMarkers = new globalThis.Map<string, L.Marker>();
     const vehicleMarkers = new globalThis.Map<string, L.Marker>();
 
-    const offsetX = 40;
-    const offsetY = 31;
+    // GTA→map linear calibration — measured in-game with reference points
+    // (deep south + far north). sx/sy correct the slight scale drift of this
+    // map render (positions used to slide off toward the south/north edges),
+    // ox/oy shift the whole layer.
+    const CALIB_SX = 0.995209;
+    const CALIB_SY = 1.003941;
+    const CALIB_OX = 2.47;
+    const CALIB_OY = 7.61;
 
     function toMapLatLng(coords: { x: number; y: number }) {
-        return [coords.y - offsetY, coords.x + offsetX];
+        return [CALIB_SY * coords.y + CALIB_OY, CALIB_SX * coords.x + CALIB_OX];
     }
     function toGtaCoords(latlng: L.LatLng): GtaPoint {
-        return { x: latlng.lng - offsetX, y: latlng.lat + offsetY };
+        return { x: (latlng.lng - CALIB_OX) / CALIB_SX, y: (latlng.lat - CALIB_OY) / CALIB_SY };
+    }
+
+    let mapImageBounds: L.LatLngBounds | null = null;
+
+    function flyBackToMap() {
+        if (!map) return;
+        map.flyTo([-300, -1500] as L.LatLngExpression, 3, { duration: 1.2, easeLinearity: 0.25 });
+        showBackToMap = false;
     }
 
     // ── Zone rendering ────────────────────────────────────────────────────────
@@ -1087,23 +1142,6 @@
             ? `<div class="tracking-status-dot" style="background:${statusColor};transform:rotate(${-rotation}deg)"></div>`
             : "";
 
-        if (iconStyle === "badge") {
-            return L.divIcon({
-                className: "",
-                html: `
-                    <div class="tracking-badge-wrap${cachedClass}" style="transform: rotate(${rotation}deg)">
-                        <div class="tracking-icon tracking-${kind}" style="${patrolColor ? `background:${patrolColor}` : ""}">
-                            <span style="transform: rotate(-${rotation}deg)">${config.label}</span>
-                        </div>
-                        ${hasHeading ? `<div class="tracking-arrow tracking-arrow-${kind}" style="${patrolColor ? `border-bottom-color:${patrolColor}` : ""}"></div>` : ""}
-                        ${statusDot}
-                    </div>
-                `,
-                iconSize: [28, 28],
-                iconAnchor: [14, 14],
-            });
-        }
-
         return L.divIcon({
             className: "",
             html: `
@@ -1127,7 +1165,7 @@
         cached = false,
         statusColor?: string
     ) {
-        const offset: [number, number] = iconStyle === "badge" ? [0, -14] : [0, -10];
+        const offset: [number, number] = [0, -10];
         return L.marker(toMapLatLng(coords) as any, {
             icon: makeTrackIcon(kind, heading, patrolColor, cached, statusColor),
         }).bindTooltip(label, { direction: "top", offset });
@@ -1690,6 +1728,12 @@
         toggle(zoneLayer, showZones);
     }
 
+    function getMapBounds(map: Map) {
+        const sw = map.unproject([0, 1024], 2);
+        const ne = map.unproject([1024, 0], 2);
+        return new LatLngBounds(sw, ne);
+    }
+
     function getCustomCRS() {
         const zoomNumb = 0.6931471805599453;
         return L.extend({}, CRS.Simple, {
@@ -1714,15 +1758,15 @@
         const CustomCRS = getCustomCRS();
         map = L.map(mapContainer as HTMLDivElement, {
             crs: CustomCRS,
-            minZoom: 3,
+            // Zoom far enough out to see the entire map at once.
+            minZoom: 2,
             maxZoom: 10,
             zoom: 5,
             preferCanvas: true,
             center: [0, -1024],
-            // Soft, elastic edge instead of a hard wall — you can drag a bit
-            // past the image and it eases back, which feels far more natural.
-            maxBoundsViscosity: 0.25,
             zoomControl: false,
+            // Arrow keys page the call ticker instead of panning the map.
+            keyboard: false,
             // Smooth scroll-zoom: quarter-step snapping with a fast, light
             // wheel response (lower px/level = quicker, less "sticky").
             zoomSnap: 0.25,
@@ -1741,20 +1785,24 @@
 
         L.control.zoom({ position: "topright" }).addTo(map);
 
+
+        // Image placement bounds (world extent of the map render). Intentionally
+        // NOT applied as maxBounds: units can roam far off the island (e.g.
+        // Cayo Perico), so the view must be free to follow them without being
+        // pulled back toward the mainland.
         const bounds = getMapBounds(map);
         map.setView([-300, -1500], 3);
-        // Padded bounds: leave breathing room around the island so the view
-        // isn't glued to the image edges (combined with the soft viscosity).
-        map.setMaxBounds(bounds.pad(0.18));
+
+        // Offer a way back once the island has left the viewport entirely.
+        mapImageBounds = bounds;
+        map.on("moveend", () => {
+            if (!map) return;
+            showBackToMap = !map.getBounds().intersects(mapImageBounds!);
+        });
         map.attributionControl.setPrefix(false);
 
         L.imageOverlay("./images/map.jpeg", bounds).addTo(map);
 
-        map.on("dragend", () => {
-            if (!bounds.contains(map!.getCenter())) {
-                map!.panTo(bounds.getCenter(), { animate: false });
-            }
-        });
 
         vehicleLayer = L.layerGroup().addTo(map);
         bodycamLayer = L.layerGroup().addTo(map);
@@ -1764,15 +1812,15 @@
         syncLayerVisibility();
         refreshTracking();
         loadDispatches();
+        window.addEventListener("keydown", handleTickerKeys);
+        // Clean up leftover calibration-tool storage from the tuning session.
+        localStorage.removeItem("mdt_calib");
+        localStorage.removeItem("mdt_calib_pts");
+        localStorage.removeItem("mdt_calib_tool");
+        localStorage.removeItem("mdt_map_icon_style");
         // Pushes (trackingDirty) drive freshness now; this poll is only a
         // safety net in case an event is ever missed, so it can run slower.
         refreshTimer = setInterval(() => { refreshTracking(); loadDispatches(); }, 10000);
-    }
-
-    function getMapBounds(map: Map) {
-        const sw = map.unproject([0, 1024], 2);
-        const ne = map.unproject([1024, 0], 2);
-        return new LatLngBounds(sw, ne);
     }
 
     // Closes the status picker popover when clicking anywhere outside it.
@@ -1811,10 +1859,10 @@
         bodycamMarkers.clear();
         vehicleMarkers.clear();
         dispatchMarkers.clear();
+        window.removeEventListener("keydown", handleTickerKeys);
     });
 
     $effect(() => { syncLayerVisibility(); });
-    $effect(() => { iconStyle; refreshTracking(); });
     $effect(() => { showPatrols; refreshPatrolLabels(); });
     $effect(() => { showZones; renderAllZones(); });
     $effect(() => { showCalls; renderDispatchMarkers(); });
@@ -1822,9 +1870,19 @@
 <div class="map-page">
     <div class="map-wrapper" style="--sidebar-width:{sidebarWidth}px; --zoom-offset:{sidebarOpen ? sidebarWidth + 46 : 12}px">
 
+        {#if showBackToMap}
+            <button class="back-to-map" onclick={flyBackToMap}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                Back to map
+            </button>
+        {/if}
+
         <!-- ─── Dispatch call ticker (newest calls, click to focus) ─── -->
-        {#if showCalls && tickerCalls.length > 0}
+        {#if showCalls && tickerAll.length > 0}
             <div class="call-ticker">
+                {#if tickerPages > 1}
+                    <button class="ticker-nav" disabled={tickerPage === 0} title="Previous calls (←)" onclick={() => tickerNav(-1)}>‹</button>
+                {/if}
                 {#each tickerCalls as d (d.id)}
                     <div class="ticker-chip" class:active={String(d.id) === selectedDispatchId}>
                         <button class="ticker-main" onclick={() => selectDispatch(String(d.id))}>
@@ -1833,11 +1891,19 @@
                             <span class="ticker-text">{d.message || d.street || ""}</span>
                             <span class="ticker-age">{dispatchAge(d.time)}</span>
                         </button>
-                        <button class="ticker-x" title="Dismiss call" onclick={() => dismissCall(String(d.id))}>✕</button>
+                        {#if canAssignUnits}
+                            <button class="ticker-x" title="Dismiss call for everyone" onclick={() => dismissCall(String(d.id))}>✕</button>
+                        {/if}
                     </div>
                 {/each}
+                {#if tickerPages > 1}
+                    <span class="ticker-page">{tickerPage + 1}/{tickerPages}</span>
+                    <button class="ticker-nav" disabled={tickerPage === tickerPages - 1} title="Next calls (→)" onclick={() => tickerNav(1)}>›</button>
+                {/if}
             </div>
         {/if}
+
+
 
         <!-- ─── Selected call card ─── -->
         {#if selectedDispatch}
@@ -1845,9 +1911,11 @@
                 <div class="call-card-header">
                     <span class="call-prio-dot" style="background:{priorityColor(selectedDispatch.priority)}"></span>
                     <span class="call-title">{selectedDispatch.code || selectedDispatch.codename || "Call"}{#if selectedDispatch.codename && selectedDispatch.code} · {selectedDispatch.codename}{/if}</span>
-                    <button class="call-close call-dismiss" title="Dismiss call (remove from map and ticker)" aria-label="Dismiss" onclick={() => dismissCall(String(selectedDispatch!.id))}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                    </button>
+                    {#if canAssignUnits}
+                        <button class="call-close call-dismiss" title="Dismiss call for everyone (removes it from all MDTs)" aria-label="Dismiss" onclick={() => dismissCall(String(selectedDispatch!.id))}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                    {/if}
                     <button class="call-close" aria-label="Close" onclick={() => { selectedDispatchId = null; renderDispatchMarkers(); }}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
@@ -1943,14 +2011,6 @@
                     <input type="checkbox" bind:checked={showZones} onchange={() => localStorage.setItem("mdt_map_zones", String(showZones))} />
                     <span class="toggle-label">Zones</span>
                 </label>
-            </div>
-            <div class="controls-divider"></div>
-            <div class="controls-group">
-                <span class="controls-label">Style</span>
-                <div class="segment">
-                    <button class:active={iconStyle === "dot"} onclick={() => { iconStyle = "dot"; localStorage.setItem("mdt_map_icon_style", "dot"); }} type="button">Dots</button>
-                    <button class:active={iconStyle === "badge"} onclick={() => { iconStyle = "badge"; localStorage.setItem("mdt_map_icon_style", "badge"); }} type="button">Badges</button>
-                </div>
             </div>
             <div class="controls-divider"></div>
             <div class="legend">
@@ -2291,11 +2351,37 @@
         100% { transform: translate(-50%, -50%) scale(1.45); opacity: 0; }
     }
 
+    .back-to-map {
+        position: absolute;
+        top: 92px;
+        right: var(--zoom-offset, 12px);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        background: rgba(17, 17, 17, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 3px;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        z-index: 1000;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+        transition: color 0.12s, background 0.12s, border-color 0.12s, right 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        animation: fadeInBtn 0.2s ease-out;
+    }
+    .back-to-map:hover {
+        border-color: rgba(255, 255, 255, 0.3);
+        color: #fff;
+        background: rgba(28, 28, 28, 0.96);
+    }
+    @keyframes fadeInBtn { 0% { opacity: 0; transform: translateY(-6px); } 100% { opacity: 1; transform: translateY(0); } }
+
     .call-ticker {
         position: absolute;
         bottom: 12px;
-        left: 50%;
-        transform: translateX(-50%);
+        left: 12px;
         display: flex;
         gap: 6px;
         z-index: 1000;
@@ -2343,6 +2429,36 @@
     }
     .ticker-chip:hover .ticker-x { width: 20px; opacity: 1; }
     .ticker-x:hover { color: rgba(248, 113, 113, 1); }
+    .ticker-nav {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        align-self: stretch;
+        background: rgba(17, 17, 17, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.1s;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    }
+    .ticker-nav:hover:not(:disabled) { color: #fff; border-color: rgba(255, 255, 255, 0.2); }
+    .ticker-nav:disabled { opacity: 0.3; cursor: default; }
+    .ticker-page {
+        display: flex;
+        align-items: center;
+        font-size: 9px;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.45);
+        padding: 0 3px;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    }
+
+
     .ticker-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
     .ticker-code { font-weight: 700; flex-shrink: 0; }
     .ticker-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; color: rgba(255, 255, 255, 0.55); }
@@ -2520,10 +2636,7 @@
     }
     @keyframes zone-snap-pulse { 0%, 100% { stroke-opacity: 0.95; } 50% { stroke-opacity: 0.35; } }
     :global(.zone-label) { background: rgba(0,0,0,0.62); border: 1px solid; border-radius: 5px; padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; pointer-events: none; opacity: 0.85; transform: translateX(-50%); display: inline-block; }
-    :global(.tracking-icon) { width: 22px; height: 22px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #0c0c0c; }
-    :global(.tracking-vehicle) { background: #f97316; }
-    :global(.tracking-bodycam) { background: #a855f7; }
-    :global(.tracking-dot-wrap), :global(.tracking-badge-wrap) { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+    :global(.tracking-dot-wrap) { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
     :global(.tracking-dot) { width: 12px; height: 12px; border-radius: 50%; }
     :global(.tracking-arrow) { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; }
     :global(.tracking-arrow-vehicle) { border-bottom: 8px solid #f97316; }
@@ -2650,9 +2763,9 @@
 
     .map-page { height: 100%; padding: 10px 20px 20px; background: var(--card-dark-bg); }
     .map-wrapper { position: relative; width: 100%; height: 100%; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); display: flex; }
-    .map-container { flex: 1; height: 100%; background: #163b4d; }
+    .map-container { flex: 1; height: 100%; background: #10a9d3; }
     /* Ocean-blue backdrop around the map image instead of bare white. */
-    :global(.map-container .leaflet-container) { background: #163b4d !important; }
+    :global(.map-container .leaflet-container) { background: #10a9d3 !important; }
     .map-no-pointer { pointer-events: none !important; }
     .officer-card.dragging { opacity: 0.35; }
 
@@ -2675,14 +2788,9 @@
     .map-controls { position: absolute; z-index: 1001; top: 12px; left: 12px; background: rgba(17,17,17,0.92); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 12px 14px; min-width: 160px; color: rgba(255,255,255,0.9); font-size: 12px; }
     .controls-header { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 10px; display: block; }
     .controls-group { display: flex; flex-direction: column; gap: 6px; }
-    .controls-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.5); margin-bottom: 2px; }
     .controls-divider { height: 1px; background: rgba(255,255,255,0.04); margin: 10px 0; }
     .control-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: rgba(255,255,255,0.7); }
     .control-toggle input[type="checkbox"] { width: 14px; height: 14px; accent-color: rgba(var(--accent-rgb),0.7); cursor: pointer; }
-    .segment { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-    .segment button { border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 500; padding: 5px 8px; cursor: pointer; transition: all 0.1s ease; }
-    .segment button:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); }
-    .segment button.active { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.9); }
     .legend { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: rgba(255,255,255,0.45); }
     .legend-item { display: flex; align-items: center; gap: 8px; }
     .legend-item::before { content:""; width:6px; height:6px; border-radius:50%; display:inline-block; flex-shrink:0; background:var(--dot,#888); }
@@ -2775,7 +2883,7 @@
     :global(.op-availability) { font-weight: 600; font-size: 10px; }
     :global(.op-availability-since) { color: rgba(255,255,255,0.25); font-size: 9px; margin-left: 5px; }
 
-    /* Status dot pinned onto the bodycam map marker (tracking-dot / tracking-badge) */
+    /* Status dot pinned onto the bodycam map marker */
     :global(.tracking-status-dot) { position: absolute; bottom: -2px; right: -2px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid rgba(10,10,12,0.9); box-shadow: 0 0 4px rgba(0,0,0,0.6); }
     .create-form { display: flex; flex-direction: column; gap: 7px; padding: 8px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
     .create-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 5px; padding: 6px 9px; color: rgba(255,255,255,0.9); font-size: 12px; outline: none; width: 100%; box-sizing: border-box; }

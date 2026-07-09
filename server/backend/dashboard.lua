@@ -292,6 +292,30 @@ local function computeUpcomingHearings(src)
     return rows or {}
 end
 
+-- Globally dismissed calls (dispatcher action) — filtered out of every list.
+-- Entries auto-expire so the table can't grow forever.
+local DismissedDispatches = {}
+local DISMISS_TTL = 2 * 60 * 60 -- seconds
+
+local function pruneDismissed()
+    local now = os.time()
+    for id, at in pairs(DismissedDispatches) do
+        if (now - at) > DISMISS_TTL then DismissedDispatches[id] = nil end
+    end
+end
+
+local function filterDismissed(list)
+    pruneDismissed()
+    if not next(DismissedDispatches) then return list end
+    local out = {}
+    for _, call in ipairs(list or {}) do
+        if not DismissedDispatches[tostring(call.id)] then
+            out[#out + 1] = call
+        end
+    end
+    return out
+end
+
 local function computeRecentDispatches(src)
     local dispatchResource = Config and Config.Dispatch and Config.Dispatch.Resource or 'ps-dispatch'
     local ok, recentDispatches = pcall(function()
@@ -299,6 +323,8 @@ local function computeRecentDispatches(src)
     end)
     if not ok then return {} end
     recentDispatches = recentDispatches or {}
+
+    recentDispatches = filterDismissed(recentDispatches)
 
     local dispatches = recentDispatches
     if Config and Config.Dispatch and Config.Dispatch.FilterByJob == true then
@@ -389,6 +415,26 @@ ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
         usageMetrics     = computeUsageMetrics(),
     }
 end)
+-- Dispatcher: globally dismiss a call — it disappears from every MDT.
+ps.registerCallback(resourceName .. ':server:dismissDispatch', function(source, data)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+    if not CheckPermission(src, 'dispatch_assign') then
+        return { success = false, error = 'No permission' }
+    end
+    data = data or {}
+    local id = data.dispatch_id and tostring(data.dispatch_id) or nil
+    if not id then return { success = false, error = 'Invalid request' } end
+
+    DismissedDispatches[id] = os.time()
+    if ps.auditLog then
+        ps.auditLog(src, 'dispatch_dismiss', 'dispatch', 0, { dispatch = id })
+    end
+    -- Nudge every open MDT to refresh its (now filtered) dispatch list.
+    TriggerClientEvent(resourceName .. ':client:dispatchDismissed', -1, id)
+    return { success = true }
+end)
+
 -- ---------------------------------------------------------------------------
 -- Dispatcher: assign or detach OTHER units to/from a dispatch call.
 -- The actual attach runs on the TARGET client (same path as self-attach via
