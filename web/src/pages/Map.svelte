@@ -293,7 +293,7 @@
             const gp = d ? dispatchCoords(d) : null;
             if (gp) {
                 // Glide over to the call instead of jumping.
-                map.flyTo(toMapLatLng(gp) as L.LatLngExpression, Math.max(map.getZoom(), 6), {
+                map.flyTo(toMapLatLng(gp) as L.LatLngExpression, Math.max(map.getZoom(), 5), {
                     duration: 1.1,
                     easeLinearity: 0.25,
                 });
@@ -777,7 +777,7 @@
             highlightPopup.on("remove", () => { clearOfficerHighlight(); });
 
             // Glide over on first selection
-            map.flyTo(latlng, Math.max(map.getZoom(), 6), { duration: 0.9, easeLinearity: 0.25 });
+            map.flyTo(latlng, Math.max(map.getZoom(), 5), { duration: 0.9, easeLinearity: 0.25 });
         }
 
         // Always update popup: position + full content (so all live data refreshes)
@@ -830,6 +830,7 @@
     }
 
     let mapImageBounds: L.LatLngBounds | null = null;
+    let cayoImageBounds: L.LatLngBounds | null = null;
 
     function flyBackToMap() {
         if (!map) return;
@@ -1377,7 +1378,7 @@
                 const self = freshOfficers.find(o => o.citizenid === ownCitizenId);
                 if (self) {
                     centeredOnSelf = true;
-                    map.setView(toMapLatLng(self.coords) as L.LatLngExpression, 5, { animate: false });
+                    map.setView(toMapLatLng(self.coords) as L.LatLngExpression, 3, { animate: false });
                 }
             }
 
@@ -1761,7 +1762,7 @@
             // Zoom far enough out to see the entire map at once.
             minZoom: 2,
             maxZoom: 10,
-            zoom: 5,
+            zoom: 3,
             preferCanvas: true,
             center: [0, -1024],
             zoomControl: false,
@@ -1791,17 +1792,43 @@
         // Cayo Perico), so the view must be free to follow them without being
         // pulled back toward the mainland.
         const bounds = getMapBounds(map);
-        map.setView([-300, -1500], 3);
+        map.setView([-300, -1500], 2);
 
         // Offer a way back once the island has left the viewport entirely.
         mapImageBounds = bounds;
         map.on("moveend", () => {
             if (!map) return;
-            showBackToMap = !map.getBounds().intersects(mapImageBounds!);
+            const view = map.getBounds();
+            const onMain = mapImageBounds ? view.intersects(mapImageBounds) : true;
+            const onCayo = cayoImageBounds ? view.intersects(cayoImageBounds) : false;
+            showBackToMap = !onMain && !onCayo;
         });
         map.attributionControl.setPrefix(false);
 
         L.imageOverlay("./images/map.jpeg", bounds).addTo(map);
+
+        // ── Cayo Perico overlay ─────────────────────────────────────────────
+        // Placed in WORLD coordinates via toMapLatLng, so the calibrated unit
+        // markers line up with the island graphic automatically.
+        //
+        // The image is anchored at its BOTTOM-CENTER (the southern road tip,
+        // which is confirmed to line up) and grows upward/outward from there.
+        // If a unit in the north (airport) sits beyond the graphic, the image
+        // is too small → raise CAYO_SCALE in ~0.05 steps. If the airport spot
+        // is drawn past the marker, lower it. Shift the whole island left or
+        // right with CAYO_ANCHOR_X.
+        const CAYO_ANCHOR_X = 4735;   // world x of the image's horizontal center
+        const CAYO_BOTTOM_Y = -6305;  // world y of the bottom edge (fits — keep)
+        const CAYO_SCALE    = 1.225;   // enlarge/shrink around the bottom anchor
+        const CAYO_BASE_W   = 1900;   // image frame size at scale 1.0
+        const CAYO_BASE_H   = 1900;
+        const cayoW = CAYO_BASE_W * CAYO_SCALE;
+        const cayoH = CAYO_BASE_H * CAYO_SCALE;
+        cayoImageBounds = new LatLngBounds(
+            toMapLatLng({ x: CAYO_ANCHOR_X - cayoW / 2, y: CAYO_BOTTOM_Y }) as L.LatLngExpression,
+            toMapLatLng({ x: CAYO_ANCHOR_X + cayoW / 2, y: CAYO_BOTTOM_Y + cayoH }) as L.LatLngExpression,
+        );
+        L.imageOverlay("./images/cayo.jpeg", cayoImageBounds).addTo(map);
 
 
         vehicleLayer = L.layerGroup().addTo(map);
