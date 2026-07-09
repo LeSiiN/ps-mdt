@@ -292,11 +292,8 @@
             const d = visibleDispatches.find(x => String(x.id) === id);
             const gp = d ? dispatchCoords(d) : null;
             if (gp) {
-                // Glide over to the call instead of jumping.
-                map.flyTo(toMapLatLng(gp) as L.LatLngExpression, Math.max(map.getZoom(), 5), {
-                    duration: 1.1,
-                    easeLinearity: 0.25,
-                });
+                // Glide over to the call, kept centered in the visible area.
+                flyToCentered(toMapLatLng(gp) as L.LatLngExpression, Math.max(map.getZoom(), 5), 1.1);
             }
         }
     }
@@ -776,8 +773,8 @@
 
             highlightPopup.on("remove", () => { clearOfficerHighlight(); });
 
-            // Glide over on first selection
-            map.flyTo(latlng, Math.max(map.getZoom(), 5), { duration: 0.9, easeLinearity: 0.25 });
+            // Glide over on first selection, kept centered in the visible area.
+            flyToCentered(latlng, Math.max(map.getZoom(), 5));
         }
 
         // Always update popup: position + full content (so all live data refreshes)
@@ -858,6 +855,17 @@
         const coveredPx = sidebarOpen ? sidebarWidth + 34 : 0;
         const p = map.project(island, DEFAULT_VIEW_ZOOM).add([coveredPx / 2, 0]);
         return map.unproject(p, DEFAULT_VIEW_ZOOM);
+    }
+
+    // Fly to a map point but keep it centered in the VISIBLE area: when the
+    // sidebar is open it covers the right strip, so we nudge the target left by
+    // half that strip (in pixels at the destination zoom) before flying.
+    function flyToCentered(target: L.LatLngExpression, zoom: number, duration = 0.9) {
+        if (!map) return;
+        const ll = L.latLng(target as L.LatLngExpression);
+        const coveredPx = sidebarOpen ? sidebarWidth + 34 : 0;
+        const p = map.project(ll, zoom).add([coveredPx / 2, 0]);
+        map.flyTo(map.unproject(p, zoom), zoom, { duration, easeLinearity: 0.25 });
     }
 
     function flyBackToMap() {
