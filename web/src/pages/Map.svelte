@@ -832,9 +832,37 @@
     let mapImageBounds: L.LatLngBounds | null = null;
     let cayoImageBounds: L.LatLngBounds | null = null;
 
+    // Cayo Perico overlay placement — tuned in-game. Anchored at the image's
+    // bottom-center (southern road tip) and scaled upward/outward from there.
+    const CAYO_ANCHOR_X = 4735;
+    const CAYO_BOTTOM_Y = -6305;
+    const CAYO_SCALE    = 1.225;
+
+    function cayoBounds(): L.LatLngBounds {
+        const w = 1900 * CAYO_SCALE;
+        const h = 1900 * CAYO_SCALE;
+        return new LatLngBounds(
+            toMapLatLng({ x: CAYO_ANCHOR_X - w / 2, y: CAYO_BOTTOM_Y }) as L.LatLngExpression,
+            toMapLatLng({ x: CAYO_ANCHOR_X + w / 2, y: CAYO_BOTTOM_Y + h }) as L.LatLngExpression,
+        );
+    }
+
+    // Default view: the island centered in the VISIBLE area — when the
+    // officers/patrols sidebar is open it covers the right side, so the
+    // center point shifts right by half the covered strip to compensate.
+    const DEFAULT_VIEW_ZOOM = 2.75;
+
+    function defaultViewTarget(): L.LatLng {
+        const island = mapImageBounds ? mapImageBounds.getCenter() : L.latLng(-300, -1500);
+        if (!map) return island;
+        const coveredPx = sidebarOpen ? sidebarWidth + 34 : 0;
+        const p = map.project(island, DEFAULT_VIEW_ZOOM).add([coveredPx / 2, 0]);
+        return map.unproject(p, DEFAULT_VIEW_ZOOM);
+    }
+
     function flyBackToMap() {
         if (!map) return;
-        map.flyTo([-300, -1500] as L.LatLngExpression, 3, { duration: 1.2, easeLinearity: 0.25 });
+        map.flyTo(defaultViewTarget(), DEFAULT_VIEW_ZOOM, { duration: 1.2, easeLinearity: 0.25 });
         showBackToMap = false;
     }
 
@@ -1378,7 +1406,7 @@
                 const self = freshOfficers.find(o => o.citizenid === ownCitizenId);
                 if (self) {
                     centeredOnSelf = true;
-                    map.setView(toMapLatLng(self.coords) as L.LatLngExpression, 3, { animate: false });
+                    map.setView(toMapLatLng(self.coords) as L.LatLngExpression, 5, { animate: false });
                 }
             }
 
@@ -1762,7 +1790,7 @@
             // Zoom far enough out to see the entire map at once.
             minZoom: 2,
             maxZoom: 10,
-            zoom: 3,
+            zoom: 5,
             preferCanvas: true,
             center: [0, -1024],
             zoomControl: false,
@@ -1792,10 +1820,10 @@
         // Cayo Perico), so the view must be free to follow them without being
         // pulled back toward the mainland.
         const bounds = getMapBounds(map);
-        map.setView([-300, -1500], 2);
+        mapImageBounds = bounds;
+        map.setView(defaultViewTarget(), DEFAULT_VIEW_ZOOM, { animate: false });
 
         // Offer a way back once the island has left the viewport entirely.
-        mapImageBounds = bounds;
         map.on("moveend", () => {
             if (!map) return;
             const view = map.getBounds();
@@ -1817,17 +1845,7 @@
         // is too small → raise CAYO_SCALE in ~0.05 steps. If the airport spot
         // is drawn past the marker, lower it. Shift the whole island left or
         // right with CAYO_ANCHOR_X.
-        const CAYO_ANCHOR_X = 4735;   // world x of the image's horizontal center
-        const CAYO_BOTTOM_Y = -6305;  // world y of the bottom edge (fits — keep)
-        const CAYO_SCALE    = 1.225;   // enlarge/shrink around the bottom anchor
-        const CAYO_BASE_W   = 1900;   // image frame size at scale 1.0
-        const CAYO_BASE_H   = 1900;
-        const cayoW = CAYO_BASE_W * CAYO_SCALE;
-        const cayoH = CAYO_BASE_H * CAYO_SCALE;
-        cayoImageBounds = new LatLngBounds(
-            toMapLatLng({ x: CAYO_ANCHOR_X - cayoW / 2, y: CAYO_BOTTOM_Y }) as L.LatLngExpression,
-            toMapLatLng({ x: CAYO_ANCHOR_X + cayoW / 2, y: CAYO_BOTTOM_Y + cayoH }) as L.LatLngExpression,
-        );
+        cayoImageBounds = cayoBounds();
         L.imageOverlay("./images/cayo.jpeg", cayoImageBounds).addTo(map);
 
 
@@ -1845,6 +1863,8 @@
         localStorage.removeItem("mdt_calib_pts");
         localStorage.removeItem("mdt_calib_tool");
         localStorage.removeItem("mdt_map_icon_style");
+        localStorage.removeItem("mdt_cayo_cal");
+        localStorage.removeItem("mdt_cayo_tool");
         // Pushes (trackingDirty) drive freshness now; this poll is only a
         // safety net in case an event is ever missed, so it can run slower.
         refreshTimer = setInterval(() => { refreshTracking(); loadDispatches(); }, 10000);
