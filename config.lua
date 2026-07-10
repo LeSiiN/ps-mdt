@@ -15,7 +15,6 @@ Config.CivilianAccess = {
 
 -- Time and Date Settings
 Config.DateTime = {
-    GameTime = true, -- If set to true, the game time will be used instead of the server time (boolean)
     TimeFormat = '24', -- Format for displaying time ('24' or '12')
     DateFormat = "DD-MM-YYYY" -- Format for displaying date (string: "MM-DD-YYYY", "DD-MM-YYYY", or "YYYY-MM-DD")
 }
@@ -543,6 +542,8 @@ Config.ManagementPermissions = {
     "map_patrols_edit",
     'dispatch_attach',
     'dispatch_route',
+    'dispatch_assign',
+    'dispatch_notes',
     -- Cameras & Bodycams
     'cameras_view',
     'bodycams_view',

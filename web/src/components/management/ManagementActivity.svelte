@@ -86,6 +86,14 @@
 		patrol_officer_assigned: "Assigned officer to patrol",
 		patrol_officer_removed:  "Removed officer from patrol",
 		patrols_reordered:       "Reordered patrols",
+		// ── Dispatch calls ───────────────────────────────────────────────────
+		dispatch_create:         "Created a call",
+		dispatch_dismiss:        "Dismissed a call",
+		dispatch_note_add:       "Added a call note",
+		dispatch_note_edit:      "Edited a call note",
+		dispatch_note_delete:    "Removed a call note",
+		dispatch_attach_units:   "Assigned units to a call",
+		dispatch_detach_units:   "Removed units from a call",
 	};
 
 	const ACTION_ICONS: Record<string, { icon: string; color: string }> = {
@@ -133,6 +141,13 @@
 		patrol_officer_assigned: { icon: "person_add",     color: "#10b981" },
 		patrol_officer_removed:  { icon: "person_remove",  color: "#ef4444" },
 		patrols_reordered:       { icon: "swap_vert",      color: "#6b7280" },
+		dispatch_create:         { icon: "add_alert",      color: "#10b981" },
+		dispatch_dismiss:        { icon: "notifications_off", color: "#ef4444" },
+		dispatch_note_add:       { icon: "note_add",       color: "#10b981" },
+		dispatch_note_edit:      { icon: "edit_note",      color: "#f59e0b" },
+		dispatch_note_delete:    { icon: "note_alt",       color: "#ef4444" },
+		dispatch_attach_units:   { icon: "person_add",     color: "#10b981" },
+		dispatch_detach_units:   { icon: "person_remove",  color: "#ef4444" },
 	};
 
 	let activities: AuditLog[] = $state([]);
@@ -219,6 +234,11 @@
 		if (log.entity_type === "mdt_patrol") {
 			return label;
 		}
+		// Dispatch calls: the readable action_label already names the call, so the
+		// raw call id ("mdt-…" / a provider number) would just be noise here.
+		if (log.entity_type === "dispatch") {
+			return "";
+		}
 		return label ? `${label} #${log.entity_id}` : `#${log.entity_id}`;
 	}
 
@@ -242,6 +262,15 @@
 		if (!value) return "";
 		const date = new Date(value);
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+	}
+
+	// Compact absolute stamp shown next to the relative time, e.g. "10.07.2026 | 15:34".
+	function formatExactTimestamp(value: string): string {
+		if (!value) return "";
+		const date = new Date(value);
+		if (Number.isNaN(date.getTime())) return "";
+		const p = (n: number) => String(n).padStart(2, "0");
+		return `${p(date.getDate())}.${p(date.getMonth() + 1)}.${date.getFullYear()} | ${p(date.getHours())}:${p(date.getMinutes())}`;
 	}
 
 	async function loadActivity(page = 1) {
@@ -337,7 +366,9 @@
 					</div>
 					<div class="activity-meta">
 						<span class="activity-officer">{log.actor_name || "Unknown"}</span>
-						<span class="activity-time" title={formatFullTimestamp(log.created_at)}>{formatTimestamp(log.created_at)}</span>
+						<span class="activity-time" title={formatFullTimestamp(log.created_at)}>
+							{formatTimestamp(log.created_at)}<span class="time-sep">●</span><span class="time-exact">{formatExactTimestamp(log.created_at)}</span>
+						</span>
 					</div>
 				</div>
 			{:else}
@@ -475,8 +506,21 @@
 		white-space: nowrap;
 	}
 	.activity-time {
-		color: rgba(255, 255, 255, 0.2);
+		color: rgba(255, 255, 255, 0.4);
 		font-size: 10px;
+		white-space: nowrap;
+		display: inline-flex;
+		align-items: center;
+	}
+	.time-sep {
+		margin: 0 5px;
+		font-size: 6px;
+		color: rgba(255, 255, 255, 0.2);
+		vertical-align: middle;
+	}
+	.time-exact {
+		color: rgba(255, 255, 255, 0.25);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.empty-state {

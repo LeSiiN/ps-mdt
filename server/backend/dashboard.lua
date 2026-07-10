@@ -602,6 +602,19 @@ ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
         usageMetrics     = computeUsageMetrics(),
     }
 end)
+-- Human-readable description of a call for audit labels, e.g. "10-71 (Shooting)"
+-- or "call #mdt-…" as a fallback. Reads from the cached/known call data.
+local function describeCall(id)
+    id = tostring(id)
+    local manual = ManualDispatches[id]
+    if manual then
+        local code = manual.code or 'Call'
+        local msg  = manual.message and manual.message ~= '' and manual.message or nil
+        return msg and ('%s (%s)'):format(code, msg) or code
+    end
+    return ('call #%s'):format(id)
+end
+
 -- Dispatcher: globally dismiss a call — it disappears from every MDT.
 ps.registerCallback(resourceName .. ':server:dismissDispatch', function(source, data)
     local src = source
@@ -613,11 +626,15 @@ ps.registerCallback(resourceName .. ':server:dismissDispatch', function(source, 
     local id = data.dispatch_id and tostring(data.dispatch_id) or nil
     if not id then return { success = false, error = 'Invalid request' } end
 
+    local label = describeCall(id)
     DismissedDispatches[id] = os.time()
     DispatchNotes[id] = nil -- note dies with the call
     ManualDispatches[id] = nil -- MDT-created calls are removed outright
     if ps.auditLog then
-        ps.auditLog(src, 'dispatch_dismiss', 'dispatch', 0, { dispatch = id })
+        ps.auditLog(src, 'dispatch_dismiss', 'dispatch', id, {
+            dispatch_id  = id,
+            action_label = ('Dismissed %s for all units'):format(label),
+        })
     end
     -- Nudge every open MDT to refresh its (now filtered) dispatch list.
     invalidateDispatchCache()
@@ -689,8 +706,14 @@ ps.registerCallback(resourceName .. ':server:setDispatchNote', function(source, 
     DispatchNotes[id] = { text = text, author = (author ~= '' and author) or nil, updatedAt = os.time() }
 
     if ps.auditLog then
-        ps.auditLog(src, existed and 'dispatch_note_edit' or 'dispatch_note_add', 'dispatch', 0,
-            { dispatch = id })
+        local label = describeCall(id)
+        ps.auditLog(src, existed and 'dispatch_note_edit' or 'dispatch_note_add', 'dispatch', id, {
+            dispatch_id  = id,
+            note         = text,
+            action_label = existed
+                and ('Edited the note on %s'):format(label)
+                or  ('Added a note to %s'):format(label),
+        })
     end
 
     -- Tell every open MDT to refresh (note now travels with the call).
@@ -717,9 +740,13 @@ ps.registerCallback(resourceName .. ':server:deleteDispatchNote', function(sourc
     local id = data.dispatch_id and tostring(data.dispatch_id) or nil
     if not id then return { success = false, error = 'Invalid request' } end
 
+    local label = describeCall(id)
     DispatchNotes[id] = nil
     if ps.auditLog then
-        ps.auditLog(src, 'dispatch_note_delete', 'dispatch', 0, { dispatch = id })
+        ps.auditLog(src, 'dispatch_note_delete', 'dispatch', id, {
+            dispatch_id  = id,
+            action_label = ('Removed the note from %s'):format(label),
+        })
     end
     invalidateDispatchCache()
     TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, id)
@@ -849,7 +876,14 @@ ps.registerCallback(resourceName .. ':server:createManualDispatch', function(sou
     end
 
     if ps.auditLog then
-        ps.auditLog(src, 'dispatch_create', 'dispatch', 0, { dispatch = id, code = code })
+        local label = (title and title ~= '' and title ~= code) and ('%s (%s)'):format(code, title) or code
+        local streetPart = (type(data.street) == 'string' and data.street ~= '') and (' at %s'):format(data.street) or ''
+        ps.auditLog(src, 'dispatch_create', 'dispatch', id, {
+            dispatch_id  = id,
+            code         = code,
+            title        = title,
+            action_label = ('Created %s%s'):format(label, streetPart),
+        })
     end
 
     -- Broadcast so open MDTs pick the new call up immediately.
@@ -887,6 +921,7 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
     local manualCall = ManualDispatches[tostring(dispatchId)]
 
     local hit, miss = 0, 0
+    local assignedNames = {} -- for a readable audit label
     local noteEntry = DispatchNotes[tostring(dispatchId)]
     local noteText = noteEntry and noteEntry.text or nil
     for _, cid in ipairs(citizenids) do
@@ -900,6 +935,10 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
             targetPly = QBCore.Functions.GetPlayerByCitizenId(cid)
             targetSrc = targetPly and targetPly.PlayerData and targetPly.PlayerData.source or nil
         end
+
+        -- Remember the officer's name (falls back to the citizenid) for the log.
+        local ci = targetPly and targetPly.PlayerData and targetPly.PlayerData.charinfo or nil
+        assignedNames[#assignedNames + 1] = ci and (ci.firstname .. ' ' .. ci.lastname) or cid
 
         -- For manual calls, maintain the unit list ourselves — do this even if
         -- the unit is offline so a detach always cleans the roster.
@@ -947,8 +986,23 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
     end
 
     if ps.auditLog then
-        ps.auditLog(src, 'dispatch_' .. action .. '_units', 'dispatch', 0,
-            { dispatch = tostring(dispatchId), count = hit })
+        local label = describeCall(dispatchId)
+        local who
+        if #assignedNames == 1 then
+            who = assignedNames[1]
+        elseif #assignedNames == 2 then
+            who = assignedNames[1] .. ' and ' .. assignedNames[2]
+        else
+            who = ('%d officers'):format(#assignedNames)
+        end
+        ps.auditLog(src, 'dispatch_' .. action .. '_units', 'dispatch', tostring(dispatchId), {
+            dispatch_id  = tostring(dispatchId),
+            officers     = assignedNames,
+            count        = hit,
+            action_label = action == 'detach'
+                and ('Removed %s from %s'):format(who, label)
+                or  ('Assigned %s to %s'):format(who, label),
+        })
     end
     return { success = hit > 0, assigned = hit, offline = miss }
 end)
