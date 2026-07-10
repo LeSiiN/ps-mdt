@@ -33,6 +33,21 @@
 		return s.charAt(0).toUpperCase() + s.slice(1);
 	}
 
+	// Prefer the readable, detail-rich label the server already built (e.g.
+	// "Assigned John Doe to 10-13" or "Dismissed 10-71 (Shooting) for all
+	// units"); fall back to a prettified action name when there's no label.
+	function label(e: TimelineEntry): string {
+		if (e.details) {
+			try {
+				const d = JSON.parse(e.details) as Record<string, unknown>;
+				if (typeof d.action_label === "string" && d.action_label.trim()) {
+					return d.action_label;
+				}
+			} catch { /* fall through to pretty() */ }
+		}
+		return pretty(e.action);
+	}
+
 	function fmt(ts: string): string {
 		const d = new Date(ts.replace(" ", "T"));
 		return isNaN(d.getTime()) ? ts : d.toLocaleString();
@@ -86,7 +101,7 @@
 		{#each entries as e (e.id)}
 			<div class="act-item">
 				<div class="act-info">
-					<span class="act-action">{pretty(e.action)}</span>
+					<span class="act-action">{label(e)}</span>
 				</div>
 				<div class="act-meta">
 					<span>{e.actor_name ?? e.actor_citizenid ?? "System"}</span>

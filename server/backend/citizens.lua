@@ -637,7 +637,7 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
             lastName = playerRow.lastname or 'Unknown',
             gender = getGender(tonumber(playerRow.gender)),
             dob = playerRow.dateofbirth or 'N/A',
-            phone = playerRow.phone or 'N/A',
+            phone = (GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid, playerRow.phone)) or playerRow.phone or 'N/A',
             fingerprint = fingerprint,
             dna = dna,
             occupations = occupations,
@@ -1270,7 +1270,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
             lastName = pPlayer.lastname or 'Unknown',
             gender = getGender(tonumber(pPlayer.gender)),
             dob = pPlayer.dateofbirth or 'N/A',
-            phone = pPlayer.phone or 'N/A',
+            phone = (GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid, pPlayer.phone)) or pPlayer.phone or 'N/A',
             fingerprint = fingerprint,
             dna = dna,
             image = image,
@@ -1286,10 +1286,11 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     }
 end)
 
--- Unified audit timeline for a citizen: who changed what on this record, when.
--- Aggregates audit-log entries whose entity_id is this citizenid across the
--- entity types that key on a citizenid. Paginated (limit+1 for exact hasMore),
--- served straight off idx_entity_lookup(entity_type, entity_id, created_at).
+-- Activity timeline for an officer: EVERYTHING this officer did, across all
+-- action types (reports, dispatch calls, notes, callsign changes, searches, …).
+-- Keyed on actor_citizenid (the officer as the one who performed the action),
+-- not entity_id, so it's a full record of their activity. Paginated (limit+1
+-- for exact hasMore), served off the actor_citizenid index.
 ps.registerCallback(resourceName .. ':server:getCitizenTimeline', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { entries = {}, hasMore = false } end
@@ -1306,10 +1307,10 @@ ps.registerCallback(resourceName .. ':server:getCitizenTimeline', function(sourc
     local offset = (page - 1) * limit
 
     local rows = MySQL.query.await([[
-        SELECT id, actor_citizenid, actor_name, action, entity_type, details,
+        SELECT id, actor_citizenid, actor_name, action, entity_type, entity_id, details,
                DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
         FROM mdt_audit_logs
-        WHERE entity_id = ? AND entity_type IN ('citizen', 'citizens', 'officers')
+        WHERE actor_citizenid = ?
         ORDER BY created_at DESC, id DESC
         LIMIT ? OFFSET ?
     ]], { citizenid, limit + 1, offset }) or {}
