@@ -417,7 +417,27 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
         local y = tonumber(c.y) or tonumber(c[2])
         if x and y then SetNewWaypoint(x, y) end
     end
-    ps.notify('Dispatch assigned you to a call — waypoint set', 'success')
+
+    local note = type(data.note) == 'string' and data.note ~= '' and data.note or nil
+    if note then
+        ps.notify('Dispatch assigned you to a call — waypoint set. Note: ' .. note, 'success')
+    else
+        ps.notify('Dispatch assigned you to a call — waypoint set. No note provided.', 'success')
+    end
+end)
+
+-- A note was added/edited/removed — refresh the MDT dispatch list so the note
+-- travels with the call everywhere it's shown.
+RegisterNetEvent(resourceName .. ':client:dispatchNoteChanged', function(_)
+    if not MDTOpen then return end
+    SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
+end)
+
+-- You're already on a call and dispatch changed its note.
+RegisterNetEvent(resourceName .. ':client:dispatchNoteNotify', function(data)
+    data = data or {}
+    local text = type(data.text) == 'string' and data.text or ''
+    ps.notify('Dispatch updated the note on your call: ' .. text, 'inform')
 end)
 
 -- Dispatcher-side NUI bridge: assign/detach a set of units to a call.
@@ -437,5 +457,17 @@ end)
 RegisterNUICallback('dismissDispatch', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
     local result = ps.callback(resourceName .. ':server:dismissDispatch', data or {})
+    cb(result or { success = false })
+end)
+
+RegisterNUICallback('setDispatchNote', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:setDispatchNote', data or {})
+    cb(result or { success = false })
+end)
+
+RegisterNUICallback('deleteDispatchNote', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:deleteDispatchNote', data or {})
     cb(result or { success = false })
 end)

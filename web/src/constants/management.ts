@@ -146,7 +146,8 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 			{ key: "map_patrols_edit",   label: "Edit Patrols",   description: "Create, rename, delete and reorder patrols" },
 			{ key: "dispatch_attach", label: "Attach to Calls", description: "Attach or detach from dispatch calls" },
 			{ key: "dispatch_route", label: "Route to Calls", description: "Set GPS route to dispatch calls" },
-			{ key: "dispatch_assign", label: "Assign Units to Calls", description: "Attach or detach other units and patrols to calls (sets their waypoint)" },
+			{ key: "dispatch_assign", label: "Assign Units to Calls", description: "Dispatcher: attach or detach other units and patrols to calls (sets their waypoint)" },
+			{ key: "dispatch_notes", label: "Manage Call Notes", description: "Dispatcher: add, edit and remove a note on a dispatch call (shown to assigned units)" },
 		],
 	},
 	{

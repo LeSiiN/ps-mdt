@@ -51,6 +51,8 @@ export const NUI_EVENTS = {
 		DETACH_FROM_DISPATCH: "detachFromDispatch",
 		ASSIGN_TO_DISPATCH: "assignToDispatch",
 		DISMISS_DISPATCH: "dismissDispatch",
+		SET_DISPATCH_NOTE: "setDispatchNote",
+		DELETE_DISPATCH_NOTE: "deleteDispatchNote",
 		ROUTE_TO_DISPATCH: "routeToDispatch",
 	},
 	NAVIGATION: {

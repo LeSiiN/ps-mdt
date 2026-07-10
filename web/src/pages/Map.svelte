@@ -142,6 +142,7 @@
         street?: string;
         time?: number;
         units?: DispatchUnitLite[];
+        note?: { text: string; author?: string; updatedAt?: number } | null;
     };
     let dispatches         = $state<MapDispatch[]>([]);
     // Calls a dispatcher has dismissed locally (cleared from ticker + map).
@@ -154,6 +155,12 @@
     let visibleDispatches  = $derived(dispatches.filter(d => !dismissedCallIds.has(String(d.id))));
     let selectedDispatch   = $derived(visibleDispatches.find(d => String(d.id) === selectedDispatchId) ?? null);
     let canAssignUnits     = $derived(authService ? (authService.hasPermission("dispatch_assign") ?? false) : true);
+    let canManageNotes     = $derived(authService ? (authService.hasPermission("dispatch_notes") ?? false) : true);
+    // Note editor state for the selected call.
+    let noteEditing        = $state(false);
+    let noteDraft          = $state("");
+    let noteBusy           = $state(false);
+    const NOTE_MAX         = 300;
     const dispatchMarkers: globalThis.Map<string, L.Marker> = new globalThis.Map();
 
     function dispatchCoords(d: MapDispatch): GtaPoint | null {
@@ -419,6 +426,64 @@
         if (e.key === "ArrowLeft") { e.preventDefault(); tickerNav(-1); }
         else if (e.key === "ArrowRight") { e.preventDefault(); tickerNav(1); }
     }
+
+    // ─── Call notes ─────────────────────────────────────────────────────────
+    function startNoteEdit() {
+        noteDraft = selectedDispatch?.note?.text ?? "";
+        noteEditing = true;
+    }
+    function cancelNoteEdit() {
+        noteEditing = false;
+        noteDraft = "";
+    }
+    async function saveNote() {
+        const d = selectedDispatch;
+        const text = noteDraft.trim();
+        if (!d || noteBusy || !text) return;
+        noteBusy = true;
+        try {
+            const res = await fetchNui<{ success: boolean; error?: string }>(
+                NUI_EVENTS.DISPATCH.SET_DISPATCH_NOTE, { dispatch_id: d.id, text }, { success: true });
+            if (res?.success) {
+                globalNotifications.success("Note saved");
+                noteEditing = false;
+                setTimeout(loadDispatches, 300);
+            } else {
+                globalNotifications.error(res?.error || "Failed to save note");
+            }
+        } catch {
+            globalNotifications.error("Failed to save note");
+        } finally {
+            noteBusy = false;
+        }
+    }
+    async function deleteNote() {
+        const d = selectedDispatch;
+        if (!d || noteBusy) return;
+        noteBusy = true;
+        try {
+            const res = await fetchNui<{ success: boolean; error?: string }>(
+                NUI_EVENTS.DISPATCH.DELETE_DISPATCH_NOTE, { dispatch_id: d.id }, { success: true });
+            if (res?.success) {
+                globalNotifications.success("Note removed");
+                noteEditing = false;
+                setTimeout(loadDispatches, 300);
+            } else {
+                globalNotifications.error(res?.error || "Failed to remove note");
+            }
+        } catch {
+            globalNotifications.error("Failed to remove note");
+        } finally {
+            noteBusy = false;
+        }
+    }
+
+    // Reset the note editor whenever the selected call changes.
+    $effect(() => {
+        selectedDispatchId;
+        noteEditing = false;
+        noteDraft = "";
+    });
 
     async function dismissCall(id: string) {
         // Optimistic local hide, then the server removes it for EVERYONE —
@@ -1984,6 +2049,49 @@
                         {#if selectedDispatch.time}<span>{dispatchAge(selectedDispatch.time)}</span>{/if}
                     </div>
 
+                    <!-- Dispatch note (one per call) -->
+                    <div class="call-note-block">
+                        <div class="call-note-head">
+                            <span class="call-section-label">Dispatch note</span>
+                            {#if canManageNotes && !noteEditing}
+                                {#if selectedDispatch.note}
+                                    <div class="call-note-actions">
+                                        <button class="note-mini-btn" title="Edit note" disabled={noteBusy} onclick={startNoteEdit}>Edit</button>
+                                        <button class="note-mini-btn danger" title="Remove note" disabled={noteBusy} onclick={deleteNote}>Remove</button>
+                                    </div>
+                                {:else}
+                                    <button class="note-mini-btn" title="Add a note for units on this call" disabled={noteBusy} onclick={startNoteEdit}>+ Add</button>
+                                {/if}
+                            {/if}
+                        </div>
+
+                        {#if noteEditing}
+                            <textarea
+                                class="note-input"
+                                bind:value={noteDraft}
+                                maxlength={NOTE_MAX}
+                                rows="3"
+                                placeholder="Info for assigned units — e.g. suspect fled north, approach with caution…"
+                            ></textarea>
+                            <div class="note-edit-row">
+                                <span class="note-count">{noteDraft.length}/{NOTE_MAX}</span>
+                                <div class="note-edit-btns">
+                                    <button class="call-btn call-btn-ghost" disabled={noteBusy} onclick={cancelNoteEdit}>Cancel</button>
+                                    <button class="call-btn call-btn-accent" disabled={noteBusy || !noteDraft.trim()} onclick={saveNote}>Save note</button>
+                                </div>
+                            </div>
+                        {:else if selectedDispatch.note}
+                            <div class="call-note">
+                                <div class="call-note-text">{selectedDispatch.note.text}</div>
+                                {#if selectedDispatch.note.author}
+                                    <div class="call-note-author">— {selectedDispatch.note.author}</div>
+                                {/if}
+                            </div>
+                        {:else}
+                            <div class="call-empty">{canManageNotes ? "No note yet — add one for assigned units." : "No note for this call."}</div>
+                        {/if}
+                    </div>
+
                     <!-- Attached units -->
                     <div class="call-section-label">Units on call ({(selectedDispatch.units || []).length})</div>
                     {#if (selectedDispatch.units || []).length > 0}
@@ -2592,6 +2700,55 @@
     }
     .unit-remove:hover:not(:disabled) { color: rgba(248, 113, 113, 0.9); }
     .call-empty { font-size: 10px; color: rgba(255, 255, 255, 0.3); font-style: italic; }
+
+    /* Dispatch note */
+    .call-note-block { display: flex; flex-direction: column; gap: 5px; }
+    .call-note-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .call-note-actions { display: flex; gap: 4px; }
+    .note-mini-btn {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 9px;
+        font-weight: 600;
+        padding: 2px 7px;
+        cursor: pointer;
+        transition: all 0.1s;
+    }
+    .note-mini-btn:hover:not(:disabled) { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.18); }
+    .note-mini-btn.danger:hover:not(:disabled) { color: rgba(248, 113, 113, 0.95); border-color: rgba(239, 68, 68, 0.35); }
+    .note-mini-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .call-note {
+        background: rgba(234, 179, 8, 0.06);
+        border: 1px solid rgba(234, 179, 8, 0.22);
+        border-left-width: 3px;
+        border-radius: 4px;
+        padding: 6px 9px;
+    }
+    .call-note-text { font-size: 11px; color: rgba(255, 255, 255, 0.85); line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+    .call-note-author { font-size: 9px; color: rgba(255, 255, 255, 0.4); margin-top: 3px; text-align: right; }
+    .note-input {
+        width: 100%;
+        box-sizing: border-box;
+        resize: vertical;
+        min-height: 52px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 11px;
+        font-family: inherit;
+        line-height: 1.45;
+        padding: 6px 8px;
+        outline: none;
+        transition: border-color 0.1s;
+    }
+    .note-input:focus { border-color: rgba(234, 179, 8, 0.4); }
+    .note-input::placeholder { color: rgba(255, 255, 255, 0.28); }
+    .note-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .note-count { font-size: 9px; color: rgba(255, 255, 255, 0.35); font-variant-numeric: tabular-nums; }
+    .note-edit-btns { display: flex; gap: 5px; }
     .call-self-row { display: flex; }
     .call-btn {
         display: inline-flex;

@@ -297,10 +297,17 @@ end
 local DismissedDispatches = {}
 local DISMISS_TTL = 2 * 60 * 60 -- seconds
 
+-- One note per call: DispatchNotes[callId] = { text, author, updatedAt }.
+-- Lives alongside the call; pruned on the same TTL and cleared on dismiss.
+local DispatchNotes = {}
+
 local function pruneDismissed()
     local now = os.time()
     for id, at in pairs(DismissedDispatches) do
         if (now - at) > DISMISS_TTL then DismissedDispatches[id] = nil end
+    end
+    for id, note in pairs(DispatchNotes) do
+        if note.updatedAt and (now - note.updatedAt) > DISMISS_TTL then DispatchNotes[id] = nil end
     end
 end
 
@@ -476,7 +483,13 @@ local function computeRecentDispatches(src)
     local result = {}
     for _, call in ipairs(dispatches) do
         local sanitized = sanitizeDispatch(call)
-        if sanitized then result[#result + 1] = sanitized end
+        if sanitized then
+            local note = sanitized.id ~= nil and DispatchNotes[tostring(sanitized.id)] or nil
+            if note then
+                sanitized.note = { text = note.text, author = note.author, updatedAt = note.updatedAt }
+            end
+            result[#result + 1] = sanitized
+        end
     end
     return result
 end
@@ -552,11 +565,111 @@ ps.registerCallback(resourceName .. ':server:dismissDispatch', function(source, 
     if not id then return { success = false, error = 'Invalid request' } end
 
     DismissedDispatches[id] = os.time()
+    DispatchNotes[id] = nil -- note dies with the call
     if ps.auditLog then
         ps.auditLog(src, 'dispatch_dismiss', 'dispatch', 0, { dispatch = id })
     end
     -- Nudge every open MDT to refresh its (now filtered) dispatch list.
     TriggerClientEvent(resourceName .. ':client:dispatchDismissed', -1, id)
+    return { success = true }
+end)
+
+-- ---------------------------------------------------------------------------
+-- Dispatcher: per-call notes (one note per call).
+-- Notes are attached to each call in computeRecentDispatches and shown to
+-- assigned units. Editing a note re-notifies everyone currently on the call.
+-- ---------------------------------------------------------------------------
+local NOTE_MAX = 300
+
+-- Resolve the source IDs of the units currently attached to a call, so we can
+-- re-notify them when a note changes. Reads back the live provider call list.
+local function getAssignedSources(dispatchId)
+    local sources = {}
+    local calls = fetchDispatchCalls()
+    for _, call in ipairs(calls or {}) do
+        if tostring(call.id) == tostring(dispatchId) and type(call.units) == 'table' then
+            local okCore, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
+            if not okCore then QBCore = nil end
+            for _, unit in pairs(call.units) do
+                local cid = type(unit) == 'table' and unit.citizenid or nil
+                if cid then
+                    local tSrc = nil
+                    if ps.getPlayerByIdentifier then
+                        local p = ps.getPlayerByIdentifier(cid)
+                        tSrc = p and (p.PlayerData and p.PlayerData.source or p.source) or nil
+                    end
+                    if not tSrc and QBCore and QBCore.Functions.GetPlayerByCitizenId then
+                        local p = QBCore.Functions.GetPlayerByCitizenId(cid)
+                        tSrc = p and p.PlayerData and p.PlayerData.source or nil
+                    end
+                    if tSrc then sources[#sources + 1] = tSrc end
+                end
+            end
+            break
+        end
+    end
+    return sources
+end
+
+ps.registerCallback(resourceName .. ':server:setDispatchNote', function(source, data)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+    if not CheckPermission(src, 'dispatch_notes') then
+        return { success = false, error = 'No permission' }
+    end
+
+    data = data or {}
+    local id = data.dispatch_id and tostring(data.dispatch_id) or nil
+    local text = type(data.text) == 'string' and data.text or ''
+    text = text:gsub('^%s+', ''):gsub('%s+$', '')
+    if not id then return { success = false, error = 'Invalid request' } end
+    if text == '' then return { success = false, error = 'Note cannot be empty' } end
+    if #text > NOTE_MAX then text = text:sub(1, NOTE_MAX) end
+
+    local existed = DispatchNotes[id] ~= nil
+    local okName, author = pcall(function()
+        if ps.getCharInfo then
+            return (ps.getCharInfo('firstname', src) or '') .. ' ' .. (ps.getCharInfo('lastname', src) or '')
+        end
+        return nil
+    end)
+    if not okName then author = nil end
+    if author then author = author:gsub('^%s+', ''):gsub('%s+$', '') end
+    DispatchNotes[id] = { text = text, author = (author ~= '' and author) or nil, updatedAt = os.time() }
+
+    if ps.auditLog then
+        ps.auditLog(src, existed and 'dispatch_note_edit' or 'dispatch_note_add', 'dispatch', 0,
+            { dispatch = id })
+    end
+
+    -- Tell every open MDT to refresh (note now travels with the call).
+    TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, id)
+
+    -- If units are already on the call, re-notify them that the note changed.
+    if existed then
+        for _, tSrc in ipairs(getAssignedSources(id)) do
+            TriggerClientEvent(resourceName .. ':client:dispatchNoteNotify', tSrc, { text = text })
+        end
+    end
+
+    return { success = true }
+end)
+
+ps.registerCallback(resourceName .. ':server:deleteDispatchNote', function(source, data)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+    if not CheckPermission(src, 'dispatch_notes') then
+        return { success = false, error = 'No permission' }
+    end
+    data = data or {}
+    local id = data.dispatch_id and tostring(data.dispatch_id) or nil
+    if not id then return { success = false, error = 'Invalid request' } end
+
+    DispatchNotes[id] = nil
+    if ps.auditLog then
+        ps.auditLog(src, 'dispatch_note_delete', 'dispatch', 0, { dispatch = id })
+    end
+    TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, id)
     return { success = true }
 end)
 
@@ -585,6 +698,8 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
     if not okCore then QBCore = nil end
 
     local hit, miss = 0, 0
+    local noteEntry = DispatchNotes[tostring(dispatchId)]
+    local noteText = noteEntry and noteEntry.text or nil
     for _, cid in ipairs(citizenids) do
         local targetSrc = nil
         if ps.getPlayerByIdentifier then
@@ -600,6 +715,7 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
                 id = dispatchId,
                 action = action,
                 coords = data.coords, -- {x, y} for waypoint (attach only)
+                note = noteText,      -- included in the assignment notify
             })
             hit = hit + 1
         else
