@@ -316,12 +316,137 @@ local function filterDismissed(list)
     return out
 end
 
-local function computeRecentDispatches(src)
-    local dispatchResource = Config and Config.Dispatch and Config.Dispatch.Resource or 'ps-dispatch'
-    local ok, recentDispatches = pcall(function()
-        return exports[dispatchResource] and exports[dispatchResource]:GetDispatchCalls() or {}
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Dispatch provider layer
+-- Each provider returns a RAW call list in a ps-dispatch-like shape; the shared
+-- sanitizeDispatch() below turns that into the MDT's final format. Adding a new
+-- system means writing one fetch function here — the map, ticker, unit
+-- assignment and dismiss logic never need to change.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local function resourceRunning(name)
+    return GetResourceState(name) == 'started' or GetResourceState(name) == 'starting'
+end
+
+-- ps-dispatch: already exposes a normalized list via GetDispatchCalls().
+local function fetchPsDispatch()
+    local ok, calls = pcall(function()
+        return exports['ps-dispatch'] and exports['ps-dispatch']:GetDispatchCalls() or {}
     end)
     if not ok then return {} end
+    return calls or {}
+end
+
+-- qs-dispatch: calls carry callLocation / callCode{code,snippet} / message and a
+-- responses/units list. Map those onto the ps-style fields sanitizeDispatch wants.
+local function fetchQsDispatch()
+    local ok, calls = pcall(function()
+        local ex = exports['qs-dispatch']
+        if not ex then return {} end
+        -- qs exposes a couple of getter names across versions; try both.
+        if ex.GetDispatchCalls then return ex:GetDispatchCalls() end
+        if ex.GetActiveCalls   then return ex:GetActiveCalls()   end
+        return {}
+    end)
+    if not ok or type(calls) ~= 'table' then return {} end
+
+    local out = {}
+    for _, c in pairs(calls) do
+        if type(c) == 'table' then
+            local code = c.code or (c.callCode and (c.callCode.code or c.callCode.snippet))
+            out[#out + 1] = {
+                id       = c.id or c.callId or c.dispatchId,
+                message  = c.message,
+                code     = code,
+                codeName = c.callCode and c.callCode.snippet or nil,
+                priority = c.priority or (c.blip and c.blip.priority) or 0,
+                coords   = c.callLocation or c.coords or c.location,
+                street   = c.street or c.street_1,
+                time     = c.time or c.dispatchTime,
+                gender   = c.sex or c.gender,
+                plate    = c.vehicle_plate or c.plate,
+                color    = c.vehicle_colour or c.color,
+                model    = c.vehicle_label or c.model,
+                units    = c.units or c.responses,
+                jobs     = c.job or c.jobs,
+                image    = c.image,
+            }
+        end
+    end
+    return out
+end
+
+-- cd_dispatch (Codesign): calls use title / message / coords and a unique_id.
+local function fetchCdDispatch()
+    local ok, calls = pcall(function()
+        local ex = exports['cd_dispatch']
+        if not ex then return {} end
+        if ex.GetActiveCalls   then return ex:GetActiveCalls()   end
+        if ex.GetDispatchCalls then return ex:GetDispatchCalls() end
+        return {}
+    end)
+    if not ok or type(calls) ~= 'table' then return {} end
+
+    local out = {}
+    for _, c in pairs(calls) do
+        if type(c) == 'table' then
+            out[#out + 1] = {
+                id       = c.id or c.unique_id or c.callId,
+                message  = c.message,
+                code     = c.code or c.title,
+                codeName = c.title,
+                priority = c.priority or 0,
+                coords   = c.coords or c.origin or c.location,
+                street   = c.street,
+                time     = c.time,
+                gender   = c.gender or c.sex,
+                plate    = c.plate,
+                color    = c.color,
+                model    = c.model or c.vehicle,
+                units    = c.units or c.responses,
+                jobs     = c.job_table or c.jobs or c.job,
+                image    = c.image,
+            }
+        end
+    end
+    return out
+end
+
+-- Resolve the configured provider and fetch raw calls. When none of the three
+-- supported dispatch resources can be found, warn once (server console) so the
+-- server owner knows the MDT has nothing to read from.
+local dispatchWarned = false
+local function resolveProvider()
+    local provider = (Config and Config.Dispatch and Config.Dispatch.Provider) or 'auto'
+
+    -- Explicit choice: honor it only if that resource is actually running.
+    if provider == 'ps' or provider == 'qs' or provider == 'cd' then
+        local resByProvider = { ps = 'ps-dispatch', qs = 'qs-dispatch', cd = 'cd_dispatch' }
+        if resourceRunning(resByProvider[provider]) then return provider end
+    end
+
+    -- Auto-detect (also the fallback when an explicit choice isn't running).
+    if resourceRunning('ps-dispatch') then return 'ps' end
+    if resourceRunning('qs-dispatch') then return 'qs' end
+    if resourceRunning('cd_dispatch') then return 'cd' end
+
+    if not dispatchWarned then
+        dispatchWarned = true
+        print('^3[ps-mdt]^0 No supported dispatch resource detected (ps-dispatch, qs-dispatch or cd_dispatch). Dispatch calls will not appear on the map.')
+    end
+    return nil
+end
+
+local function fetchDispatchCalls()
+    local provider = resolveProvider()
+    if provider == 'qs' then return fetchQsDispatch() end
+    if provider == 'cd' then return fetchCdDispatch() end
+    if provider == 'ps' then return fetchPsDispatch() end
+    return {}
+end
+
+local function computeRecentDispatches(src)
+    local recentDispatches = fetchDispatchCalls()
     recentDispatches = recentDispatches or {}
 
     recentDispatches = filterDismissed(recentDispatches)

@@ -298,10 +298,58 @@ RegisterNUICallback('getRecentDispatches', function(_, cb)
     cb(dispatches or {})
 end)
 
--- Real-time dispatch listener (from ps-dispatch)
+-- ─── Provider-aware attach / detach ─────────────────────────────────────────
+-- ps, qs and cd each expose their own attach/detach path. Route to the right
+-- one based on Config.Dispatch.Provider so the MDT's assign flow is identical
+-- regardless of which dispatch resource the server runs. Detection is silent
+-- client-side; the server logs a one-time warning if none is found.
+local function dispatchProvider()
+    local p = (Config and Config.Dispatch and Config.Dispatch.Provider) or 'auto'
+    local resByProvider = { ps = 'ps-dispatch', qs = 'qs-dispatch', cd = 'cd_dispatch' }
+
+    if (p == 'ps' or p == 'qs' or p == 'cd') and GetResourceState(resByProvider[p]) == 'started' then
+        return p
+    end
+    if GetResourceState('ps-dispatch') == 'started' then return 'ps' end
+    if GetResourceState('qs-dispatch') == 'started' then return 'qs' end
+    if GetResourceState('cd_dispatch') == 'started' then return 'cd' end
+    return nil
+end
+
+local function providerAttach(dispatchId)
+    local p = dispatchProvider()
+    if p == 'qs' then
+        TriggerServerEvent('qs-dispatch:server:attachUnit', dispatchId)
+    elseif p == 'cd' then
+        TriggerServerEvent('cd_dispatch:server:attach', dispatchId)
+    elseif p == 'ps' then
+        TriggerServerEvent('ps-dispatch:server:attach', dispatchId, buildPlayerData())
+    end
+end
+
+local function providerDetach(dispatchId)
+    local p = dispatchProvider()
+    if p == 'qs' then
+        TriggerServerEvent('qs-dispatch:server:detachUnit', dispatchId)
+    elseif p == 'cd' then
+        TriggerServerEvent('cd_dispatch:server:detach', dispatchId)
+    elseif p == 'ps' then
+        TriggerServerEvent('ps-dispatch:server:detach', dispatchId, buildPlayerData())
+    end
+end
+
+-- Real-time dispatch listeners — one per supported provider. Whichever
+-- resource is running fires its event; the others simply never trigger.
 RegisterNetEvent('ps-dispatch:client:notify', function(data)
+    if not MDTOpen or not data then return end
+    SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
+end)
+RegisterNetEvent('qs-dispatch:client:notify', function()
     if not MDTOpen then return end
-    if not data then return end
+    SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
+end)
+RegisterNetEvent('cd_dispatch:client:notify', function()
+    if not MDTOpen then return end
     SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
 end)
 
@@ -317,19 +365,15 @@ end)
 
 RegisterNUICallback("attachToDispatch", function(data, cb)
     if not MDTOpen then cb({}) return end
-    local playerData = buildPlayerData()
-    TriggerServerEvent('ps-dispatch:server:attach', data, playerData)
+    providerAttach(data)
     cb(GetRecentDispatch())
-    -- ps.debug('Attached to Dispatch Call: ' .. json.encode(data))
 end)
 
 RegisterNUICallback("detachFromDispatch", function(data, cb)
     if not MDTOpen then cb({}) return end
-    local playerData = buildPlayerData()
-    TriggerServerEvent('ps-dispatch:server:detach', data, playerData)
-    Wait(100) -- wait to make sure non 1of1 servers have time to alter a server side table faster than the cb :kek:
+    providerDetach(data)
+    Wait(100) -- give non-1of1 servers time to update the server-side table before the cb
     cb(GetRecentDispatch())
-    -- ps.debug('Detached from Dispatch Call: ' .. json.encode(data))
 end)
 
 RegisterNUICallback("routeToDispatch", function(data, cb)
@@ -360,12 +404,12 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
     if not data.id then return end
 
     if data.action == 'detach' then
-        TriggerServerEvent('ps-dispatch:server:detach', data.id, buildPlayerData())
+        providerDetach(data.id)
         ps.notify('Dispatch has removed you from a call', 'inform')
         return
     end
 
-    TriggerServerEvent('ps-dispatch:server:attach', data.id, buildPlayerData())
+    providerAttach(data.id)
 
     local c = data.coords
     if c then

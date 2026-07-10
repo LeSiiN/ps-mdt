@@ -86,7 +86,10 @@ Config.Commands = {
 
 -- Dispatch Settings
 Config.Dispatch = {
-    Resource = 'ps-dispatch',
+    -- Which dispatch resource feeds the MDT. Supported providers:
+    --   'ps' → ps-dispatch   'qs' → qs-dispatch   'cd' → cd_dispatch
+    -- 'auto' picks whichever of those three is currently running.
+    Provider = 'auto',
     FilterByJob = true,
 }
 
