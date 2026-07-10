@@ -301,6 +301,13 @@ local DISMISS_TTL = 2 * 60 * 60 -- seconds
 -- Lives alongside the call; pruned on the same TTL and cleared on dismiss.
 local DispatchNotes = {}
 
+-- Manually created calls (from the MDT "Create Call" modal). These are owned by
+-- the MDT so we control the id, note and initial units directly. They're merged
+-- into the dispatch list alongside the provider's own calls.
+local ManualDispatches = {}
+local MANUAL_TTL = 2 * 60 * 60 -- seconds
+local manualSeq = 0
+
 local function pruneDismissed()
     local now = os.time()
     for id, at in pairs(DismissedDispatches) do
@@ -308,6 +315,9 @@ local function pruneDismissed()
     end
     for id, note in pairs(DispatchNotes) do
         if note.updatedAt and (now - note.updatedAt) > DISMISS_TTL then DispatchNotes[id] = nil end
+    end
+    for id, call in pairs(ManualDispatches) do
+        if call.time and (os.time() - math.floor(call.time / 1000)) > MANUAL_TTL then ManualDispatches[id] = nil end
     end
 end
 
@@ -452,19 +462,69 @@ local function fetchDispatchCalls()
     return {}
 end
 
-local function computeRecentDispatches(src)
-    local recentDispatches = fetchDispatchCalls()
-    recentDispatches = recentDispatches or {}
+-- The heavy part of building the dispatch list (provider fetch, manual-call
+-- merge, dismiss filter, and sanitizing + note-attaching EVERY call) produces
+-- the same result for every player — only the final job filter is per-player.
+-- We cache that shared list for a short window so N open MDTs polling every
+-- ~10s don't each redo the provider export + full sanitize pass. The cache is
+-- invalidated immediately whenever a call/note/assignment changes.
+local dispatchListCache = { ts = 0, list = nil }
+-- Short TTL: long enough to collapse the burst of simultaneous polls from many
+-- open MDTs (and the open-time fetch), short enough that a brand-new provider
+-- alert still shows up promptly. Mutations from the MDT itself (notes, dismiss,
+-- manual calls, assignments) invalidate instantly, so this only ever delays
+-- calls created by the external dispatch resource, by at most this window.
+local DISPATCH_CACHE_TTL = 2000 -- ms
+
+local function invalidateDispatchCache()
+    dispatchListCache.ts = 0
+    dispatchListCache.list = nil
+end
+
+local function buildSanitizedDispatches()
+    local now = GetGameTimer()
+    if dispatchListCache.list and (now - dispatchListCache.ts) < DISPATCH_CACHE_TTL then
+        return dispatchListCache.list
+    end
+
+    local recentDispatches = fetchDispatchCalls() or {}
+
+    -- Merge MDT-created calls in alongside the provider's own calls.
+    for _, call in pairs(ManualDispatches) do
+        recentDispatches[#recentDispatches + 1] = call
+    end
 
     recentDispatches = filterDismissed(recentDispatches)
 
-    local dispatches = recentDispatches
+    -- Sanitize + attach notes once (player-independent).
+    local built = {}
+    for _, call in ipairs(recentDispatches) do
+        local sanitized = sanitizeDispatch(call)
+        if sanitized then
+            local note = sanitized.id ~= nil and DispatchNotes[tostring(sanitized.id)] or nil
+            if note then
+                sanitized.note = { text = note.text, author = note.author, updatedAt = note.updatedAt }
+            end
+            built[#built + 1] = sanitized
+        end
+    end
+
+    dispatchListCache.list = built
+    dispatchListCache.ts = now
+    return built
+end
+
+local function computeRecentDispatches(src)
+    local dispatches = buildSanitizedDispatches()
+
+    -- Per-player job filter is cheap (a table scan, no DB/export), so it stays
+    -- outside the cache.
     if Config and Config.Dispatch and Config.Dispatch.FilterByJob == true then
         local jobName = ps.getJobName(src)
         local jobType = ps.getJobType and ps.getJobType(src) or nil
         if jobName then
             local filtered = {}
-            for _, call in ipairs(recentDispatches) do
+            for _, call in ipairs(dispatches) do
                 if not call.jobs or #call.jobs == 0 then
                     filtered[#filtered + 1] = call
                 else
@@ -480,18 +540,7 @@ local function computeRecentDispatches(src)
         end
     end
 
-    local result = {}
-    for _, call in ipairs(dispatches) do
-        local sanitized = sanitizeDispatch(call)
-        if sanitized then
-            local note = sanitized.id ~= nil and DispatchNotes[tostring(sanitized.id)] or nil
-            if note then
-                sanitized.note = { text = note.text, author = note.author, updatedAt = note.updatedAt }
-            end
-            result[#result + 1] = sanitized
-        end
-    end
-    return result
+    return dispatches
 end
 
 ps.registerCallback(resourceName .. ':server:getRecentDispatches', function(source)
@@ -566,10 +615,12 @@ ps.registerCallback(resourceName .. ':server:dismissDispatch', function(source, 
 
     DismissedDispatches[id] = os.time()
     DispatchNotes[id] = nil -- note dies with the call
+    ManualDispatches[id] = nil -- MDT-created calls are removed outright
     if ps.auditLog then
         ps.auditLog(src, 'dispatch_dismiss', 'dispatch', 0, { dispatch = id })
     end
     -- Nudge every open MDT to refresh its (now filtered) dispatch list.
+    invalidateDispatchCache()
     TriggerClientEvent(resourceName .. ':client:dispatchDismissed', -1, id)
     return { success = true }
 end)
@@ -643,6 +694,7 @@ ps.registerCallback(resourceName .. ':server:setDispatchNote', function(source, 
     end
 
     -- Tell every open MDT to refresh (note now travels with the call).
+    invalidateDispatchCache()
     TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, id)
 
     -- If units are already on the call, re-notify them that the note changed.
@@ -669,8 +721,141 @@ ps.registerCallback(resourceName .. ':server:deleteDispatchNote', function(sourc
     if ps.auditLog then
         ps.auditLog(src, 'dispatch_note_delete', 'dispatch', 0, { dispatch = id })
     end
+    invalidateDispatchCache()
     TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, id)
     return { success = true }
+end)
+
+-- Self attach/detach for MANUAL calls (provider calls handle this themselves).
+-- No dispatch permission needed — you're only touching your own attachment.
+ps.registerCallback(resourceName .. ':server:selfDispatchAttach', function(source, data)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+    data = data or {}
+    local id = data.dispatch_id and tostring(data.dispatch_id) or nil
+    local call = id and ManualDispatches[id] or nil
+    if not call then return { success = false, error = 'Unknown call' } end
+
+    local cid = ps.getIdentifier and ps.getIdentifier(src) or nil
+    if not cid then return { success = false } end
+    call.units = call.units or {}
+
+    if data.action == 'detach' then
+        for i = #call.units, 1, -1 do
+            if call.units[i].citizenid == cid then table.remove(call.units, i) end
+        end
+    else
+        local exists = false
+        for _, u in ipairs(call.units) do if u.citizenid == cid then exists = true break end end
+        if not exists then
+            local okFirst, firstname = pcall(function() return ps.getCharInfo('firstname', src) end)
+            local okLast,  lastname  = pcall(function() return ps.getCharInfo('lastname', src) end)
+            call.units[#call.units + 1] = {
+                citizenid = cid,
+                charinfo  = {
+                    firstname = okFirst and firstname or nil,
+                    lastname  = okLast and lastname or nil,
+                },
+                metadata  = { callsign = ps.getMetadata and ps.getMetadata(src, 'callsign') or nil },
+            }
+        end
+    end
+
+    invalidateDispatchCache()
+    TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, id)
+    return { success = true }
+end)
+
+-- ---------------------------------------------------------------------------
+-- Dispatcher: create a manual call from the MDT "Create Call" modal.
+-- These are owned by the MDT (we control the id/note/units) and merged into the
+-- dispatch list, so they flow into the ticker/map/assignment like any call —
+-- without touching the underlying dispatch resource.
+-- ---------------------------------------------------------------------------
+ps.registerCallback(resourceName .. ':server:createManualDispatch', function(source, data)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+    if not CheckPermission(src, 'dispatch_assign') then
+        return { success = false, error = 'No permission' }
+    end
+
+    data = data or {}
+    local code     = type(data.code) == 'string' and data.code or ''
+    local title    = type(data.title) == 'string' and data.title or ''
+    local coords   = type(data.coords) == 'table' and data.coords or nil
+    title = title:gsub('^%s+', ''):gsub('%s+$', '')
+
+    if code == '' then return { success = false, error = 'A 10-code is required' } end
+    if not coords or not tonumber(coords.x) or not tonumber(coords.y) then
+        return { success = false, error = 'Pick a location on the map' }
+    end
+
+    -- Title falls back to the code's label (sent by the client from config).
+    if title == '' then
+        title = type(data.label) == 'string' and data.label:gsub('^%s+', ''):gsub('%s+$', '') or ''
+    end
+    if title == '' then title = code end
+
+    -- Priority is derived from the code/title keywords (1 high / 2 med / 3 low),
+    -- so it doesn't need to be configured per code.
+    local function derivePriority(hay)
+        hay = (hay or ''):lower()
+        if hay:find('shoot') or hay:find('pursuit') or hay:find('robber') or hay:find('assist')
+            or hay:find('10%-13') or hay:find('10%-71') or hay:find('10%-80') or hay:find('10%-90')
+            or hay:find('officer') or hay:find('weapon') or hay:find('armed') then
+            return 1
+        end
+        if hay:find('accident') or hay:find('ambulance') or hay:find('fire') or hay:find('disturb')
+            or hay:find('suspicious') or hay:find('911') or hay:find('10%-52') or hay:find('10%-53') then
+            return 2
+        end
+        return 3
+    end
+    local priority = derivePriority(code .. ' ' .. title)
+
+    manualSeq = manualSeq + 1
+    local id = 'mdt-' .. os.time() .. '-' .. manualSeq
+
+    local jobs = nil
+    if type(data.jobs) == 'table' and #data.jobs > 0 then
+        jobs = data.jobs
+    end
+
+    ManualDispatches[id] = {
+        id       = id,
+        code     = code,
+        message  = title,
+        priority = priority,
+        time     = os.time() * 1000, -- ms, matches the ticker's age display
+        coords   = { x = tonumber(coords.x), y = tonumber(coords.y), z = tonumber(coords.z) or 0.0 },
+        street   = type(data.street) == 'string' and data.street or nil,
+        units    = {},
+        jobs     = jobs,
+        manual   = true,
+    }
+
+    -- Optional note straight from the modal.
+    local note = type(data.note) == 'string' and data.note:gsub('^%s+', ''):gsub('%s+$', '') or ''
+    if note ~= '' then
+        local okName, author = pcall(function()
+            if ps.getCharInfo then
+                return (ps.getCharInfo('firstname', src) or '') .. ' ' .. (ps.getCharInfo('lastname', src) or '')
+            end
+            return nil
+        end)
+        if not okName then author = nil end
+        if author then author = author:gsub('^%s+', ''):gsub('%s+$', '') end
+        DispatchNotes[id] = { text = note:sub(1, 300), author = (author ~= '' and author) or nil, updatedAt = os.time() }
+    end
+
+    if ps.auditLog then
+        ps.auditLog(src, 'dispatch_create', 'dispatch', 0, { dispatch = id, code = code })
+    end
+
+    -- Broadcast so open MDTs pick the new call up immediately.
+    invalidateDispatchCache()
+    TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, id)
+    return { success = true, id = id }
 end)
 
 -- ---------------------------------------------------------------------------
@@ -697,30 +882,68 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
     local okCore, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
     if not okCore then QBCore = nil end
 
+    -- Manual (MDT-created) calls keep their unit list on the server, since the
+    -- dispatch provider doesn't know about them.
+    local manualCall = ManualDispatches[tostring(dispatchId)]
+
     local hit, miss = 0, 0
     local noteEntry = DispatchNotes[tostring(dispatchId)]
     local noteText = noteEntry and noteEntry.text or nil
     for _, cid in ipairs(citizenids) do
         local targetSrc = nil
+        local targetPly = nil
         if ps.getPlayerByIdentifier then
-            local p = ps.getPlayerByIdentifier(cid)
-            targetSrc = p and (p.PlayerData and p.PlayerData.source or p.source) or nil
+            targetPly = ps.getPlayerByIdentifier(cid)
+            targetSrc = targetPly and (targetPly.PlayerData and targetPly.PlayerData.source or targetPly.source) or nil
         end
         if not targetSrc and QBCore and QBCore.Functions.GetPlayerByCitizenId then
-            local p = QBCore.Functions.GetPlayerByCitizenId(cid)
-            targetSrc = p and p.PlayerData and p.PlayerData.source or nil
+            targetPly = QBCore.Functions.GetPlayerByCitizenId(cid)
+            targetSrc = targetPly and targetPly.PlayerData and targetPly.PlayerData.source or nil
         end
+
+        -- For manual calls, maintain the unit list ourselves — do this even if
+        -- the unit is offline so a detach always cleans the roster.
+        if manualCall then
+            manualCall.units = manualCall.units or {}
+            if action == 'detach' then
+                for i = #manualCall.units, 1, -1 do
+                    if manualCall.units[i].citizenid == cid then table.remove(manualCall.units, i) end
+                end
+            else
+                local exists = false
+                for _, u in ipairs(manualCall.units) do
+                    if u.citizenid == cid then exists = true break end
+                end
+                if not exists then
+                    local pd = targetPly and targetPly.PlayerData or nil
+                    manualCall.units[#manualCall.units + 1] = {
+                        citizenid = cid,
+                        charinfo  = pd and pd.charinfo or nil,
+                        job       = pd and pd.job or nil,
+                        metadata  = pd and pd.metadata and { callsign = pd.metadata.callsign } or nil,
+                    }
+                end
+            end
+        end
+
         if targetSrc then
             TriggerClientEvent(resourceName .. ':client:dispatchAssign', targetSrc, {
                 id = dispatchId,
                 action = action,
                 coords = data.coords, -- {x, y} for waypoint (attach only)
                 note = noteText,      -- included in the assignment notify
+                manual = manualCall ~= nil, -- skip provider attach for manual calls
             })
             hit = hit + 1
         else
             miss = miss + 1
         end
+    end
+
+    -- Manual call unit changes: refresh open MDTs.
+    if manualCall then
+        invalidateDispatchCache()
+        TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, tostring(dispatchId))
     end
 
     if ps.auditLog then

@@ -365,14 +365,27 @@ end)
 
 RegisterNUICallback("attachToDispatch", function(data, cb)
     if not MDTOpen then cb({}) return end
-    providerAttach(data)
+    -- data may be a bare id (provider calls) or { id, manual } for MDT calls.
+    local id = type(data) == 'table' and data.id or data
+    local isManual = type(data) == 'table' and data.manual or false
+    if isManual then
+        ps.callback(resourceName .. ':server:selfDispatchAttach', { dispatch_id = id, action = 'attach' })
+    else
+        providerAttach(id)
+    end
     cb(GetRecentDispatch())
 end)
 
 RegisterNUICallback("detachFromDispatch", function(data, cb)
     if not MDTOpen then cb({}) return end
-    providerDetach(data)
-    Wait(100) -- give non-1of1 servers time to update the server-side table before the cb
+    local id = type(data) == 'table' and data.id or data
+    local isManual = type(data) == 'table' and data.manual or false
+    if isManual then
+        ps.callback(resourceName .. ':server:selfDispatchAttach', { dispatch_id = id, action = 'detach' })
+    else
+        providerDetach(id)
+        Wait(100) -- give non-1of1 servers time to update the server-side table before the cb
+    end
     cb(GetRecentDispatch())
 end)
 
@@ -404,12 +417,12 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
     if not data.id then return end
 
     if data.action == 'detach' then
-        providerDetach(data.id)
+        if not data.manual then providerDetach(data.id) end
         ps.notify('Dispatch has removed you from a call', 'inform')
         return
     end
 
-    providerAttach(data.id)
+    if not data.manual then providerAttach(data.id) end
 
     local c = data.coords
     if c then
@@ -469,5 +482,29 @@ end)
 RegisterNUICallback('deleteDispatchNote', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
     local result = ps.callback(resourceName .. ':server:deleteDispatchNote', data or {})
+    cb(result or { success = false })
+end)
+
+-- Create Call modal: return the configured 10-codes.
+RegisterNUICallback('getCallCodes', function(_, cb)
+    cb((Config and Config.DispatchCodes) or {})
+end)
+
+-- Create Call modal: resolve a picked map coordinate to "Street, Zone".
+RegisterNUICallback('resolveDispatchStreet', function(data, cb)
+    data = data or {}
+    local x, y, z = tonumber(data.x), tonumber(data.y), tonumber(data.z) or 0.0
+    if not x or not y then cb({ street = '' }) return end
+    local zone = GetLabelText(GetNameOfZone(x + 0.0, y + 0.0, z + 0.0))
+    local hash = GetStreetNameAtCoord(x + 0.0, y + 0.0, z + 0.0)
+    local street = GetStreetNameFromHashKey(hash)
+    local out = street or ''
+    if zone and zone ~= '' then out = (out ~= '' and (out .. ', ') or '') .. zone end
+    cb({ street = out })
+end)
+
+RegisterNUICallback('createManualDispatch', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:createManualDispatch', data or {})
     cb(result or { success = false })
 end)

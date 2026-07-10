@@ -53,6 +53,12 @@ export const NUI_EVENTS = {
 		DISMISS_DISPATCH: "dismissDispatch",
 		SET_DISPATCH_NOTE: "setDispatchNote",
 		DELETE_DISPATCH_NOTE: "deleteDispatchNote",
+		CREATE_MANUAL_DISPATCH: "createManualDispatch",
+		GET_CALL_CODES: "getCallCodes",
+		RESOLVE_STREET: "resolveDispatchStreet",
+		CREATE_DISPATCH: "createDispatch",
+		GET_DISPATCH_CODES: "getDispatchCodes",
+		GET_STREET_AT_COORDS: "getStreetAtCoords",
 		ROUTE_TO_DISPATCH: "routeToDispatch",
 	},
 	NAVIGATION: {

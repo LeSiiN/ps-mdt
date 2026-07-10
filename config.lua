@@ -93,6 +93,22 @@ Config.Dispatch = {
     FilterByJob = true,
 }
 
+-- 10-codes offered in the "Create Call" modal. `code` shows in the dropdown,
+-- `label` is the human name (also used as the call title if none is typed).
+Config.DispatchCodes = {
+    { code = '10-13', label = 'Officer Needs Assistance' },
+    { code = '10-71', label = 'Shooting' },
+    { code = '10-90', label = 'Robbery' },
+    { code = '10-80', label = 'Pursuit' },
+    { code = '10-15', label = 'Civil Disturbance' },
+    { code = '10-52', label = 'Ambulance Needed' },
+    { code = '10-53', label = 'Vehicle Accident' },
+    { code = '10-66', label = 'Suspicious Activity' },
+    { code = '10-11', label = 'Traffic Stop' },
+    { code = '10-62', label = 'Meet Complainant' },
+    { code = '911',   label = 'General 911 Call' },
+}
+
 -- Wolfknight Plate Reader Settings
 Config.UseWolfknightRadar = true -- Enable/disable Wolfknight radar integration
 Config.WolfknightNotifyTime = 5000 -- Duration (ms) for plate reader notifications

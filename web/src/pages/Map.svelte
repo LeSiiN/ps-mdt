@@ -222,7 +222,12 @@
     function unitLabel(u: DispatchUnitLite): string {
         const cs = u.metadata?.callsign && u.metadata.callsign !== "NO CALLSIGN" ? u.metadata.callsign : null;
         const name = [u.charinfo?.firstname, u.charinfo?.lastname].filter(Boolean).join(" ");
-        return cs ? `${cs} · ${name || u.citizenid}` : (name || u.citizenid);
+        // Prefer a resolved officer name from the live roster if the call's own
+        // charinfo is missing, and only ever fall back to "Unit" — never show a
+        // raw citizenid to the dispatcher.
+        const fromRoster = officers.find(o => o.citizenid === u.citizenid)?.name;
+        const display = name || fromRoster || "Unit";
+        return cs ? `${cs} · ${display}` : display;
     }
 
     async function loadDispatches() {
@@ -391,13 +396,184 @@
         assignUnits(ids, "attach");
     }
 
+    // ═══ Create Call modal ═══
+    type CallCode = { code: string; label: string };
+    let showCreateCall  = $state(false);
+    let callCodes       = $state<CallCode[]>([]);
+    let ccCode          = $state("");
+    let ccTitle         = $state("");
+    let ccNote          = $state("");
+    let ccPickedGta     = $state<GtaPoint | null>(null);
+    let ccStreet        = $state("");
+    let ccPicking       = $state(false);
+    let ccPendingGta    = $state<GtaPoint | null>(null); // provisional pick, awaiting confirm
+    let ccPickMarker: L.Marker | null = null;
+    let ccSelectedPatrols = $state<Set<string>>(new Set());
+    let ccBusy          = $state(false);
+    const CC_NOTE_MAX   = 300;
+
+    // Tidy up the picking state whenever the modal is closed.
+    $effect(() => {
+        if (!showCreateCall) {
+            ccPicking = false;
+            ccPendingGta = null;
+            removePickMarker();
+        }
+    });
+
+    let ccSelectedCode  = $derived(callCodes.find(c => c.code === ccCode) ?? null);
+
+    async function openCreateCall() {
+        // Load the configured 10-codes lazily on first open.
+        if (callCodes.length === 0) {
+            try { callCodes = await fetchNui<CallCode[]>(NUI_EVENTS.DISPATCH.GET_CALL_CODES, {}, []); }
+            catch { callCodes = []; }
+        }
+        ccCode = ""; ccTitle = ""; ccNote = "";
+        ccPickedGta = null; ccStreet = ""; ccPicking = false;
+        ccPendingGta = null; removePickMarker();
+        ccSelectedPatrols = new Set();
+        showCreateCall = true;
+    }
+
+    // Available patrols near the PICKED location (staffed + not busy), mirroring
+    // the call-card's "Nearest available patrols" list.
+    let ccNearbyPatrols = $derived.by(() => {
+        const gp = ccPickedGta;
+        if (!gp) return [] as { p: Patrol; dist: number; count: number; st: StatusDef }[];
+        const out: { p: Patrol; dist: number; count: number; st: StatusDef }[] = [];
+        for (const p of patrols) {
+            const members = officers.filter(o => p.memberIds.includes(o.citizenid));
+            if (members.length === 0) continue; // not staffed
+            const st = getPatrolStatus(p);
+            if (!st || st.id === "busy") continue; // occupied
+            const dist = Math.min(...members.map(o => Math.hypot(o.coords.x - gp.x, o.coords.y - gp.y)));
+            out.push({ p, dist, count: members.length, st });
+        }
+        return out.sort((a, b) => a.dist - b.dist).slice(0, 6);
+    });
+
+    function ccTogglePatrol(id: string) {
+        const next = new Set(ccSelectedPatrols);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        ccSelectedPatrols = next;
+    }
+
+    function startLocationPick() {
+        // Never pick a location and draw a zone at the same time.
+        if (drawingPatrolId) stopDrawing(true);
+        ccPendingGta = null;
+        removePickMarker();
+        ccPicking = true;
+        mapContainer?.classList.add("map-cursor-cross");
+    }
+
+    function ccPickIcon() {
+        return L.divIcon({
+            className: "",
+            html: `<div class="cc-pin"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></div>`,
+            iconSize: [30, 30],
+            iconAnchor: [15, 28],
+        });
+    }
+
+    function removePickMarker() {
+        ccPickMarker?.remove();
+        ccPickMarker = null;
+        mapContainer?.classList.remove("map-cursor-cross");
+    }
+
+    // While picking, a click drops/moves a provisional pin — not yet confirmed.
+    function onPickLocation(gp: GtaPoint) {
+        ccPendingGta = gp;
+        if (map) {
+            const ll = toMapLatLng(gp) as L.LatLngExpression;
+            if (ccPickMarker) ccPickMarker.setLatLng(ll);
+            else { ccPickMarker = L.marker(ll, { icon: ccPickIcon(), zIndexOffset: 2000 }).addTo(map); }
+        }
+    }
+
+    // Confirm the provisional pin: resolve its street and return to the modal.
+    async function confirmPick() {
+        if (!ccPendingGta) return;
+        ccPickedGta = ccPendingGta;
+        ccPicking = false;
+        removePickMarker();
+        ccStreet = "";
+        try {
+            const res = await fetchNui<{ street: string }>(
+                NUI_EVENTS.DISPATCH.RESOLVE_STREET, { x: ccPickedGta.x, y: ccPickedGta.y, z: 0 }, { street: "" });
+            ccStreet = res?.street ?? "";
+        } catch { /* leave blank */ }
+    }
+
+    // Cancel picking and return to the modal with the previous location intact.
+    function cancelPick() {
+        ccPicking = false;
+        ccPendingGta = null;
+        removePickMarker();
+    }
+
+    async function submitCreateCall() {
+        if (ccBusy) return;
+        if (!ccCode) { globalNotifications.error("Pick a 10-code"); return; }
+        if (!ccPickedGta) { globalNotifications.error("Pick a location on the map"); return; }
+        ccBusy = true;
+        try {
+            const res = await fetchNui<{ success: boolean; id?: string; error?: string }>(
+                NUI_EVENTS.DISPATCH.CREATE_MANUAL_DISPATCH,
+                {
+                    code: ccCode,
+                    title: ccTitle.trim(),          // may be empty — server falls back to label
+                    label: ccSelectedCode?.label,   // used as title when none is typed
+                    coords: { x: ccPickedGta.x, y: ccPickedGta.y },
+                    street: ccStreet || undefined,
+                    note: ccNote.trim() || undefined,
+                },
+                { success: true, id: "preview" },
+            );
+            if (!res?.success || !res.id) {
+                globalNotifications.error(res?.error || "Failed to create call");
+                return;
+            }
+            // Attach every online member of the selected patrols.
+            const ids = [...new Set(
+                patrols
+                    .filter(p => ccSelectedPatrols.has(p.id))
+                    .flatMap(p => p.memberIds)
+                    .filter(cid => officers.some(o => o.citizenid === cid)),
+            )];
+            if (ids.length > 0) {
+                await fetchNui(NUI_EVENTS.DISPATCH.ASSIGN_TO_DISPATCH, {
+                    dispatch_id: res.id, citizenids: ids, action: "attach",
+                    coords: { x: ccPickedGta.x, y: ccPickedGta.y },
+                }, { success: true });
+            }
+            globalNotifications.success(`Call created${ids.length ? ` — ${ids.length} unit${ids.length === 1 ? "" : "s"} assigned` : ""}`);
+            showCreateCall = false;
+            setTimeout(loadDispatches, 300);
+        } catch {
+            globalNotifications.error("Failed to create call");
+        } finally {
+            ccBusy = false;
+        }
+    }
+
+    // MDT-created (manual) calls have ids like "mdt-…". They need the manual
+    // flag so the client keeps the unit list server-side instead of asking the
+    // dispatch provider (which doesn't know about them).
+    function isManualCall(d: MapDispatch | null): boolean {
+        return !!d && typeof d.id === "string" && d.id.startsWith("mdt-");
+    }
+
     async function selfAttachToCall(attach: boolean) {
         const d = selectedDispatch;
         if (!d) return;
+        const payload = isManualCall(d) ? { id: d.id, manual: true } : d.id;
         try {
             await fetchNui(
                 attach ? NUI_EVENTS.DISPATCH.ATTACH_TO_DISPATCH : NUI_EVENTS.DISPATCH.DETACH_FROM_DISPATCH,
-                d.id, [],
+                payload, [],
             );
             setTimeout(loadDispatches, 300);
         } catch { /* ignore */ }
@@ -421,6 +597,7 @@
     }
 
     function handleTickerKeys(e: KeyboardEvent) {
+        if (e.key === "Escape" && ccPicking) { e.preventDefault(); cancelPick(); return; }
         const t = e.target as HTMLElement | null;
         if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
         if (e.key === "ArrowLeft") { e.preventDefault(); tickerNav(-1); }
@@ -485,7 +662,15 @@
         noteDraft = "";
     });
 
+    // Ask before dismissing so a call isn't removed for everyone by accident.
+    let dismissConfirmId = $state<string | null>(null);
+
+    function requestDismiss(id: string) {
+        dismissConfirmId = id;
+    }
+
     async function dismissCall(id: string) {
+        dismissConfirmId = null;
         // Optimistic local hide, then the server removes it for EVERYONE —
         // the broadcast refresh keeps all open MDTs in sync.
         dismissedCallIds = new Set([...dismissedCallIds, id]);
@@ -1063,6 +1248,8 @@
 
     function startDrawing(patrolId: string) {
         if (!map || !canEditPatrols) return;
+        // Never draw a zone and pick a call location at the same time.
+        if (ccPicking) cancelPick();
         stopDrawing(false);
         drawingPatrolId = patrolId;
         drawPoints = [];
@@ -1113,8 +1300,8 @@
         // for this layout. NOTE: these are NOT the GTA<->map offsetX/offsetY above —
         // they're a pixel fudge tied to the MDT's current zoom factor and the map's
         // placement in the layout. Re-tune if either of those changes.
-        const clickFudgeX = 40;
-        const clickFudgeY = 30;
+        const clickFudgeX = 46;
+        const clickFudgeY = 32;
 
         // rect + clientX/Y are on-screen (scaled) px; Leaflet's container point is
         // in unscaled layout px, so undo the scale on the offset from the edge.
@@ -1887,6 +2074,11 @@
 
         L.control.zoom({ position: "topright" }).addTo(map);
 
+        // Location picker for the Create Call modal (only active while picking).
+        map.on("click", (e: L.LeafletMouseEvent) => {
+            if (ccPicking && !drawingPatrolId) onPickLocation(toGtaCoords(mouseEventToLatLng(e)));
+        });
+
 
         // Image placement bounds (world extent of the map render). Intentionally
         // NOT applied as maxBounds: units can roam far off the island (e.g.
@@ -1928,16 +2120,25 @@
         zoneLayer    = L.layerGroup().addTo(map);
 
         syncLayerVisibility();
-        refreshTracking();
-        loadDispatches();
+
+        // Staggered startup: the map frame (tiles + overlays + layers) is up now;
+        // defer the data fetches and marker rendering to later frames so opening
+        // the tab doesn't spike a single game tick. Each step yields first.
+        const idle = (fn: () => void, delay: number) => setTimeout(fn, delay);
+        idle(() => refreshTracking(), 0);   // next frame: officers/vehicles/bodycams
+        idle(() => loadDispatches(), 60);   // then: dispatch calls + markers
+
         window.addEventListener("keydown", handleTickerKeys);
-        // Clean up leftover calibration-tool storage from the tuning session.
-        localStorage.removeItem("mdt_calib");
-        localStorage.removeItem("mdt_calib_pts");
-        localStorage.removeItem("mdt_calib_tool");
-        localStorage.removeItem("mdt_map_icon_style");
-        localStorage.removeItem("mdt_cayo_cal");
-        localStorage.removeItem("mdt_cayo_tool");
+
+        // One-time cleanup of leftover calibration/tuning storage. Guarded so it
+        // only touches localStorage once ever, instead of on every tab open.
+        if (localStorage.getItem("mdt_legacy_cleanup") !== "1") {
+            for (const k of ["mdt_calib", "mdt_calib_pts", "mdt_calib_tool", "mdt_map_icon_style", "mdt_cayo_cal", "mdt_cayo_tool"]) {
+                localStorage.removeItem(k);
+            }
+            localStorage.setItem("mdt_legacy_cleanup", "1");
+        }
+
         // Pushes (trackingDirty) drive freshness now; this poll is only a
         // safety net in case an event is ever missed, so it can run slower.
         refreshTimer = setInterval(() => { refreshTracking(); loadDispatches(); }, 10000);
@@ -1960,8 +2161,9 @@
         window.addEventListener("keydown", onKeyDown);
         window.addEventListener("click", handleOutsideClick);
         initializeMap();
-        loadPatrols();
-        loadStatusConfig();
+        // Defer the two secondary fetches so they don't pile onto the mount tick.
+        setTimeout(() => loadStatusConfig(), 120);
+        setTimeout(() => loadPatrols(), 180);
     });
 
     onDestroy(() => {
@@ -1982,10 +2184,17 @@
         window.removeEventListener("keydown", handleTickerKeys);
     });
 
+    // These effects react to layer-toggle changes. On first mount the data
+    // isn't loaded yet and initializeMap() already does the initial render, so
+    // we skip the very first (synchronous) run of each to avoid doing the same
+    // rendering work twice in the opening frame.
+    let effectsArmed = $state(false);
+    onMount(() => { effectsArmed = true; });
+
     $effect(() => { syncLayerVisibility(); });
-    $effect(() => { showPatrols; refreshPatrolLabels(); });
-    $effect(() => { showZones; renderAllZones(); });
-    $effect(() => { showCalls; renderDispatchMarkers(); });
+    $effect(() => { showPatrols; if (effectsArmed) refreshPatrolLabels(); });
+    $effect(() => { showZones; if (effectsArmed) renderAllZones(); });
+    $effect(() => { showCalls; if (effectsArmed) renderDispatchMarkers(); });
 </script>
 <div class="map-page">
     <div class="map-wrapper" style="--sidebar-width:{sidebarWidth}px; --zoom-offset:{sidebarOpen ? sidebarWidth + 46 : 12}px">
@@ -2012,7 +2221,7 @@
                             <span class="ticker-age">{dispatchAge(d.time)}</span>
                         </button>
                         {#if canAssignUnits}
-                            <button class="ticker-x" title="Dismiss call for everyone" onclick={() => dismissCall(String(d.id))}>✕</button>
+                            <button class="ticker-x" title="Dismiss call for everyone" onclick={() => requestDismiss(String(d.id))}>✕</button>
                         {/if}
                     </div>
                 {/each}
@@ -2032,7 +2241,7 @@
                     <span class="call-prio-dot" style="background:{priorityColor(selectedDispatch.priority)}"></span>
                     <span class="call-title">{selectedDispatch.code || selectedDispatch.codename || "Call"}{#if selectedDispatch.codename && selectedDispatch.code} · {selectedDispatch.codename}{/if}</span>
                     {#if canAssignUnits}
-                        <button class="call-close call-dismiss" title="Dismiss call for everyone (removes it from all MDTs)" aria-label="Dismiss" onclick={() => dismissCall(String(selectedDispatch!.id))}>
+                        <button class="call-close call-dismiss" title="Dismiss call for everyone (removes it from all MDTs)" aria-label="Dismiss" onclick={() => requestDismiss(String(selectedDispatch!.id))}>
                             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                         </button>
                     {/if}
@@ -2151,6 +2360,118 @@
             </div>
         {/if}
 
+        <!-- ═══ Dismiss confirmation ═══ -->
+        {#if dismissConfirmId}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="cc-backdrop" onclick={(e) => { if (e.target === e.currentTarget) dismissConfirmId = null; }}>
+                <div class="confirm-box" role="dialog" aria-modal="true">
+                    <div class="confirm-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </div>
+                    <div class="confirm-title">Dismiss this call?</div>
+                    <div class="confirm-text">It will be removed from the map and ticker for <b>every unit</b>. This can't be undone.</div>
+                    <div class="confirm-btns">
+                        <button class="call-btn call-btn-ghost" onclick={() => dismissConfirmId = null}>Cancel</button>
+                        <button class="call-btn call-btn-danger" onclick={() => dismissCall(dismissConfirmId!)}>Dismiss call</button>
+                    </div>
+                </div>
+            </div>
+        {/if}
+
+        <!-- ═══ Create Call modal ═══ -->
+        {#if showCreateCall}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="cc-backdrop" class:picking={ccPicking} onclick={(e) => { if (e.target === e.currentTarget && !ccPicking) showCreateCall = false; }}>
+                {#if ccPicking}
+                    <div class="cc-pick-bar">
+                        <div class="cc-pick-msg">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                            <span>{ccPendingGta ? "Location set — confirm or click again to move it" : "Click anywhere on the map to place the call"}</span>
+                        </div>
+                        <div class="cc-pick-actions">
+                            <button class="call-btn call-btn-ghost" onclick={cancelPick}>Cancel</button>
+                            <button class="call-btn call-btn-accent" disabled={!ccPendingGta} onclick={confirmPick}>Use this location</button>
+                        </div>
+                    </div>
+                {:else}
+                    <div class="cc-modal" role="dialog" aria-modal="true">
+                        <div class="cc-head">
+                            <span class="cc-title-txt">Create Call</span>
+                            <button class="call-close" aria-label="Close" onclick={() => showCreateCall = false}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div class="cc-body">
+                            <div class="cc-field">
+                                <span class="cc-label">10-Code</span>
+                                <select class="cc-input cc-select" bind:value={ccCode}>
+                                    <option value="">— Select a code —</option>
+                                    {#each callCodes as c}
+                                        <option value={c.code}>{c.code} · {c.label}</option>
+                                    {/each}
+                                </select>
+                            </div>
+
+                            <div class="cc-field">
+                                <span class="cc-label">Title <span class="cc-optional">(optional — uses the code's label if empty)</span></span>
+                                <input class="cc-input" bind:value={ccTitle} maxlength="80" placeholder={ccSelectedCode?.label ? `Default: ${ccSelectedCode.label}` : "Short summary…"} />
+                            </div>
+
+                            <div class="cc-field">
+                                <span class="cc-label">Note <span class="cc-optional">(optional)</span></span>
+                                <textarea class="cc-input cc-textarea" bind:value={ccNote} maxlength={CC_NOTE_MAX} rows="2" placeholder="Extra info for assigned units…"></textarea>
+                            </div>
+
+                            <div class="cc-field">
+                                <span class="cc-label">Location</span>
+                                {#if ccPickedGta}
+                                    <div class="cc-location-set">
+                                        <span class="cc-loc-street">{ccStreet || "Location set"}</span>
+                                        <button class="cc-loc-repick" onclick={startLocationPick}>Re-pick</button>
+                                    </div>
+                                {:else}
+                                    <button class="cc-pick-btn" onclick={startLocationPick}>
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                        Pick location on map
+                                    </button>
+                                {/if}
+                            </div>
+
+                            <div class="cc-field">
+                                <span class="cc-label">Assign patrols <span class="cc-optional">(available, nearest)</span></span>
+                                {#if !ccPickedGta}
+                                    <div class="cc-empty">Pick a location first to see nearby patrols.</div>
+                                {:else if ccNearbyPatrols.length === 0}
+                                    <div class="cc-empty">No available patrols near this location.</div>
+                                {:else}
+                                    <div class="cc-units">
+                                        {#each ccNearbyPatrols as { p, dist, count, st } (p.id)}
+                                            <button class="cc-unit-row" class:sel={ccSelectedPatrols.has(p.id)} onclick={() => ccTogglePatrol(p.id)}>
+                                                <span class="cc-unit-check">{ccSelectedPatrols.has(p.id) ? "✓" : ""}</span>
+                                                <span class="cc-unit-dot" style="background:{p.color}"></span>
+                                                <span class="cc-unit-name">{p.name}</span>
+                                                <span class="cc-patrol-meta" style="color:{st.color}">{st.label}</span>
+                                                <span class="cc-unit-dist">{count} 👤 · {fmtDist(dist)}</span>
+                                            </button>
+                                        {/each}
+                                    </div>
+                                {/if}
+                            </div>
+                        </div>
+                        <div class="cc-footer">
+                            <span class="cc-footer-hint">{ccSelectedPatrols.size} patrol{ccSelectedPatrols.size === 1 ? "" : "s"} selected</span>
+                            <div class="cc-footer-btns">
+                                <button class="call-btn call-btn-ghost" disabled={ccBusy} onclick={() => showCreateCall = false}>Cancel</button>
+                                <button class="call-btn call-btn-accent" disabled={ccBusy || !ccCode || !ccPickedGta} onclick={submitCreateCall}>Create call</button>
+                            </div>
+                        </div>
+                    </div>
+                {/if}
+            </div>
+        {/if}
+
         <div class="map-controls">
             <span class="controls-header">Tracking</span>
             <div class="controls-group">
@@ -2176,6 +2497,13 @@
                 </label>
             </div>
             <div class="controls-divider"></div>
+            {#if canAssignUnits}
+                <button class="create-call-btn" onclick={openCreateCall}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Create Call
+                </button>
+                <div class="controls-divider"></div>
+            {/if}
             <div class="legend">
                 <span class="legend-item vehicle">Vehicle</span>
                 <span class="legend-item vehicle-parked">Parked</span>
@@ -2749,6 +3077,210 @@
     .note-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .note-count { font-size: 9px; color: rgba(255, 255, 255, 0.35); font-variant-numeric: tabular-nums; }
     .note-edit-btns { display: flex; gap: 5px; }
+
+    /* Create Call button + modal */
+    .create-call-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        padding: 6px 10px;
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        border-radius: 3px;
+        color: rgba(125, 211, 252, 0.95);
+        font-size: 10px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.1s;
+    }
+    .create-call-btn:hover { background: rgba(56, 189, 248, 0.18); border-color: rgba(56, 189, 248, 0.4); }
+
+    .cc-backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 1500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.55);
+    }
+    /* While picking, let clicks pass through to the map (except the bar). */
+    .cc-backdrop.picking { background: transparent; pointer-events: none; }
+    .cc-pick-bar {
+        position: absolute;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        max-width: calc(100% - 40px);
+        padding: 10px 14px;
+        background: rgba(20, 20, 22, 0.98);
+        border: 1px solid rgba(56, 189, 248, 0.5);
+        border-radius: 6px;
+        pointer-events: auto;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 0 3px rgba(56, 189, 248, 0.08);
+    }
+    .cc-pick-msg {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: rgba(186, 230, 253, 0.95);
+    }
+    .cc-pick-msg svg { color: rgba(125, 211, 252, 0.9); flex-shrink: 0; }
+    .cc-pick-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    :global(.cc-pin) {
+        color: rgba(56, 189, 248, 1);
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+        animation: ccPinDrop 0.25s ease-out;
+    }
+    :global(.cc-pin svg) { width: 30px; height: 30px; }
+    @keyframes ccPinDrop {
+        0% { transform: translateY(-8px); opacity: 0; }
+        100% { transform: translateY(0); opacity: 1; }
+    }
+    .cc-modal {
+        width: 340px;
+        max-height: calc(100% - 40px);
+        display: flex;
+        flex-direction: column;
+        background: rgba(20, 20, 22, 0.98);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+    }
+    .cc-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 11px 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        flex-shrink: 0;
+    }
+    .cc-title-txt { font-size: 13px; font-weight: 700; color: rgba(255, 255, 255, 0.92); }
+    .cc-body { padding: 12px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 11px; }
+    .cc-body::-webkit-scrollbar { width: 4px; }
+    .cc-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 2px; }
+    .cc-field { display: flex; flex-direction: column; gap: 4px; }
+    .cc-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255, 255, 255, 0.45); }
+    .cc-optional { color: rgba(255, 255, 255, 0.25); font-weight: 500; text-transform: none; letter-spacing: 0; }
+    .cc-input {
+        width: 100%;
+        box-sizing: border-box;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        color: rgba(255, 255, 255, 0.88);
+        font-size: 11px;
+        font-family: inherit;
+        padding: 6px 9px;
+        outline: none;
+        transition: border-color 0.1s;
+    }
+    .cc-input:focus { border-color: rgba(56, 189, 248, 0.45); }
+    .cc-input::placeholder { color: rgba(255, 255, 255, 0.28); }
+    .cc-select { cursor: pointer; }
+    .cc-select option { background: #1a1d23; color: rgba(255, 255, 255, 0.85); }
+    .cc-textarea { resize: vertical; min-height: 40px; line-height: 1.45; }
+    .cc-pick-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 10px;
+        background: rgba(56, 189, 248, 0.08);
+        border: 1px dashed rgba(56, 189, 248, 0.35);
+        border-radius: 4px;
+        color: rgba(125, 211, 252, 0.9);
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.1s;
+    }
+    .cc-pick-btn:hover { background: rgba(56, 189, 248, 0.14); }
+    .cc-location-set {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 9px;
+        background: rgba(34, 197, 94, 0.06);
+        border: 1px solid rgba(34, 197, 94, 0.22);
+        border-radius: 4px;
+    }
+    .cc-loc-street { flex: 1; font-size: 11px; color: rgba(255, 255, 255, 0.82); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cc-loc-repick { background: none; border: none; color: rgba(125, 211, 252, 0.85); font-size: 9px; font-weight: 700; cursor: pointer; }
+    .cc-loc-repick:hover { color: rgba(186, 230, 253, 1); }
+    .cc-empty { font-size: 10px; color: rgba(255, 255, 255, 0.3); font-style: italic; padding: 4px 0; }
+    .cc-units { display: flex; flex-direction: column; gap: 3px; max-height: 150px; overflow-y: auto; }
+    .cc-units::-webkit-scrollbar { width: 4px; }
+    .cc-units::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 2px; }
+    .cc-unit-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 5px 7px;
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.1s;
+        text-align: left;
+    }
+    .cc-unit-row:hover { border-color: rgba(255, 255, 255, 0.15); }
+    .cc-unit-row.sel { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.4); }
+    .cc-unit-check { width: 12px; font-size: 10px; font-weight: 800; color: rgba(125, 211, 252, 1); flex-shrink: 0; }
+    .cc-unit-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .cc-unit-name { flex: 1; font-size: 10px; color: rgba(255, 255, 255, 0.78); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cc-unit-dist { font-size: 9px; color: rgba(255, 255, 255, 0.35); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .cc-patrol-meta { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0; }
+    .cc-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
+        flex-shrink: 0;
+    }
+    .cc-footer-hint { font-size: 10px; color: rgba(255, 255, 255, 0.4); }
+    .cc-footer-btns { display: flex; gap: 6px; }
+
+    /* Dismiss confirmation */
+    .confirm-box {
+        width: 300px;
+        background: rgba(20, 20, 22, 0.98);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+    }
+    .confirm-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 12px;
+        border-radius: 50%;
+        background: rgba(239, 68, 68, 0.12);
+        color: rgba(248, 113, 113, 0.95);
+    }
+    .confirm-title { font-size: 14px; font-weight: 700; color: rgba(255, 255, 255, 0.92); margin-bottom: 6px; }
+    .confirm-text { font-size: 11px; line-height: 1.5; color: rgba(255, 255, 255, 0.55); margin-bottom: 16px; }
+    .confirm-text b { color: rgba(255, 255, 255, 0.8); }
+    .confirm-btns { display: flex; gap: 8px; justify-content: center; }
+    .call-btn-danger {
+        background: rgba(239, 68, 68, 0.14);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        color: rgba(248, 113, 113, 0.95);
+    }
+    .call-btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.22); border-color: rgba(239, 68, 68, 0.55); }
     .call-self-row { display: flex; }
     .call-btn {
         display: inline-flex;
@@ -2859,6 +3391,9 @@
     :global(.map-cursor-none) { cursor: none !important; }
     :global(.map-cursor-none .leaflet-interactive) { cursor: none !important; }
     :global(.map-cursor-none .leaflet-container) { cursor: none !important; }
+    :global(.map-cursor-cross) { cursor: crosshair !important; }
+    :global(.map-cursor-cross .leaflet-interactive) { cursor: crosshair !important; }
+    :global(.map-cursor-cross .leaflet-container) { cursor: crosshair !important; }
 
     /* DOM-based drawing cursor dot – positioned in viewport coords, immune to CSS zoom */
     :global(.draw-cursor-dot) {
