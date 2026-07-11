@@ -155,7 +155,7 @@ ps.registerCallback('ps-mdt:server:getWeapons', function(source)
             weaponClass = v.weaponClass,
             weaponModel = v.weaponModel,
             name = (QBCore and QBCore.Shared and QBCore.Shared.Weapons and QBCore.Shared.Weapons[GetHashKey(v.weaponModel)] and QBCore.Shared.Weapons[GetHashKey(v.weaponModel)].label) or v.weaponModel,
-            image = 'https://docs.fivem.net/weapons/' .. v.weaponModel:upper() .. '.png',
+            image = Config.WeaponImagePath .. v.weaponModel:upper() .. '.png',
             type = class[modelLower] and class[modelLower].type or 'unknown',
             flags = v.flags and json.decode(v.flags) or {},
         }

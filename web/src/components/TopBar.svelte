@@ -42,7 +42,7 @@
 			clearTimeout(opacityTimeout);
 			opacityTimeout = null;
 		}
-		documentOpacity = 0.5;
+		documentOpacity = 0.25;
 	}
 
 	function handleTopBarLeave() {

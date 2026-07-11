@@ -324,8 +324,11 @@ Config.VehicleRegistration = {
 }
 
 -- Weapon Registration
-Config.RegisterWeaponsAutomatically = true -- Auto-register weapons on purchase (ox_inventory and qb-inventory/qb-weapons)
+Config.RegisterWeaponsAutomatically = false -- Auto-register weapons on purchase (ox_inventory and qb-inventory/qb-weapons)
 Config.RegisterCreatedWeapons = false -- Also auto-register weapons on item creation (ox_inventory only)
+
+-- Weapon Image Path
+Config.WeaponImagePath = 'nui://ox_inventory/web/images/' -- .. v.weaponModel:upper() .. '.png',
 
 -- Impound Locations (vector4: x, y, z, heading)
 Config.ImpoundLocations = {
