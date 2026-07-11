@@ -60,6 +60,7 @@
 		vehicle_updated:    "Updated vehicle record",
 		vehicle_impounded:  "Impounded a vehicle",
 		vehicle_released:   "Released vehicle from impound",
+		vehicle_impound_fee_paid: "Collected an impound fee",
 		// Searches
 		search_citizens: "Searched citizens",
 		search_players:  "Searched players",
@@ -119,6 +120,7 @@
 		weapon_deleted: { icon: "no_encryption",  color: "#ef4444" },
 		vehicle_updated:   { icon: "directions_car", color: "#f59e0b" },
 		vehicle_impounded: { icon: "local_parking",  color: "#ef4444" },
+		vehicle_impound_fee_paid: { icon: "payments", color: "#10b981" },
 		vehicle_released:  { icon: "directions_car", color: "#10b981" },
 		fine_processed:  { icon: "payments",     color: "#f59e0b" },
 		charge_updated:  { icon: "gavel",        color: "#f59e0b" },

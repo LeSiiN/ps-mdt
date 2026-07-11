@@ -327,13 +327,39 @@ Config.VehicleRegistration = {
 Config.RegisterWeaponsAutomatically = false -- Auto-register weapons on purchase (ox_inventory and qb-inventory/qb-weapons)
 Config.RegisterCreatedWeapons = false -- Also auto-register weapons on item creation (ox_inventory only)
 
--- Weapon Image Path
-Config.WeaponImagePath = 'nui://ox_inventory/web/images/' -- .. v.weaponModel:upper() .. '.png',
+-- Weapon Image Path 
+Config.WeaponImagePath = 'nui://ox_inventory/web/images/'
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Impound
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Releasing a vehicle puts it straight back into the owner's garage — they
+-- retrieve it there like any other car. Lots are purely a record of WHERE the
+-- vehicle is being held while impounded.
+Config.Impound = {
+    Lots = {
+        { id = 'lspd',   label = 'LSPD Impound' },
+        { id = 'paleto', label = 'Paleto Impound' },
+    },
 
--- Impound Locations (vector4: x, y, z, heading)
-Config.ImpoundLocations = {
-    [1] = vector4(409.09, -1623.37, 29.29, 232.07), -- LSPD Impound
-    [2] = vector4(-436.42, 5982.29, 31.34, 136.0),  -- Paleto Impound
+    -- Impound reasons offered in the MDT, each with a default fee (the officer
+    -- can still edit the fee when impounding).
+    Reasons = {
+        { label = 'Evidence / Investigation', fee = 0 },
+        { label = 'Reckless Driving',         fee = 750 },
+        { label = 'Illegal Parking',          fee = 250 },
+        { label = 'Unregistered Vehicle',     fee = 500 },
+        { label = 'Stolen Vehicle Recovery',  fee = 0 },
+        { label = 'DUI',                      fee = 1500 },
+        { label = 'Illegal Modifications',    fee = 1000 },
+        { label = 'Abandoned Vehicle',        fee = 300 },
+    },
+
+    DefaultFee = 500,
+    MaxFee     = 50000,
+    -- Account the release fee is taken from ('bank' or 'cash').
+    FeeAccount = 'bank',
+    -- Require the fee to be paid before a vehicle can be released.
+    RequireFeePaid = true,
 }
 
 -- Job Settings
@@ -547,6 +573,10 @@ Config.ManagementPermissions = {
     'dispatch_route',
     'dispatch_assign',
     'dispatch_notes',
+
+    -- Impound
+    'vehicle_impound',
+    'vehicle_impound_release',
     -- Cameras & Bodycams
     'cameras_view',
     'bodycams_view',

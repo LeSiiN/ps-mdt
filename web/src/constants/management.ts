@@ -78,7 +78,9 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		icon: "directions_car",
 		permissions: [
 			{ key: "vehicles_search", label: "Search Vehicles", description: "Search and view vehicle records" },
-			{ key: "vehicles_edit_dmv", label: "Edit Vehicle Points & Impound", description: "Set license points and impound/release vehicles" },
+			{ key: "vehicles_edit_dmv", label: "Edit Vehicle Points", description: "Set license points on a vehicle record" },
+			{ key: "vehicle_impound", label: "Impound Vehicles", description: "Impound a vehicle: set the reason, fee and lot" },
+			{ key: "vehicle_impound_release", label: "Release Impounds & Collect Fees", description: "Release impounded vehicles and charge the impound fee" },
 		],
 	},
 	{
@@ -148,6 +150,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 			{ key: "dispatch_route", label: "Route to Calls", description: "Set GPS route to dispatch calls" },
 			{ key: "dispatch_assign", label: "Assign Units to Calls", description: "Dispatcher: attach or detach other units and patrols to calls (sets their waypoint)" },
 			{ key: "dispatch_notes", label: "Manage Call Notes", description: "Dispatcher: add, edit and remove a note on a dispatch call (shown to assigned units)" },
+			{ key: "dispatch_create", label: "Create Calls", description: "Dispatcher: create custom dispatch calls from the map (code, title, note, location, units)" },
 		],
 	},
 	{

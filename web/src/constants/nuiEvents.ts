@@ -134,6 +134,14 @@ export const NUI_EVENTS = {
 		UPDATE_VEHICLE: "updateVehicle",
 		GET_REPORTS_BY_PLATE: "getReportsByPlate",
 	},
+	IMPOUND: {
+		IMPOUND_VEHICLE: "impoundVehicle",
+		RELEASE_IMPOUND: "releaseImpound",
+		PAY_IMPOUND_FEE: "payImpoundFee",
+		GET_IMPOUND_LOT: "getImpoundLot",
+		GET_IMPOUND_HISTORY: "getImpoundHistory",
+		GET_IMPOUND_CONFIG: "getImpoundConfig",
+	},
 	WEAPON: {
 		GET_WEAPONS: "getWeapons",
 		SEARCH_WEAPONS: "searchWeapons",
@@ -423,6 +431,12 @@ export const ALL_NUI_EVENTS = [
 	"yjsUpdate",
 	"yjsBatch",
 	"pollYjsUpdates",
+	"impoundVehicle",
+	"releaseImpound",
+	"payImpoundFee",
+	"getImpoundLot",
+	"getImpoundHistory",
+	"getImpoundConfig",
 ] as const;
 
 export type WeaponNuiEvents = typeof NUI_EVENTS.WEAPON;

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { formatDate } from "../utils/datetime";
+	import { formatDate, formatDateTime } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -9,7 +9,231 @@
 	import type { createTabService } from "../services/tabService.svelte";
 	import Pagination from "../components/Pagination.svelte";
 
-	let { tabService }: { tabService: ReturnType<typeof createTabService> } = $props();
+	import type { AuthService } from "../services/authService.svelte";
+
+	let { tabService, authService }: {
+		tabService: ReturnType<typeof createTabService>;
+		authService?: AuthService;
+	} = $props();
+
+	// ═══ Impound ═══
+	interface ImpoundRecord {
+		id: number;
+		status: "active" | "released";
+		plate?: string;
+		reason: string | null;
+		notes: string | null;
+		lot: string | null;
+		fee: number;
+		fee_paid: number;
+		linkedreport: number | null;
+		officer_name: string | null;
+		time: number;
+		released_at?: number | null;
+		released_by_name?: string | null;
+		model?: string;
+		owner_name?: string | null;
+		owner_citizenid?: string | null;
+	}
+	interface ImpoundReason { label: string; fee: number }
+	interface ImpoundLot { id: string; label: string }
+
+	let canImpound = $derived(authService ? (authService.hasPermission("vehicle_impound") ?? false) : true);
+	let canRelease = $derived(authService ? (authService.hasPermission("vehicle_impound_release") ?? false) : true);
+
+	let impoundHistory = $state<ImpoundRecord[]>([]);
+	let impoundBusy    = $state(false);
+	let showHistory    = $state(false);
+	// The active impound for the selected vehicle (if any).
+	let activeImpound  = $derived(impoundHistory.find(r => r.status === "active") ?? null);
+
+	// Impound config (reasons + lots), loaded once.
+	let impoundReasons = $state<ImpoundReason[]>([]);
+	let impoundLots    = $state<ImpoundLot[]>([]);
+	let requireFeePaid = $state(true);
+	let impoundCfgLoaded = false;
+
+	// Impound modal
+	let showImpoundModal = $state(false);
+	let imReason = $state("");
+	let imFee    = $state(0);
+	let imLot    = $state("");
+	let imNotes  = $state("");
+
+	// Impound lot view
+	let showLotView  = $state(false);
+	let lotVehicles  = $state<ImpoundRecord[]>([]);
+	let lotLoading   = $state(false);
+	let lotFilter    = $state("all");   // lot id or "all"
+	let lotSearch    = $state("");
+
+	async function loadImpoundConfig() {
+		if (impoundCfgLoaded) return;
+		try {
+			const res = await fetchNui<{ reasons: ImpoundReason[]; lots: ImpoundLot[]; defaultFee: number; requireFeePaid: boolean; maxFee: number }>(
+				NUI_EVENTS.IMPOUND.GET_IMPOUND_CONFIG, {},
+				{ reasons: [], lots: [], defaultFee: 500, requireFeePaid: true, maxFee: 50000 });
+			impoundReasons = res?.reasons ?? [];
+			impoundLots = res?.lots ?? [];
+			requireFeePaid = res?.requireFeePaid ?? true;
+			if (typeof res?.maxFee === "number") maxFee = res.maxFee;
+			impoundCfgLoaded = true;
+		} catch { /* leave empty */ }
+	}
+
+	async function loadImpoundHistory(plate: string) {
+		try {
+			const res = await fetchNui<{ entries: ImpoundRecord[] }>(
+				NUI_EVENTS.IMPOUND.GET_IMPOUND_HISTORY, { plate }, { entries: [] });
+			impoundHistory = res?.entries ?? [];
+		} catch {
+			impoundHistory = [];
+		}
+	}
+
+	function lotLabel(id: string | null): string {
+		if (!id) return "Unknown lot";
+		return impoundLots.find(l => l.id === id)?.label ?? id;
+	}
+
+	function money(n: number | null | undefined): string {
+		return "$" + (n ?? 0).toLocaleString();
+	}
+
+	async function openImpoundModal() {
+		await loadImpoundConfig();
+		const first = impoundReasons[0];
+		imReason = first?.label ?? "";
+		imFee = first?.fee ?? 0;
+		imLot = impoundLots[0]?.id ?? "";
+		imNotes = "";
+		showImpoundModal = true;
+	}
+
+	// Picking a reason pre-fills its configured fee (still editable).
+	function onReasonChange(label: string) {
+		imReason = label;
+		const r = impoundReasons.find(x => x.label === label);
+		if (r) imFee = r.fee;
+	}
+
+	// Fee editor, modelled on the license-points editor: steppers + quick chips,
+	// so a fee can be set without ever touching the keyboard.
+	const FEE_STEP = 50;
+	const FEE_PRESETS = [100, 250, 500, 1000];
+	let maxFee = $state(50000);
+
+	function adjustFee(delta: number) {
+		const next = Math.round((imFee + delta) / 1) ;
+		imFee = Math.min(maxFee, Math.max(0, next));
+	}
+	// The fee this reason is configured for — lets us show a "reset" affordance.
+	let reasonDefaultFee = $derived(impoundReasons.find(r => r.label === imReason)?.fee ?? 0);
+	let feeIsCustom = $derived(imFee !== reasonDefaultFee);
+
+	async function submitImpound() {
+		const plate = selectedVehicle?.plate;
+		if (!plate || impoundBusy) return;
+		if (!imReason) { globalNotifications.error("Pick an impound reason"); return; }
+		impoundBusy = true;
+		try {
+			const res = await fetchNui<{ success: boolean; message?: string }>(
+				NUI_EVENTS.IMPOUND.IMPOUND_VEHICLE,
+				{ plate, reason: imReason, fee: imFee, lot: imLot, notes: imNotes.trim() || undefined },
+				{ success: true, message: "Impounded" });
+			if (res?.success) {
+				globalNotifications.success(res.message || "Vehicle impounded");
+				showImpoundModal = false;
+				if (selectedVehicle) selectedVehicle = { ...selectedVehicle, core_state: 2 };
+				await loadImpoundHistory(plate);
+				await refreshVehicles();
+			} else {
+				globalNotifications.error(res?.message || "Failed to impound vehicle");
+			}
+		} catch {
+			globalNotifications.error("Failed to impound vehicle");
+		} finally {
+			impoundBusy = false;
+		}
+	}
+
+	async function payFee(plate: string) {
+		if (impoundBusy) return;
+		impoundBusy = true;
+		try {
+			const res = await fetchNui<{ success: boolean; message?: string }>(
+				NUI_EVENTS.IMPOUND.PAY_IMPOUND_FEE, { plate }, { success: true, message: "Fee collected" });
+			if (res?.success) {
+				globalNotifications.success(res.message || "Fee collected");
+				await loadImpoundHistory(plate);
+				if (showLotView) await loadLot();
+			} else {
+				globalNotifications.error(res?.message || "Failed to collect fee");
+			}
+		} catch {
+			globalNotifications.error("Failed to collect fee");
+		} finally {
+			impoundBusy = false;
+		}
+	}
+
+	async function releaseVehicle(plate: string) {
+		if (impoundBusy) return;
+		impoundBusy = true;
+		try {
+			const res = await fetchNui<{ success: boolean; message?: string }>(
+				NUI_EVENTS.IMPOUND.RELEASE_IMPOUND, { plate }, { success: true, message: "Released" });
+			if (res?.success) {
+				globalNotifications.success(res.message || "Vehicle released");
+				if (selectedVehicle?.plate === plate) {
+					selectedVehicle = { ...selectedVehicle, core_state: 0 };
+					await loadImpoundHistory(plate);
+				}
+				if (showLotView) await loadLot();
+				await refreshVehicles();
+			} else {
+				globalNotifications.error(res?.message || "Failed to release vehicle");
+			}
+		} catch {
+			globalNotifications.error("Failed to release vehicle");
+		} finally {
+			impoundBusy = false;
+		}
+	}
+
+	async function loadLot() {
+		lotLoading = true;
+		try {
+			await loadImpoundConfig();
+			const res = await fetchNui<{ vehicles: ImpoundRecord[] }>(
+				NUI_EVENTS.IMPOUND.GET_IMPOUND_LOT, {}, { vehicles: [] });
+			lotVehicles = res?.vehicles ?? [];
+		} catch {
+			lotVehicles = [];
+		} finally {
+			lotLoading = false;
+		}
+	}
+
+	async function openLotView() {
+		showLotView = true;
+		await loadLot();
+	}
+
+	let lotFiltered = $derived.by(() => {
+		const q = lotSearch.trim().toLowerCase();
+		return lotVehicles.filter(v => {
+			if (lotFilter !== "all" && v.lot !== lotFilter) return false;
+			if (!q) return true;
+			return (v.plate ?? "").toLowerCase().includes(q)
+				|| (v.owner_name ?? "").toLowerCase().includes(q)
+				|| (v.reason ?? "").toLowerCase().includes(q);
+		});
+	});
+
+	let lotUnpaidTotal = $derived(
+		lotFiltered.filter(v => !v.fee_paid).reduce((sum, v) => sum + (v.fee ?? 0), 0)
+	);
 
 	interface Vehicle {
 		id: number;
@@ -292,6 +516,10 @@
 				if (response.features) features = { points: !!response.features.points, insurance: !!response.features.insurance, registration: !!response.features.registration };
 				canEditPoints = !!response.canEditPoints;
 				pointsDraft = response.vehicle.points ?? 0;
+				// Impound record + history for this vehicle.
+				showHistory = false;
+				loadImpoundConfig();
+				loadImpoundHistory(plate);
 			} else {
 				vehicleDetailError = response?.message || "Failed to load vehicle";
 			}
@@ -512,6 +740,110 @@
 					</div>
 				</div>
 
+				<!-- ═══ Impound ═══ -->
+				<div class="section">
+					<div class="section-title">
+						Impound
+						{#if !activeImpound && canImpound}
+							<button class="danger-btn" onclick={openImpoundModal}>Impound vehicle</button>
+						{/if}
+					</div>
+
+					{#if activeImpound}
+						<div class="imp-card">
+							<div class="imp-card-head">
+								<span class="imp-badge">Impounded</span>
+								<span class="imp-lot">{lotLabel(activeImpound.lot)}</span>
+							</div>
+
+							<div class="imp-rows">
+								<div class="imp-row">
+									<span class="imp-label">Reason</span>
+									<span class="imp-value">{activeImpound.reason || '—'}</span>
+								</div>
+								<div class="imp-row">
+									<span class="imp-label">Officer</span>
+									<span class="imp-value">{activeImpound.officer_name || '—'}</span>
+								</div>
+								<div class="imp-row">
+									<span class="imp-label">Impounded</span>
+									<span class="imp-value">{formatDateTime(activeImpound.time)}</span>
+								</div>
+								<div class="imp-row">
+									<span class="imp-label">Fee</span>
+									<span class="imp-value">
+										{money(activeImpound.fee)}
+										{#if activeImpound.fee > 0}
+											<span class="imp-fee-pill" class:paid={!!activeImpound.fee_paid}>
+												{activeImpound.fee_paid ? 'Paid' : 'Unpaid'}
+											</span>
+										{/if}
+									</span>
+								</div>
+								{#if activeImpound.linkedreport}
+									<div class="imp-row">
+										<span class="imp-label">Report</span>
+										<button class="imp-link" onclick={() => openReportInEditor(String(activeImpound!.linkedreport))}>
+											#{activeImpound.linkedreport}
+										</button>
+									</div>
+								{/if}
+							</div>
+
+							{#if activeImpound.notes}
+								<div class="imp-notes">{activeImpound.notes}</div>
+							{/if}
+
+							{#if canRelease}
+								<div class="imp-actions">
+									{#if activeImpound.fee > 0 && !activeImpound.fee_paid}
+										<button class="primary-btn" disabled={impoundBusy}
+											onclick={() => payFee(selectedVehicle!.plate)}>
+											Collect {money(activeImpound.fee)}
+										</button>
+									{/if}
+									<button class="release-btn" disabled={impoundBusy}
+										onclick={() => releaseVehicle(selectedVehicle!.plate)}>
+										Release vehicle
+									</button>
+								</div>
+								{#if requireFeePaid && activeImpound.fee > 0 && !activeImpound.fee_paid}
+									<div class="imp-hint">The fee must be collected before this vehicle can be released.</div>
+								{:else}
+									<div class="imp-hint">Releasing returns the vehicle to the owner's garage.</div>
+								{/if}
+							{/if}
+						</div>
+					{:else}
+						<div class="imp-empty">This vehicle is not impounded.</div>
+					{/if}
+
+					{#if impoundHistory.filter(r => r.status === 'released').length > 0}
+						<button class="imp-history-toggle" onclick={() => showHistory = !showHistory}>
+							{showHistory ? 'Hide' : 'Show'} impound history ({impoundHistory.filter(r => r.status === 'released').length})
+						</button>
+						{#if showHistory}
+							<div class="imp-history">
+								{#each impoundHistory.filter(r => r.status === 'released') as rec (rec.id)}
+									<div class="imp-hist-row">
+										<div class="imp-hist-main">
+											<span class="imp-hist-reason">{rec.reason || 'Impounded'}</span>
+											<span class="imp-hist-meta">
+												{formatDate(rec.time)}
+												{#if rec.released_at}→ {formatDate(rec.released_at)}{/if}
+											</span>
+										</div>
+										<div class="imp-hist-side">
+											{#if rec.fee > 0}<span class="imp-hist-fee">{money(rec.fee)}</span>{/if}
+											<span class="imp-hist-officer">{rec.officer_name || '—'}</span>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					{/if}
+				</div>
+
 				<div class="section">
 					<div class="section-title">
 						Notes
@@ -658,6 +990,101 @@
 				</div>
 			</div>
 		{/if}
+		<!-- ═══ Impound modal ═══ -->
+		{#if showImpoundModal && selectedVehicle}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showImpoundModal = false; }}>
+				<div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+					<div class="modal-header">
+						<h3>Impound {selectedVehicle.plate}</h3>
+						<button class="close-btn" aria-label="Close" onclick={() => (showImpoundModal = false)}>
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<line x1="18" y1="6" x2="6" y2="18"/>
+								<line x1="6" y1="6" x2="18" y2="18"/>
+							</svg>
+						</button>
+					</div>
+
+					<div class="modal-body form-body">
+						<div class="form-group">
+							<span class="field-label">Reason</span>
+							<select class="form-input form-select" value={imReason}
+								onchange={(e) => onReasonChange((e.target as HTMLSelectElement).value)}>
+								{#each impoundReasons as r}
+									<option value={r.label}>{r.label} — {r.fee === 0 ? "no fee" : money(r.fee)}</option>
+								{/each}
+							</select>
+						</div>
+
+						<div class="form-group">
+							<span class="field-label">Holding Lot</span>
+							<select class="form-input form-select" bind:value={imLot}>
+								{#each impoundLots as l}
+									<option value={l.id}>{l.label}</option>
+								{/each}
+							</select>
+						</div>
+
+						<!-- Fee editor: steppers + quick amounts, like the points editor -->
+						<div class="form-group form-full">
+							<span class="field-label">
+								Release Fee
+								{#if feeIsCustom}
+									<button class="fee-reset" type="button" onclick={() => (imFee = reasonDefaultFee)}>
+										reset to {reasonDefaultFee === 0 ? "no fee" : money(reasonDefaultFee)}
+									</button>
+								{/if}
+							</span>
+
+							<div class="fee-editor">
+								<div class="fee-stepper">
+									<button class="fee-step" type="button" aria-label="Lower the fee"
+										disabled={imFee <= 0} onclick={() => adjustFee(-FEE_STEP)}>
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/></svg>
+									</button>
+
+									<div class="fee-value" class:fee-value-zero={imFee === 0}>
+										<span class="fee-currency">$</span>{imFee.toLocaleString()}
+									</div>
+
+									<button class="fee-step" type="button" aria-label="Raise the fee"
+										disabled={imFee >= maxFee} onclick={() => adjustFee(FEE_STEP)}>
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+									</button>
+								</div>
+
+								<div class="fee-quick">
+									<button class="fee-chip" type="button" class:on={imFee === 0} onclick={() => (imFee = 0)}>Waive</button>
+									{#each FEE_PRESETS as amt}
+										<button class="fee-chip" type="button" onclick={() => adjustFee(amt)}>+{money(amt)}</button>
+									{/each}
+								</div>
+							</div>
+						</div>
+
+						<div class="form-group form-full">
+							<span class="field-label">Notes</span>
+							<textarea class="form-input" rows="3" maxlength="500" bind:value={imNotes}
+								placeholder="Condition, contents, anything the next officer should know…"></textarea>
+						</div>
+					</div>
+
+					<div class="modal-footer">
+						<span class="modal-hint">
+							{imFee > 0
+								? `${money(imFee)} is charged to the owner when the vehicle is released`
+								: "No fee will be charged"}
+						</span>
+						<div class="modal-footer-right">
+							<button class="cancel-btn" disabled={impoundBusy} onclick={() => (showImpoundModal = false)}>Cancel</button>
+							<button class="danger-btn" disabled={impoundBusy || !imReason} onclick={submitImpound}>Impound</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
+
 		{#if imageModalOpen}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -724,6 +1151,10 @@
 			<button class="filter-tab" class:active={statusFilter === "garaged"} onclick={() => { statusFilter = "garaged"; vehiclePage = 1; }}>Garaged</button>
 			<button class="filter-tab" class:active={statusFilter === "impounded"} onclick={() => { statusFilter = "impounded"; vehiclePage = 1; }}>Impounded</button>
 			<button class="filter-tab" class:active={statusFilter === "stolen"} onclick={() => { statusFilter = "stolen"; vehiclePage = 1; }}>Stolen</button>
+			<button class="lot-open-btn" onclick={openLotView} title="Every vehicle currently in an impound lot">
+				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/></svg>
+				Impound Lot
+			</button>
 		</div>
 
 		<div class="list-panel">
@@ -804,6 +1235,87 @@
 		</div>
 	</div>
 {/if}
+
+	<!-- ═══ Impound lot: the work list of everything currently impounded ═══ -->
+	{#if showLotView}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showLotView = false; }}>
+			<div class="modal modal-wide" role="dialog" aria-modal="true" tabindex="-1">
+				<div class="modal-header">
+					<h3>Impound Lot</h3>
+					<button class="close-btn" aria-label="Close" onclick={() => (showLotView = false)}>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<line x1="18" y1="6" x2="6" y2="18"/>
+							<line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+					</button>
+				</div>
+
+				<div class="lot-toolbar">
+					<input class="form-input lot-search" placeholder="Search plate, owner or reason…" bind:value={lotSearch} />
+					<select class="form-input form-select" bind:value={lotFilter}>
+						<option value="all">All lots</option>
+						{#each impoundLots as l}
+							<option value={l.id}>{l.label}</option>
+						{/each}
+					</select>
+				</div>
+
+				<div class="modal-body lot-body">
+					{#if lotLoading}
+						<div class="lot-empty">Loading…</div>
+					{:else if lotFiltered.length === 0}
+						<div class="lot-empty">No vehicles are impounded{lotSearch ? " matching that search" : ""}.</div>
+					{:else}
+						{#each lotFiltered as v (v.id)}
+							<div class="lot-row">
+								<div class="lot-main">
+									<div class="lot-line1">
+										<span class="lot-plate">{v.plate}</span>
+										<span class="lot-model">{v.model || ""}</span>
+										<span class="lot-lotname">{lotLabel(v.lot)}</span>
+										{#if v.fee > 0}
+											<span class="imp-fee-pill" class:paid={!!v.fee_paid}>
+												{money(v.fee)} {v.fee_paid ? "paid" : "due"}
+											</span>
+										{/if}
+									</div>
+									<div class="lot-line2">
+										<span class="lot-reason">{v.reason || "—"}</span>
+										<span class="lot-dot"></span>
+										<span>{v.owner_name || "Unknown owner"}</span>
+										<span class="lot-dot"></span>
+										<span>{formatDate(v.time)}</span>
+									</div>
+								</div>
+
+								<div class="lot-side">
+									{#if canRelease}
+										{#if v.fee > 0 && !v.fee_paid}
+											<button class="primary-btn" disabled={impoundBusy} onclick={() => payFee(v.plate!)}>Collect</button>
+										{/if}
+										<button class="release-btn" disabled={impoundBusy} onclick={() => releaseVehicle(v.plate!)}>Release</button>
+									{/if}
+									<button class="cancel-btn" onclick={() => { showLotView = false; viewVehicle(v.plate!); }}>Open</button>
+								</div>
+							</div>
+						{/each}
+					{/if}
+				</div>
+
+				<div class="modal-footer">
+					<span class="modal-hint">
+						{lotFiltered.length} vehicle{lotFiltered.length === 1 ? "" : "s"} held
+						{#if lotUnpaidTotal > 0}· <span class="lot-unpaid">{money(lotUnpaidTotal)} outstanding</span>{/if}
+					</span>
+					<div class="modal-footer-right">
+						<button class="cancel-btn" onclick={() => (showLotView = false)}>Close</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 
 <style>
 	/* ===== Page ===== */
@@ -1932,4 +2444,401 @@
 	.notes-char-warn {
 		color: #f87171;
 	}
+
+	/* ═══ Impound ═══ */
+
+	.imp-card {
+		background: rgba(251, 191, 36, 0.05);
+		border: 1px solid rgba(251, 191, 36, 0.25);
+		border-left-width: 3px;
+		border-radius: 6px;
+		padding: 10px 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 9px;
+	}
+	.imp-card-head { display: flex; align-items: center; gap: 8px; }
+	.imp-badge {
+		background: rgba(251, 191, 36, 0.16);
+		border: 1px solid rgba(251, 191, 36, 0.35);
+		border-radius: 3px;
+		color: rgba(252, 211, 77, 0.95);
+		font-size: 9px;
+		font-weight: 800;
+		letter-spacing: 0.4px;
+		text-transform: uppercase;
+		padding: 2px 7px;
+	}
+	.imp-lot { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+
+	.imp-rows { display: flex; flex-direction: column; gap: 5px; }
+	.imp-row { display: flex; align-items: center; gap: 10px; }
+	.imp-label {
+		min-width: 74px;
+		font-size: 9px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		color: rgba(255, 255, 255, 0.35);
+	}
+	.imp-value {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		font-size: 11px;
+		color: rgba(255, 255, 255, 0.85);
+	}
+	.imp-fee-pill {
+		background: rgba(239, 68, 68, 0.14);
+		border: 1px solid rgba(239, 68, 68, 0.35);
+		border-radius: 3px;
+		color: rgba(248, 113, 113, 0.95);
+		font-size: 9px;
+		font-weight: 700;
+		padding: 1px 6px;
+		white-space: nowrap;
+	}
+	.imp-fee-pill.paid {
+		background: rgba(16, 185, 129, 0.12);
+		border-color: rgba(16, 185, 129, 0.35);
+		color: rgba(52, 211, 153, 0.95);
+	}
+	.imp-link {
+		background: none;
+		border: none;
+		padding: 0;
+		color: rgba(125, 211, 252, 0.9);
+		font-size: 11px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.imp-link:hover { text-decoration: underline; }
+	.imp-notes {
+		background: rgba(255, 255, 255, 0.03);
+		border-radius: 4px;
+		padding: 6px 9px;
+		font-size: 11px;
+		line-height: 1.45;
+		color: rgba(255, 255, 255, 0.7);
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+	.imp-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+	.imp-hint { font-size: 9px; color: rgba(255, 255, 255, 0.35); font-style: italic; }
+	.imp-empty { font-size: 11px; color: rgba(255, 255, 255, 0.3); font-style: italic; }
+
+
+	.imp-history-toggle {
+		margin-top: 8px;
+		background: none;
+		border: none;
+		padding: 0;
+		color: rgba(255, 255, 255, 0.4);
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.imp-history-toggle:hover { color: rgba(255, 255, 255, 0.7); }
+	.imp-history { margin-top: 7px; display: flex; flex-direction: column; gap: 4px; }
+	.imp-hist-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 4px;
+		padding: 6px 9px;
+	}
+	.imp-hist-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+	.imp-hist-reason { font-size: 11px; color: rgba(255, 255, 255, 0.8); }
+	.imp-hist-meta { font-size: 9px; color: rgba(255, 255, 255, 0.35); }
+	.imp-hist-side { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+	.imp-hist-fee { font-size: 10px; color: rgba(255, 255, 255, 0.5); font-variant-numeric: tabular-nums; }
+	.imp-hist-officer { font-size: 9px; color: rgba(255, 255, 255, 0.35); }
+
+	/* ── Modals: same design language as the Add Weapon modal ── */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.7);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+	}
+	.modal {
+		background: var(--card-dark-bg);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 6px;
+		width: min(540px, 92vw);
+		max-height: 85vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+	}
+	.modal-wide { width: min(720px, 94vw); }
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 10px 16px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	}
+	.modal-header h3 { margin: 0; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+	.close-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		color: rgba(255, 255, 255, 0.3);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		padding: 4px;
+		border-radius: 3px;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.close-btn:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
+	.modal-body { padding: 14px 16px; overflow-y: auto; }
+	.form-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+	.form-group { display: flex; flex-direction: column; gap: 3px; }
+	.form-full { grid-column: 1 / -1; }
+	.field-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: rgba(255, 255, 255, 0.35);
+		font-size: 9px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.6px;
+	}
+	.form-input {
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 5px 8px;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 11px;
+		font-family: inherit;
+		transition: border-color 0.1s;
+	}
+	.form-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.1); }
+	.form-input::placeholder { color: rgba(255, 255, 255, 0.2); }
+	.form-select { padding-right: 22px; font-size: 10px; cursor: pointer; }
+	.form-input option { background: #1a1d23; }
+	.modal-footer {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 16px;
+		border-top: 1px solid rgba(255, 255, 255, 0.06);
+	}
+	.modal-footer-right { display: flex; gap: 6px; }
+	.modal-hint { font-size: 10px; color: rgba(255, 255, 255, 0.35); }
+	.cancel-btn {
+		background: transparent;
+		color: rgba(255, 255, 255, 0.4);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 4px 10px;
+		font-size: 10px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.cancel-btn:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
+	.primary-btn {
+		background: rgba(16, 185, 129, 0.06);
+		color: rgba(52, 211, 153, 0.7);
+		border: 1px solid rgba(16, 185, 129, 0.1);
+		border-radius: 3px;
+		padding: 4px 12px;
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.primary-btn:hover:not(:disabled) { background: rgba(16, 185, 129, 0.12); color: rgba(110, 231, 183, 0.9); }
+	.primary-btn:disabled, .cancel-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+	.danger-btn {
+		background: rgba(239, 68, 68, 0.06);
+		color: rgba(248, 113, 113, 0.75);
+		border: 1px solid rgba(239, 68, 68, 0.12);
+		border-radius: 3px;
+		padding: 4px 12px;
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.danger-btn:hover:not(:disabled) { background: rgba(239, 68, 68, 0.13); color: rgba(252, 165, 165, 0.95); }
+	.danger-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+	.release-btn {
+		background: rgba(56, 189, 248, 0.06);
+		color: rgba(125, 211, 252, 0.75);
+		border: 1px solid rgba(56, 189, 248, 0.12);
+		border-radius: 3px;
+		padding: 4px 12px;
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.release-btn:hover:not(:disabled) { background: rgba(56, 189, 248, 0.13); color: rgba(186, 230, 253, 0.95); }
+	.release-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+	/* ── Fee editor: steppers + quick amounts, echoing the points editor ── */
+	.fee-editor {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 14px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 5px;
+		padding: 9px 12px;
+	}
+	.fee-stepper { display: flex; align-items: center; gap: 10px; }
+	.fee-step {
+		width: 28px;
+		height: 28px;
+		display: grid;
+		place-items: center;
+		border-radius: 5px;
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		color: rgba(255, 255, 255, 0.7);
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.fee-step:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.08);
+		color: rgba(255, 255, 255, 0.95);
+		border-color: rgba(255, 255, 255, 0.12);
+	}
+	.fee-step:disabled { opacity: 0.3; cursor: not-allowed; }
+	.fee-value {
+		min-width: 96px;
+		text-align: center;
+		font-family: monospace;
+		font-size: 22px;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.5px;
+		color: rgba(252, 211, 77, 0.95);
+		font-variant-numeric: tabular-nums;
+	}
+	.fee-value-zero { color: rgba(255, 255, 255, 0.35); }
+	.fee-currency { font-size: 14px; opacity: 0.6; margin-right: 1px; }
+	.fee-quick { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+	.fee-chip {
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.55);
+		font-size: 9px;
+		font-weight: 600;
+		padding: 3px 7px;
+		cursor: pointer;
+		transition: all 0.1s;
+		font-variant-numeric: tabular-nums;
+	}
+	.fee-chip:hover { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.15); }
+	.fee-chip.on {
+		background: rgba(255, 255, 255, 0.1);
+		color: rgba(255, 255, 255, 0.9);
+		border-color: rgba(255, 255, 255, 0.2);
+	}
+	.fee-reset {
+		background: none;
+		border: none;
+		padding: 0;
+		color: rgba(125, 211, 252, 0.7);
+		font-size: 9px;
+		font-weight: 600;
+		text-transform: none;
+		letter-spacing: 0;
+		cursor: pointer;
+	}
+	.fee-reset:hover { color: rgba(186, 230, 253, 0.95); }
+
+	/* ── Impound lot list ── */
+	.lot-open-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin-left: auto;
+		padding: 5px 11px;
+		background: rgba(251, 191, 36, 0.06);
+		border: 1px solid rgba(251, 191, 36, 0.14);
+		border-radius: 3px;
+		color: rgba(252, 211, 77, 0.75);
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.lot-open-btn:hover { background: rgba(251, 191, 36, 0.13); color: rgba(253, 224, 71, 0.95); }
+	.lot-toolbar {
+		display: flex;
+		gap: 8px;
+		padding: 12px 16px 0;
+	}
+	.lot-search { flex: 1; }
+	.lot-body { display: flex; flex-direction: column; gap: 5px; }
+	.lot-body::-webkit-scrollbar { width: 5px; }
+	.lot-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+	.lot-empty {
+		padding: 30px 0;
+		text-align: center;
+		font-size: 11px;
+		color: rgba(255, 255, 255, 0.25);
+		font-style: italic;
+	}
+	.lot-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 4px;
+		padding: 8px 11px;
+		transition: border-color 0.1s;
+	}
+	.lot-row:hover { border-color: rgba(255, 255, 255, 0.1); }
+	.lot-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+	.lot-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.lot-plate {
+		font-family: 'Courier New', monospace;
+		font-size: 12px;
+		font-weight: 700;
+		color: rgba(255, 255, 255, 0.9);
+		letter-spacing: 0.5px;
+	}
+	.lot-model { font-size: 10px; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; }
+	.lot-lotname {
+		font-size: 9px;
+		color: rgba(252, 211, 77, 0.7);
+		background: rgba(251, 191, 36, 0.07);
+		border-radius: 3px;
+		padding: 1px 6px;
+	}
+	.lot-line2 {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.35);
+	}
+	.lot-reason { color: rgba(255, 255, 255, 0.55); }
+	.lot-dot { width: 2px; height: 2px; border-radius: 50%; background: rgba(255, 255, 255, 0.2); }
+	.lot-side { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+	.lot-unpaid { color: rgba(248, 113, 113, 0.8); font-weight: 600; }
+
 </style>
