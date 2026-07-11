@@ -437,6 +437,9 @@ export const ALL_NUI_EVENTS = [
 	"getImpoundLot",
 	"getImpoundHistory",
 	"getImpoundConfig",
+	"submitOnSiteImpound",
+	"closeImpoundForm",
+	"getImpoundFormConfig",
 ] as const;
 
 export type WeaponNuiEvents = typeof NUI_EVENTS.WEAPON;

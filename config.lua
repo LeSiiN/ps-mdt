@@ -360,6 +360,34 @@ Config.Impound = {
     FeeAccount = 'bank',
     -- Require the fee to be paid before a vehicle can be released.
     RequireFeePaid = true,
+
+    -- Storage fee: grows for every day the vehicle sits in the lot, capped so it
+    -- can never run away. Computed from the impound date, never accumulated by a
+    -- timer, so it survives restarts and can't drift.
+    Storage = {
+        PerDay  = 500,
+        MaxDays = 7,    -- after this many days the storage fee stops growing
+    },
+
+    -- On-site impound: /impound takes the vehicle the officer is in, or the
+    -- nearest one. Vehicles that nobody owns (NPC traffic) are simply removed and
+    -- the officer gets a small payout for keeping the streets clear.
+    OnSite = {
+        Command   = 'mdtimpound',
+        -- How far the officer may stand from the vehicle.
+        MaxDistance = 6.0,
+
+        Cleanup = {
+            -- Payout for removing an unowned vehicle, randomised in this range.
+            RewardMin   = 100,
+            RewardMax   = 200,
+            Account     = 'bank',
+            -- Anti-abuse: seconds between payouts, and how many an officer can
+            -- earn per shift (resets when they go off duty / the server restarts).
+            Cooldown    = 120,
+            MaxPerShift = 20,
+        },
+    },
 }
 
 -- Job Settings

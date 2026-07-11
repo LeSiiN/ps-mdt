@@ -550,6 +550,47 @@ ps.registerCallback(resourceName .. ':server:getRecentDispatches', function(sour
     return computeRecentDispatches(src)
 end)
 
+-- Impound at a glance: how much is being held, how much money is outstanding and
+-- how long the oldest car has been sitting there. Storage fees are derived from
+-- the impound date (see server/backend/impound.lua), so the outstanding total has
+-- to be worked out the same way here rather than read from a column.
+local function computeImpoundMetrics(safeCount)
+    local cfg = (Config and Config.Impound) or {}
+    local storage = cfg.Storage or {}
+    local perDay  = storage.PerDay or 0
+    local maxDays = storage.MaxDays or 0
+
+    local held = safeCount("SELECT COUNT(*) FROM mdt_impound WHERE status = 'active'")
+    local impoundedLast7 = safeCount(
+        "SELECT COUNT(*) FROM mdt_impound WHERE time >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)")
+
+    local rows = {}
+    local ok, res = pcall(MySQL.query.await,
+        "SELECT fee, fee_paid, time FROM mdt_impound WHERE status = 'active'")
+    if ok and res then rows = res end
+
+    local outstanding, oldestDays = 0, 0
+    local now = os.time()
+    for _, r in ipairs(rows) do
+        local days = math.floor((now - (r.time or now)) / 86400)
+        if days < 0 then days = 0 end
+        if days > oldestDays then oldestDays = days end
+
+        local paid = r.fee_paid == true or r.fee_paid == 1
+        if not paid then
+            local billable = math.min(days, maxDays)
+            outstanding = outstanding + (r.fee or 0) + (billable * perDay)
+        end
+    end
+
+    return {
+        held           = held,
+        outstanding    = outstanding,
+        oldestDays     = oldestDays,
+        impoundedLast7 = impoundedLast7,
+    }
+end
+
 local function computeUsageMetrics()
     return Cache.getOrSet('dashboard:usageMetrics', Config.CacheTTL and Config.CacheTTL.UsageMetrics or 60, function()
         local function safeCount(query, params)
@@ -568,6 +609,7 @@ local function computeUsageMetrics()
                 arrestsLast7   = safeCount('SELECT COUNT(*) FROM mdt_arrests WHERE created_at >= NOW() - INTERVAL 7 DAY'),
                 arrestsLast30  = safeCount('SELECT COUNT(*) FROM mdt_arrests WHERE created_at >= NOW() - INTERVAL 30 DAY'),
             },
+            impound = computeImpoundMetrics(safeCount),
         }
     end)
 end
@@ -598,6 +640,9 @@ ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
         bulletins        = computeBulletins(),
         activeBolos      = computeActiveBolos(src),
         activeUnits      = computeActiveUnits(),
+        -- The frontend already reads usageMetrics off this payload but the server
+        -- never sent it, so the numbers (and the impound tile) stayed empty.
+        usageMetrics     = computeUsageMetrics(),
         recentDispatches = computeRecentDispatches(src),
         usageMetrics     = computeUsageMetrics(),
     }

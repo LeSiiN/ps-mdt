@@ -29,6 +29,7 @@ local ACTION_CATEGORIES = {
     vehicle_impounded = 'vehicles',
     vehicle_released = 'vehicles',
     vehicle_impound_fee_paid = 'vehicles',
+    vehicle_cleanup = 'vehicles',
     weapon_created = 'weapons',
     weapon_updated = 'weapons',
     weapon_deleted = 'weapons',

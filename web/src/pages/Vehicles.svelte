@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { formatDate, formatDateTime } from "../utils/datetime";
+	import ImpoundFormFields from "../components/impound/ImpoundFormFields.svelte";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -26,6 +27,10 @@
 		lot: string | null;
 		fee: number;
 		fee_paid: number;
+		storage?: number;
+		days_held?: number;
+		total?: number;
+		photo?: string | null;
 		linkedreport: number | null;
 		officer_name: string | null;
 		time: number;
@@ -59,6 +64,10 @@
 	let imFee    = $state(0);
 	let imLot    = $state("");
 	let imNotes  = $state("");
+	let imPhoto  = $state("");
+
+	// Lightbox for the impound photo on the vehicle profile.
+	let photoLightbox = $state<string | null>(null);
 
 	// Impound lot view
 	let showLotView  = $state(false);
@@ -107,6 +116,7 @@
 		imFee = first?.fee ?? 0;
 		imLot = impoundLots[0]?.id ?? "";
 		imNotes = "";
+		imPhoto = "";
 		showImpoundModal = true;
 	}
 
@@ -139,7 +149,7 @@
 		try {
 			const res = await fetchNui<{ success: boolean; message?: string }>(
 				NUI_EVENTS.IMPOUND.IMPOUND_VEHICLE,
-				{ plate, reason: imReason, fee: imFee, lot: imLot, notes: imNotes.trim() || undefined },
+				{ plate, reason: imReason, fee: imFee, lot: imLot, notes: imNotes.trim() || undefined, photo: imPhoto.trim() || undefined },
 				{ success: true, message: "Impounded" });
 			if (res?.success) {
 				globalNotifications.success(res.message || "Vehicle impounded");
@@ -232,7 +242,7 @@
 	});
 
 	let lotUnpaidTotal = $derived(
-		lotFiltered.filter(v => !v.fee_paid).reduce((sum, v) => sum + (v.fee ?? 0), 0)
+		lotFiltered.filter(v => !v.fee_paid).reduce((sum, v) => sum + (v.total ?? v.fee ?? 0), 0)
 	);
 
 	interface Vehicle {
@@ -772,14 +782,23 @@
 								<div class="imp-row">
 									<span class="imp-label">Fee</span>
 									<span class="imp-value">
-										{money(activeImpound.fee)}
-										{#if activeImpound.fee > 0}
+										{money(activeImpound.total ?? activeImpound.fee)}
+										{#if (activeImpound.total ?? activeImpound.fee) > 0}
 											<span class="imp-fee-pill" class:paid={!!activeImpound.fee_paid}>
 												{activeImpound.fee_paid ? 'Paid' : 'Unpaid'}
 											</span>
 										{/if}
 									</span>
 								</div>
+								{#if (activeImpound.storage ?? 0) > 0}
+									<div class="imp-row">
+										<span class="imp-label">Storage</span>
+										<span class="imp-value imp-storage">
+											{money(activeImpound.fee)} impound + {money(activeImpound.storage ?? 0)} storage
+											<span class="imp-days">{activeImpound.days_held} day{activeImpound.days_held === 1 ? '' : 's'} held</span>
+										</span>
+									</div>
+								{/if}
 								{#if activeImpound.linkedreport}
 									<div class="imp-row">
 										<span class="imp-label">Report</span>
@@ -794,12 +813,22 @@
 								<div class="imp-notes">{activeImpound.notes}</div>
 							{/if}
 
+							{#if activeImpound.photo}
+								<button class="imp-photo-thumb" type="button" title="Click to enlarge"
+									onclick={() => (photoLightbox = activeImpound!.photo ?? null)}>
+									<img src={activeImpound.photo} alt="Vehicle condition at impound" />
+									<span class="imp-photo-zoom">
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>
+									</span>
+								</button>
+							{/if}
+
 							{#if canRelease}
 								<div class="imp-actions">
-									{#if activeImpound.fee > 0 && !activeImpound.fee_paid}
+									{#if (activeImpound.total ?? activeImpound.fee) > 0 && !activeImpound.fee_paid}
 										<button class="primary-btn" disabled={impoundBusy}
 											onclick={() => payFee(selectedVehicle!.plate)}>
-											Collect {money(activeImpound.fee)}
+											Collect {money(activeImpound.total ?? activeImpound.fee)}
 										</button>
 									{/if}
 									<button class="release-btn" disabled={impoundBusy}
@@ -807,7 +836,7 @@
 										Release vehicle
 									</button>
 								</div>
-								{#if requireFeePaid && activeImpound.fee > 0 && !activeImpound.fee_paid}
+								{#if requireFeePaid && (activeImpound.total ?? activeImpound.fee) > 0 && !activeImpound.fee_paid}
 									<div class="imp-hint">The fee must be collected before this vehicle can be released.</div>
 								{:else}
 									<div class="imp-hint">Releasing returns the vehicle to the owner's garage.</div>
@@ -1007,67 +1036,16 @@
 					</div>
 
 					<div class="modal-body form-body">
-						<div class="form-group">
-							<span class="field-label">Reason</span>
-							<select class="form-input form-select" value={imReason}
-								onchange={(e) => onReasonChange((e.target as HTMLSelectElement).value)}>
-								{#each impoundReasons as r}
-									<option value={r.label}>{r.label} — {r.fee === 0 ? "no fee" : money(r.fee)}</option>
-								{/each}
-							</select>
-						</div>
-
-						<div class="form-group">
-							<span class="field-label">Holding Lot</span>
-							<select class="form-input form-select" bind:value={imLot}>
-								{#each impoundLots as l}
-									<option value={l.id}>{l.label}</option>
-								{/each}
-							</select>
-						</div>
-
-						<!-- Fee editor: steppers + quick amounts, like the points editor -->
-						<div class="form-group form-full">
-							<span class="field-label">
-								Release Fee
-								{#if feeIsCustom}
-									<button class="fee-reset" type="button" onclick={() => (imFee = reasonDefaultFee)}>
-										reset to {reasonDefaultFee === 0 ? "no fee" : money(reasonDefaultFee)}
-									</button>
-								{/if}
-							</span>
-
-							<div class="fee-editor">
-								<div class="fee-stepper">
-									<button class="fee-step" type="button" aria-label="Lower the fee"
-										disabled={imFee <= 0} onclick={() => adjustFee(-FEE_STEP)}>
-										<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/></svg>
-									</button>
-
-									<div class="fee-value" class:fee-value-zero={imFee === 0}>
-										<span class="fee-currency">$</span>{imFee.toLocaleString()}
-									</div>
-
-									<button class="fee-step" type="button" aria-label="Raise the fee"
-										disabled={imFee >= maxFee} onclick={() => adjustFee(FEE_STEP)}>
-										<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-									</button>
-								</div>
-
-								<div class="fee-quick">
-									<button class="fee-chip" type="button" class:on={imFee === 0} onclick={() => (imFee = 0)}>Waive</button>
-									{#each FEE_PRESETS as amt}
-										<button class="fee-chip" type="button" onclick={() => adjustFee(amt)}>+{money(amt)}</button>
-									{/each}
-								</div>
-							</div>
-						</div>
-
-						<div class="form-group form-full">
-							<span class="field-label">Notes</span>
-							<textarea class="form-input" rows="3" maxlength="500" bind:value={imNotes}
-								placeholder="Condition, contents, anything the next officer should know…"></textarea>
-						</div>
+						<ImpoundFormFields
+							reasons={impoundReasons}
+							lots={impoundLots}
+							{maxFee}
+							bind:reason={imReason}
+							bind:fee={imFee}
+							bind:lot={imLot}
+							bind:notes={imNotes}
+							bind:photo={imPhoto}
+						/>
 					</div>
 
 					<div class="modal-footer">
@@ -1236,6 +1214,20 @@
 	</div>
 {/if}
 
+	<!-- Impound photo, full size -->
+	{#if photoLightbox}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="imp-lightbox" onclick={() => (photoLightbox = null)}>
+			<div class="imp-lightbox-card" onclick={(e) => e.stopPropagation()}>
+				<button class="imp-lightbox-close" aria-label="Close" onclick={() => (photoLightbox = null)}>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+				</button>
+				<img class="imp-lightbox-img" src={photoLightbox} alt="Vehicle condition at impound" />
+			</div>
+		</div>
+	{/if}
+
 	<!-- ═══ Impound lot: the work list of everything currently impounded ═══ -->
 	{#if showLotView}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1275,10 +1267,13 @@
 										<span class="lot-plate">{v.plate}</span>
 										<span class="lot-model">{v.model || ""}</span>
 										<span class="lot-lotname">{lotLabel(v.lot)}</span>
-										{#if v.fee > 0}
+										{#if (v.total ?? v.fee) > 0}
 											<span class="imp-fee-pill" class:paid={!!v.fee_paid}>
-												{money(v.fee)} {v.fee_paid ? "paid" : "due"}
+												{money(v.total ?? v.fee)} {v.fee_paid ? "paid" : "due"}
 											</span>
+										{/if}
+										{#if (v.days_held ?? 0) > 0}
+											<span class="lot-days">{v.days_held}d</span>
 										{/if}
 									</div>
 									<div class="lot-line2">
@@ -2840,5 +2835,103 @@
 	.lot-dot { width: 2px; height: 2px; border-radius: 50%; background: rgba(255, 255, 255, 0.2); }
 	.lot-side { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 	.lot-unpaid { color: rgba(248, 113, 113, 0.8); font-weight: 600; }
+	.lot-days {
+		font-size: 9px;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.35);
+		background: rgba(255, 255, 255, 0.04);
+		border-radius: 3px;
+		padding: 1px 5px;
+		font-variant-numeric: tabular-nums;
+	}
+	.imp-storage { flex-wrap: wrap; font-size: 10px; color: rgba(255, 255, 255, 0.55); }
+	.imp-days {
+		font-size: 9px;
+		color: rgba(252, 211, 77, 0.75);
+		background: rgba(251, 191, 36, 0.08);
+		border-radius: 3px;
+		padding: 1px 5px;
+	}
+	/* Fixed height, auto width: the frame ends where the photo ends. A full-width box
+	   with `contain` just letterboxes a small image across the whole card. */
+	.imp-photo-thumb {
+		position: relative;
+		align-self: flex-start;
+		width: auto;
+		max-width: 100%;
+		height: 190px;
+		padding: 0;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 4px;
+		overflow: hidden;
+		cursor: zoom-in;
+		display: block;
+		transition: border-color 0.1s;
+	}
+	.imp-photo-thumb:hover { border-color: rgba(255, 255, 255, 0.2); }
+	.imp-photo-thumb img {
+		width: auto;
+		max-width: 100%;
+		height: 100%;
+		object-fit: contain;
+		display: block;
+	}
+	.imp-photo-zoom {
+		position: absolute;
+		right: 6px;
+		bottom: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		border-radius: 4px;
+		background: rgba(0, 0, 0, 0.6);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		color: rgba(255, 255, 255, 0.85);
+	}
+
+	.imp-lightbox {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.85);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+	}
+	.imp-lightbox-card {
+		position: relative;
+		max-width: 90vw;
+		max-height: 90vh;
+		display: flex;
+		flex-direction: column;
+		padding-top: 40px;
+	}
+	.imp-lightbox-close {
+		position: absolute;
+		top: 0;
+		right: 0;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 4px;
+		color: rgba(255, 255, 255, 0.6);
+		cursor: pointer;
+		padding: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.1s;
+		z-index: 10;
+	}
+	.imp-lightbox-close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+	.imp-lightbox-img {
+		max-width: 90vw;
+		max-height: calc(90vh - 40px);
+		object-fit: contain;
+		display: block;
+		border-radius: 4px;
+	}
 
 </style>

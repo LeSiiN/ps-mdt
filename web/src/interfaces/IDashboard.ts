@@ -119,5 +119,11 @@ export interface DashboardData {
 			arrestsLast7: number;
 			arrestsLast30: number;
 		};
+		impound: {
+			held: number;
+			outstanding: number;
+			oldestDays: number;
+			impoundedLast7: number;
+		};
 	};
 }

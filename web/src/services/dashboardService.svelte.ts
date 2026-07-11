@@ -31,6 +31,12 @@ export function createDashboardService() {
 				arrestsLast7: 0,
 				arrestsLast30: 0,
 			},
+			impound: {
+				held: 0,
+				outstanding: 0,
+				oldestDays: 0,
+				impoundedLast7: 0,
+			},
 		},
 	};
 
@@ -344,6 +350,7 @@ export function createDashboardService() {
 			usageMetrics = {
 				totals: { reports: 247, arrests: 89, activeWarrants: 4 },
 				windows: { reportsLast7: 12, reportsLast30: 47, arrestsLast7: 5, arrestsLast30: 18 },
+				impound: { held: 6, outstanding: 4250, oldestDays: 3, impoundedLast7: 9 },
 			};
 			return;
 		}

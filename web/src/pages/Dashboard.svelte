@@ -85,9 +85,15 @@
 		typeof createDashboardService
 	> & {
 		activeBolos?: ActiveBolo[];
+
 		recentReportsHasMore?: boolean;
 		loadMoreRecentReports?: () => Promise<void>;
 	};
+
+	// Impound at a glance (the server sends this on the dashboard payload).
+	let impound = $derived(
+		dashboardService.usageMetrics?.impound ?? { held: 0, outstanding: 0, oldestDays: 0, impoundedLast7: 0 }
+	);
 
 	// UI state
 	let reportOpened: number | null = $state(null);
@@ -286,6 +292,29 @@
 				</div>
 			</div>
 			<div class="stat-divider"></div>
+
+			<!-- Impound -->
+			{#if impound.held > 0 || impound.outstanding > 0}
+				<div class="stat-item" title={impound.oldestDays > 0
+					? `Oldest vehicle has been held for ${impound.oldestDays} day${impound.oldestDays === 1 ? '' : 's'}`
+					: 'Vehicles currently held in impound'}>
+					<div class="stat-icon impound-icon">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+					</div>
+					<div class="stat-content">
+						<span class="stat-value">
+							{impound.held}
+							{#if impound.outstanding > 0}
+								<span class="stat-badge owed">${impound.outstanding.toLocaleString()} due</span>
+							{/if}
+						</span>
+						<span class="stat-label">
+							In impound{#if impound.oldestDays > 0} · oldest {impound.oldestDays}d{/if}
+						</span>
+					</div>
+				</div>
+				<div class="stat-divider"></div>
+			{/if}
 
 			<!-- Officer status breakdown (dispatch) -->
 			<div class="stat-item">
@@ -629,6 +658,17 @@
 	.rank-icon { background: rgba(168, 85, 247, 0.12); color: #a78bfa; }
 	.reports-icon { background: rgba(16, 185, 129, 0.12); color: #34d399; }
 	.units-icon { background: rgba(var(--accent-rgb), 0.12); color: #60a5fa; }
+
+	.impound-icon {
+		background: rgba(251, 191, 36, 0.1);
+		color: rgba(252, 211, 77, 0.9);
+	}
+
+	.stat-badge.owed {
+		background: rgba(239, 68, 68, 0.12);
+		color: rgba(248, 113, 113, 0.95);
+		font-variant-numeric: tabular-nums;
+	}
 	.bulletin-icon { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
 	.callsign-icon { background: rgba(var(--accent-rgb), 0.12); color: #60a5fa; }
 

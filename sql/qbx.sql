@@ -666,14 +666,28 @@ CREATE TABLE IF NOT EXISTS `mdt_bolos` (
 CREATE TABLE IF NOT EXISTS `mdt_impound` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `vehicleid` int(11) NOT NULL,
+  `status` enum('active','released') NOT NULL DEFAULT 'active',
+  `plate` varchar(16) DEFAULT NULL,
+  `reason` varchar(100) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `photo` varchar(255) DEFAULT NULL,
+  `lot` varchar(32) DEFAULT NULL,
   `linkedreport` int(10) unsigned DEFAULT NULL,
   `fee` int(11) NOT NULL DEFAULT 0,
+  `fee_paid` tinyint(1) NOT NULL DEFAULT 0,
+  `officer_citizenid` varchar(50) DEFAULT NULL,
+  `officer_name` varchar(100) DEFAULT NULL,
   `time` int(11) NOT NULL DEFAULT 0,
+  `released_at` int(11) DEFAULT NULL,
+  `released_by_citizenid` varchar(50) DEFAULT NULL,
+  `released_by_name` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `vehicleid` (`vehicleid`),
   KEY `linkedreport` (`linkedreport`),
+  KEY `idx_impound_status` (`status`, `time`),
+  KEY `idx_impound_plate` (`plate`),
   CONSTRAINT `FK_mdt_impound_reports` FOREIGN KEY (`linkedreport`) REFERENCES `mdt_reports` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 SET @OLDTMP_SQL_MODE=@@SQL_MODE, SQL_MODE='STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION';
 DELIMITER //

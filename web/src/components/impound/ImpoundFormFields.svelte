@@ -1,0 +1,348 @@
+<script lang="ts">
+	/**
+	 * The impound form itself — reason, fee, lot, photo, notes.
+	 *
+	 * Shared on purpose: the MDT modal and the on-site form an officer gets at the
+	 * roadside are the same fields, so they live in one component and can't drift
+	 * apart.
+	 */
+	import type { ImpoundReason, ImpoundLot } from "../../interfaces/IImpound";
+
+	let {
+		reasons = [],
+		lots = [],
+		maxFee = 50000,
+		reason = $bindable(""),
+		fee = $bindable(0),
+		lot = $bindable(""),
+		notes = $bindable(""),
+		photo = $bindable(""),
+	}: {
+		reasons?: ImpoundReason[];
+		lots?: ImpoundLot[];
+		maxFee?: number;
+		reason?: string;
+		fee?: number;
+		lot?: string;
+		notes?: string;
+		photo?: string;
+	} = $props();
+
+	const FEE_STEP = 50;
+	const FEE_PRESETS = [100, 250, 500, 1000];
+
+	function money(n: number): string {
+		return "$" + (n ?? 0).toLocaleString();
+	}
+
+	// Picking a reason pre-fills the fee it's configured for; it stays editable.
+	function onReasonChange(label: string) {
+		reason = label;
+		const r = reasons.find((x) => x.label === label);
+		if (r) fee = r.fee;
+	}
+
+	function adjustFee(delta: number) {
+		fee = Math.min(maxFee, Math.max(0, fee + delta));
+	}
+
+	let reasonDefaultFee = $derived(reasons.find((r) => r.label === reason)?.fee ?? 0);
+	let feeIsCustom = $derived(fee !== reasonDefaultFee);
+
+	// Photo preview / lightbox. `broken` keeps a bad link from leaving a torn image
+	// icon sitting in the form.
+	let lightboxOpen = $state(false);
+	let photoBroken = $state(false);
+
+	$effect(() => {
+		photo; // re-check whenever the link changes
+		photoBroken = false;
+	});
+</script>
+
+<div class="form-group">
+	<span class="field-label">Reason</span>
+	<select class="form-input form-select" value={reason}
+		onchange={(e) => onReasonChange((e.target as HTMLSelectElement).value)}>
+		{#each reasons as r}
+			<option value={r.label}>{r.label} — {r.fee === 0 ? "no fee" : money(r.fee)}</option>
+		{/each}
+	</select>
+</div>
+
+<div class="form-group">
+	<span class="field-label">Holding Lot</span>
+	<select class="form-input form-select" bind:value={lot}>
+		{#each lots as l}
+			<option value={l.id}>{l.label}</option>
+		{/each}
+	</select>
+</div>
+
+<div class="form-group form-full">
+	<span class="field-label">
+		Release Fee
+		{#if feeIsCustom}
+			<button class="fee-reset" type="button" onclick={() => (fee = reasonDefaultFee)}>
+				reset to {reasonDefaultFee === 0 ? "no fee" : money(reasonDefaultFee)}
+			</button>
+		{/if}
+	</span>
+
+	<div class="fee-editor">
+		<div class="fee-stepper">
+			<button class="fee-step" type="button" aria-label="Lower the fee"
+				disabled={fee <= 0} onclick={() => adjustFee(-FEE_STEP)}>
+				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/></svg>
+			</button>
+
+			<div class="fee-value" class:fee-value-zero={fee === 0}>
+				<span class="fee-currency">$</span>{fee.toLocaleString()}
+			</div>
+
+			<button class="fee-step" type="button" aria-label="Raise the fee"
+				disabled={fee >= maxFee} onclick={() => adjustFee(FEE_STEP)}>
+				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+			</button>
+		</div>
+
+		<div class="fee-quick">
+			<button class="fee-chip" type="button" class:on={fee === 0} onclick={() => (fee = 0)}>Waive</button>
+			{#each FEE_PRESETS as amt}
+				<button class="fee-chip" type="button" onclick={() => adjustFee(amt)}>+{money(amt)}</button>
+			{/each}
+		</div>
+	</div>
+</div>
+
+<div class="form-group form-full">
+	<span class="field-label">Photo <span class="optional">(optional link)</span></span>
+	<input class="form-input" bind:value={photo} placeholder="https://…  paste a Fivemanage link" />
+
+	{#if photo.trim() && !photoBroken}
+		<button class="photo-thumb" type="button" onclick={() => (lightboxOpen = true)} title="Click to enlarge">
+			<img src={photo} alt="Vehicle condition" onerror={() => (photoBroken = true)} />
+			<span class="photo-zoom">
+				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>
+			</span>
+		</button>
+	{:else if photo.trim() && photoBroken}
+		<span class="photo-error">That link could not be loaded</span>
+	{/if}
+</div>
+
+{#if lightboxOpen}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="lightbox-overlay" onclick={() => (lightboxOpen = false)}>
+		<div class="lightbox-card" onclick={(e) => e.stopPropagation()}>
+			<button class="lightbox-close" aria-label="Close" onclick={() => (lightboxOpen = false)}>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+			</button>
+			<img class="lightbox-img" src={photo} alt="Vehicle condition" />
+		</div>
+	</div>
+{/if}
+
+<div class="form-group form-full">
+	<span class="field-label">Notes</span>
+	<textarea class="form-input" rows="3" maxlength="500" bind:value={notes}
+		placeholder="Condition, contents, anything the next officer should know…"></textarea>
+</div>
+
+<style>
+	.form-group { display: flex; flex-direction: column; gap: 3px; }
+	.form-full { grid-column: 1 / -1; }
+	.field-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: rgba(255, 255, 255, 0.35);
+		font-size: 9px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.6px;
+	}
+	.optional { color: rgba(255, 255, 255, 0.2); font-weight: 500; text-transform: none; letter-spacing: 0; }
+	.form-input {
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 5px 8px;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 11px;
+		font-family: inherit;
+		transition: border-color 0.1s;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.form-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.1); }
+	.form-input::placeholder { color: rgba(255, 255, 255, 0.2); }
+	.form-select { padding-right: 22px; font-size: 10px; cursor: pointer; }
+	.form-input option { background: #1a1d23; }
+	textarea.form-input { resize: vertical; line-height: 1.45; }
+
+	/* The box hugs the picture: a fixed height with an auto width means the frame is
+	   exactly as wide as the (uncropped) photo, instead of a full-width letterbox
+	   with a stamp-sized image floating in it. */
+	.photo-thumb {
+		position: relative;
+		align-self: flex-start;
+		margin-top: 5px;
+		padding: 0;
+		width: auto;
+		max-width: 100%;
+		height: 160px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 4px;
+		overflow: hidden;
+		cursor: zoom-in;
+		display: block;
+		transition: border-color 0.1s;
+	}
+	.photo-thumb:hover { border-color: rgba(255, 255, 255, 0.2); }
+	.photo-thumb img {
+		width: auto;
+		max-width: 100%;
+		height: 100%;
+		object-fit: contain;
+		display: block;
+	}
+	.photo-zoom {
+		position: absolute;
+		right: 6px;
+		bottom: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		border-radius: 4px;
+		background: rgba(0, 0, 0, 0.6);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		color: rgba(255, 255, 255, 0.85);
+	}
+	.photo-error {
+		margin-top: 4px;
+		font-size: 10px;
+		color: rgba(248, 113, 113, 0.8);
+	}
+
+	.lightbox-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.85);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+	}
+	.lightbox-card {
+		position: relative;
+		max-width: 90vw;
+		max-height: 90vh;
+		display: flex;
+		flex-direction: column;
+		padding-top: 40px;
+	}
+	.lightbox-close {
+		position: absolute;
+		top: 0;
+		right: 0;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 4px;
+		color: rgba(255, 255, 255, 0.6);
+		cursor: pointer;
+		padding: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.1s;
+		z-index: 10;
+	}
+	.lightbox-close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+	.lightbox-img {
+		max-width: 90vw;
+		max-height: calc(90vh - 40px);
+		object-fit: contain;
+		display: block;
+		border-radius: 4px;
+	}
+
+	/* Fee editor: steppers + quick amounts, echoing the license-points editor. */
+	.fee-editor {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 14px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 5px;
+		padding: 9px 12px;
+	}
+	.fee-stepper { display: flex; align-items: center; gap: 10px; }
+	.fee-step {
+		width: 28px;
+		height: 28px;
+		display: grid;
+		place-items: center;
+		border-radius: 5px;
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		color: rgba(255, 255, 255, 0.7);
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.fee-step:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.08);
+		color: rgba(255, 255, 255, 0.95);
+		border-color: rgba(255, 255, 255, 0.12);
+	}
+	.fee-step:disabled { opacity: 0.3; cursor: not-allowed; }
+	.fee-value {
+		min-width: 96px;
+		text-align: center;
+		font-family: monospace;
+		font-size: 22px;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.5px;
+		color: rgba(252, 211, 77, 0.95);
+		font-variant-numeric: tabular-nums;
+	}
+	.fee-value-zero { color: rgba(255, 255, 255, 0.35); }
+	.fee-currency { font-size: 14px; opacity: 0.6; margin-right: 1px; }
+	.fee-quick { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+	.fee-chip {
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.55);
+		font-size: 9px;
+		font-weight: 600;
+		padding: 3px 7px;
+		cursor: pointer;
+		transition: all 0.1s;
+		font-variant-numeric: tabular-nums;
+	}
+	.fee-chip:hover { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.15); }
+	.fee-chip.on {
+		background: rgba(255, 255, 255, 0.1);
+		color: rgba(255, 255, 255, 0.9);
+		border-color: rgba(255, 255, 255, 0.2);
+	}
+	.fee-reset {
+		background: none;
+		border: none;
+		padding: 0;
+		color: rgba(125, 211, 252, 0.7);
+		font-size: 9px;
+		font-weight: 600;
+		text-transform: none;
+		letter-spacing: 0;
+		cursor: pointer;
+	}
+	.fee-reset:hover { color: rgba(186, 230, 253, 0.95); }
+</style>
