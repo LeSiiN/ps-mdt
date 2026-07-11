@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
+	import { formatDate, formatTime, toDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
 	import type { createTabService } from "../services/tabService.svelte";
@@ -39,17 +40,16 @@
 
 	// ── Upcoming hearings / open cases helpers ──
 	function hearingWhen(v: string | number | undefined): string {
-		if (!v) return "";
-		const d = typeof v === "number" ? new Date(v) : new Date(String(v).replace(" ", "T"));
-		if (isNaN(d.getTime())) return String(v);
+		const d = toDate(v);
+		if (!d) return v ? String(v) : "";
 		const now = new Date();
 		const sameDay = d.toDateString() === now.toDateString();
 		const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
 		const isTomorrow = d.toDateString() === tomorrow.toDateString();
-		const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+		const hm = formatTime(d);
 		if (sameDay) return `Today ${hm}`;
 		if (isTomorrow) return `Tomorrow ${hm}`;
-		return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} ${hm}`;
+		return `${formatDate(d)} ${hm}`;
 	}
 	function hearingCatColor(cat?: string): string {
 		if (cat === "training") return "#22c55e";
@@ -377,7 +377,7 @@
 							<button class="list-item" onclick={() => openWarrant(warrant.reportid)}>
 								<div class="item-left">
 									<span class="item-name">{warrant.name}</span>
-									<span class="item-meta">#{warrant.reportid} · Exp. {new Date(warrant.expirydate).toLocaleDateString()}</span>
+									<span class="item-meta">#{warrant.reportid} · Exp. {formatDate(warrant.expirydate)}</span>
 									<div class="pill-row">
 										{#if warrant.felonies > 0}<span class="pill pill-red">{warrant.felonies} Felony</span>{/if}
 										{#if warrant.misdemeanors > 0}<span class="pill pill-orange">{warrant.misdemeanors} Misd.</span>{/if}
@@ -482,7 +482,7 @@
 							{#each dojWarrantReviews as wr}
 								<button class="list-item-btn" onclick={() => tabService.openTab('warrant_review')}>
 									<span class="item-name">{wr.citizen_name || wr.citizenid}</span>
-									<span class="item-meta">{wr.status || 'pending'} · {new Date(wr.created_at).toLocaleDateString()}</span>
+									<span class="item-meta">{wr.status || 'pending'} · {formatDate(wr.created_at)}</span>
 								</button>
 							{/each}
 						{/if}
@@ -500,7 +500,7 @@
 							{#each dojCourtCases as cc}
 								<button class="list-item-btn" onclick={() => tabService.openTab('court_cases')}>
 									<span class="item-name">{cc.title || cc.case_number}</span>
-									<span class="item-meta">{cc.status} · {new Date(cc.created_at || cc.filed_date).toLocaleDateString()}</span>
+									<span class="item-meta">{cc.status} · {formatDate(cc.created_at || cc.filed_date)}</span>
 								</button>
 							{/each}
 						{/if}
@@ -518,7 +518,7 @@
 							{#each dojCourtOrders as co}
 								<button class="list-item-btn" onclick={() => tabService.openTab('court_orders')}>
 									<span class="item-name">{co.title || co.order_number}</span>
-									<span class="item-meta">{co.status} · {new Date(co.created_at).toLocaleDateString()}</span>
+									<span class="item-meta">{co.status} · {formatDate(co.created_at)}</span>
 								</button>
 							{/each}
 						{/if}

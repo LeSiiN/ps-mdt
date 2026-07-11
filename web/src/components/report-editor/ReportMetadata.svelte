@@ -8,6 +8,7 @@
 
 	import { untrack } from "svelte";
 	import { getReportTypesForJob } from "../../constants/index";
+	import { formatDate as fmtDate, formatTime as fmtTime } from "../../utils/datetime";
 	import type { JobType } from "../../interfaces/IUser";
 
 	interface Props {
@@ -63,19 +64,11 @@
 	let reportTypes = $derived(getReportTypesForJob(jobType));
 
 	function formatDate(timestamp: number): string {
-		return new Date(timestamp).toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		});
+		return fmtDate(timestamp);
 	}
 
 	function formatTime(timestamp: number): string {
-		return new Date(timestamp).toLocaleTimeString("en-US", {
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
-		});
+		return fmtTime(timestamp);
 	}
 </script>
 

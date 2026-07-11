@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { fetchNui } from "../../utils/fetchNui";
+	import { formatDate, formatTime, formatDateTime, formatRelative, toDate } from "../../utils/datetime";
 	import { isEnvBrowser } from "../../utils/misc";
 	import { NUI_EVENTS } from "../../constants/nuiEvents";
 	import Pagination from "../Pagination.svelte";
@@ -243,34 +244,18 @@
 	}
 
 	function formatTimestamp(value: string): string {
-		if (!value) return "Unknown";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return value;
-		const now  = new Date();
-		const diff = now.getTime() - date.getTime();
-		const mins = Math.floor(diff / 60000);
-		if (mins < 1)  return "Just now";
-		if (mins < 60) return `${mins}m ago`;
-		const hours = Math.floor(mins / 60);
-		if (hours < 24) return `${hours}h ago`;
-		const days = Math.floor(hours / 24);
-		if (days < 7)  return `${days}d ago`;
-		return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+		return formatRelative(value);
 	}
 
 	function formatFullTimestamp(value: string): string {
-		if (!value) return "";
-		const date = new Date(value);
-		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+		return formatDateTime(value, value);
 	}
 
-	// Compact absolute stamp shown next to the relative time, e.g. "10.07.2026 | 15:34".
+	// Compact absolute stamp shown next to the relative time, e.g. "10-07-2026 | 15:34".
 	function formatExactTimestamp(value: string): string {
-		if (!value) return "";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return "";
-		const p = (n: number) => String(n).padStart(2, "0");
-		return `${p(date.getDate())}.${p(date.getMonth() + 1)}.${date.getFullYear()} | ${p(date.getHours())}:${p(date.getMinutes())}`;
+		const d = toDate(value);
+		if (!d) return "";
+		return `${formatDate(d)} | ${formatTime(d)}`;
 	}
 
 	async function loadActivity(page = 1) {

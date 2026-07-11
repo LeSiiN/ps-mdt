@@ -35,6 +35,7 @@
 	}
 
 	import { onMount } from "svelte";
+	import { formatDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { debugData } from "../utils/debugData";
@@ -564,11 +565,7 @@
 	}
 
 	function formatDateShort(dateStr: string): string {
-		if (!dateStr) return '';
-		try {
-			const d = new Date(dateStr);
-			return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
-		} catch { return dateStr; }
+		return formatDate(dateStr, "");
 	}
 
 	async function saveCallsign() {
@@ -1001,7 +998,7 @@
 											{#if record.latest_rating}
 												<span style="color: rgba(255,255,255,0.5); font-size: 9px;">Rating: {record.latest_rating}/5</span>
 											{/if}
-											<span class="ia-history-date">{record.start_date || formatDateShort(record.created_at)}</span>
+											<span class="ia-history-date">{formatDateShort(record.start_date || record.created_at)}</span>
 										</div>
 									</div>
 								{/each}
@@ -1030,7 +1027,7 @@
 										</div>
 										<div class="ia-history-meta">
 											<span>{formatIAStatus(complaint.category)}</span>
-											<span class="ia-history-date">{complaint.created_at ? new Date(complaint.created_at).toLocaleDateString() : '-'}</span>
+											<span class="ia-history-date">{complaint.created_at ? formatDate(complaint.created_at) : '-'}</span>
 										</div>
 									</div>
 								{/each}
@@ -1984,4 +1981,6 @@
 	.status-completed { background: rgba(16, 185, 129, 0.2); color: rgb(167, 243, 208); }
 	.status-failed { background: rgba(239, 68, 68, 0.2); color: rgb(252, 165, 165); }
 	.status-suspended { background: rgba(245, 158, 11, 0.2); color: rgb(253, 224, 71); }
+
+
 </style>

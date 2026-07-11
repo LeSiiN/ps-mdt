@@ -35,7 +35,7 @@ exports('openCivilianMDT', function()
     if MDTOpen then return end
     MDTOpen = true
     local playerData = ps.getPlayerData()
-    SendNUI('setVisible', { visible = true, debugMode = Config.Debug })
+    SendNUI('setVisible', { visible = true, debugMode = Config.Debug, dateTime = Config.DateTime })
     SendNUI('updateAuth', {
         authorized = true,
         playerData = playerData,

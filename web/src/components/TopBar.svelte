@@ -5,11 +5,10 @@
 	import {
 		DEFAULT_TIME,
 		DEFAULT_DATE,
-		TIME_FORMAT_OPTIONS,
-		DATE_FORMAT_OPTIONS,
 		TIMING,
 		APP_INFO,
 	} from "../constants";
+	import { formatTime, formatDate } from "../utils/datetime";
 
 	let info = $derived(APP_INFO[authService.jobType] || APP_INFO.leo);
 	import type { AuthService } from "../services/authService.svelte";
@@ -63,8 +62,8 @@
 	onMount(() => {
 		const timeInterval = setInterval(() => {
 			const now = new Date();
-			currentTime = now.toLocaleTimeString("en-US", TIME_FORMAT_OPTIONS);
-			currentDate = now.toLocaleDateString("en-US", DATE_FORMAT_OPTIONS);
+			currentTime = formatTime(now);
+			currentDate = formatDate(now);
 		}, TIMING.timeUpdateInterval);
 
 		return () => {

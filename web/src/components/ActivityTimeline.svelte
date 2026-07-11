@@ -7,6 +7,7 @@
 	 * IA-history list so it stays visually consistent with the other tabs.
 	 */
 	import { fetchNui } from "../utils/fetchNui";
+	import { formatDateTime } from "../utils/datetime";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
 
 	let { citizenid }: { citizenid: string } = $props();
@@ -49,8 +50,7 @@
 	}
 
 	function fmt(ts: string): string {
-		const d = new Date(ts.replace(" ", "T"));
-		return isNaN(d.getTime()) ? ts : d.toLocaleString();
+		return formatDateTime(ts, ts);
 	}
 
 	async function load(targetPage: number, append: boolean) {

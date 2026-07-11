@@ -3,6 +3,7 @@
 	import { fetchNui } from "../utils/fetchNui";
 	import { debugLog } from "../utils/debug";
 	import { mdtStore } from "../stores/mdtStore";
+	import { setDateTimeConfig } from "../utils/datetime";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
 	import { onMount, type Snippet } from "svelte";
 
@@ -20,11 +21,14 @@
 	};
 
 	onMount(() => {
-		useNuiEvent<{ visible: boolean; debugMode?: boolean }>(
+		useNuiEvent<{ visible: boolean; debugMode?: boolean; dateTime?: { TimeFormat?: string; DateFormat?: string } }>(
 			NUI_EVENTS.NAVIGATION.SET_VISIBLE,
 			(data) => {
 				if (data.debugMode !== undefined) {
 					mdtStore.setDebugMode(data.debugMode);
+				}
+				if (data.dateTime) {
+					setDateTimeConfig(data.dateTime);
 				}
 
 				debugLog("VisibilityProvider received setVisible:", data);

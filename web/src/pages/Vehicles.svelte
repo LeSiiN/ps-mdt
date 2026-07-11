@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -645,7 +646,7 @@
 								<div class="linked-report-item">
 									<div class="lr-info">
 										<span class="lr-title">{lr.title}</span>
-										<span class="lr-meta">{lr.type} &middot; {lr.authorplaintext} &middot; {lr.datecreated}</span>
+										<span class="lr-meta">{lr.type} &middot; {lr.authorplaintext} &middot; {formatDate(lr.datecreated)}</span>
 									</div>
 									<button class="lr-view-btn" onclick={() => goToReport(lr.id)}>View</button>
 								</div>

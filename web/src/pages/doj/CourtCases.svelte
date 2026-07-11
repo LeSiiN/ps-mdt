@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate } from "../../utils/datetime";
 	import { fetchNui } from "../../utils/fetchNui";
 	import { isEnvBrowser } from "../../utils/misc";
 	import { NUI_EVENTS } from "../../constants/nuiEvents";
@@ -180,14 +181,7 @@
 	}
 
 	function formatDateValue(value: string | undefined): string {
-		if (!value) return "-";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return "-";
-		return date.toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		});
+		return formatDate(value, "-");
 	}
 
 	let allFilteredCases = $derived.by(() => {

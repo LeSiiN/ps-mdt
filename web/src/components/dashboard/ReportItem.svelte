@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { DashboardData } from "../../interfaces/IDashboard";
+	import { formatDate } from "../../utils/datetime";
 
 	let {
 		report,
@@ -23,7 +24,7 @@
 				<span class="dot"></span>
 				<span class="report-author">{report.author}</span>
 				<span class="dot"></span>
-				<span class="report-date">{new Date(report.datecreated).toLocaleDateString()}</span>
+				<span class="report-date">{formatDate(report.datecreated)}</span>
 			</div>
 		</div>
 		<div class="report-actions">

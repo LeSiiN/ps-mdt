@@ -239,7 +239,7 @@ ps.registerCallback(resourceName .. ':server:createFTOAssignment', function(sour
         data.trainee_citizenid, data.trainee_name or '',
         data.trainer_citizenid, data.trainer_name or '',
         phaseId,
-        data.start_date or os.date('%m/%d/%Y'),
+        data.start_date or os.date('%Y-%m-%d'),
         data.notes or nil,
         GetMdtDomain(src),
     })
@@ -336,7 +336,7 @@ ps.registerCallback(resourceName .. ':server:advanceFTOPhase', function(source, 
     end
 
     -- Past the last phase → graduation.
-    local endDate = os.date('%m/%d/%Y')
+    local endDate = os.date('%Y-%m-%d')
     MySQL.update.await("UPDATE mdt_fto_assignments SET status = 'completed', end_date = ? WHERE id = ?", { endDate, assignmentId })
     if ps.auditLog then ps.auditLog(src, 'fto_completed', 'fto', assignmentId, { trainee = a.trainee_name, note = data.note }) end
     return { success = true, completed = true, action = 'complete' }
@@ -363,7 +363,7 @@ ps.registerCallback(resourceName .. ':server:setFTOStatus', function(source, dat
         MySQL.update.await("UPDATE mdt_fto_assignments SET status = 'active', end_date = NULL WHERE id = ?", { assignmentId })
     elseif status == 'completed' or status == 'failed' then
         MySQL.update.await('UPDATE mdt_fto_assignments SET status = ?, end_date = ? WHERE id = ?',
-            { status, os.date('%m/%d/%Y'), assignmentId })
+            { status, os.date('%Y-%m-%d'), assignmentId })
     else -- suspended
         MySQL.update.await('UPDATE mdt_fto_assignments SET status = ? WHERE id = ?', { status, assignmentId })
     end
@@ -414,7 +414,7 @@ ps.registerCallback(resourceName .. ':server:createFTODor', function(source, dat
         assignmentId,
         phaseId,
         citizenId, authorName,
-        data.shift_date or os.date('%m/%d/%Y'),
+        data.shift_date or os.date('%Y-%m-%d'),
         tonumber(data.overall_rating) or 3,
         data.notes or nil,
     })

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { isEnvBrowser } from "../utils/misc";
@@ -350,14 +351,7 @@
 	}
 
 	function formatExpiryDate(raw: string | number): string {
-		if (!raw) return "Unknown";
-		const num = typeof raw === "string" ? Number(raw) : raw;
-		if (!isNaN(num) && num > 1000000000) {
-			const ms = num > 9999999999 ? num : num * 1000;
-			const d = new Date(ms);
-			return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-		}
-		return String(raw);
+		return formatDate(raw, "Unknown");
 	}
 
 	let hasActiveWarrants = $derived((selectedProfile?.activeWarrants?.length ?? 0) > 0);
@@ -1421,7 +1415,7 @@
 													{:else}
 														Report #{c.report_id}
 													{/if}
-													{#if c.datecreated}· {new Date(c.datecreated).toLocaleDateString()}{/if}
+													{#if c.datecreated}· {formatDate(c.datecreated)}{/if}
 													{#if c.total_fine}· ${c.total_fine.toLocaleString()}{/if}
 													{#if c.total_time}· {c.total_time}mo{/if}
 												</span>

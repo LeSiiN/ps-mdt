@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -220,7 +221,7 @@
 								</div>
 								<span class="award-category">{award.category}</span>
 								{#if award.earnedDate}
-									<span class="award-date">{new Date(award.earnedDate).toLocaleDateString()}</span>
+									<span class="award-date">{formatDate(award.earnedDate)}</span>
 								{/if}
 								<span class="award-check material-icons">check_circle</span>
 							</div>

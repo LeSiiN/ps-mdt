@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDateTime } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { isEnvBrowser } from "../utils/misc";
@@ -247,7 +248,7 @@
 						<div class="bolo-meta">
 							<span class="meta-id">{bolo.reportId}</span>
 							{#if bolo.officer}<span class="meta-dot"></span><span class="meta-text">{bolo.officer}</span>{/if}
-							{#if bolo.createdAt}<span class="meta-dot"></span><span class="meta-text">{bolo.createdAt}</span>{/if}
+							{#if bolo.createdAt}<span class="meta-dot"></span><span class="meta-text">{formatDateTime(bolo.createdAt)}</span>{/if}
 						</div>
 						{#if bolo.notes && bolo.notes.trim()}
 							<div class="bolo-notes">{bolo.notes}</div>
@@ -289,7 +290,7 @@
 					<div class="modal-field"><span class="field-label">Report ID</span><span class="field-value">{selectedBolo.reportId}</span></div>
 					{#if selectedBolo.reportName}<div class="modal-field"><span class="field-label">Report</span><span class="field-value">{selectedBolo.reportName}</span></div>{/if}
 					{#if selectedBolo.officer}<div class="modal-field"><span class="field-label">Officer</span><span class="field-value">{selectedBolo.officer}</span></div>{/if}
-					{#if selectedBolo.createdAt}<div class="modal-field"><span class="field-label">Created</span><span class="field-value">{selectedBolo.createdAt}</span></div>{/if}
+					{#if selectedBolo.createdAt}<div class="modal-field"><span class="field-label">Created</span><span class="field-value">{formatDateTime(selectedBolo.createdAt)}</span></div>{/if}
 				</div>
 				{#if selectedBolo.notes && selectedBolo.notes.trim()}
 					<div class="modal-notes">
