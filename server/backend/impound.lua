@@ -158,8 +158,7 @@ local function doImpound(src, payload)
     if not payload.onSite and vehicle.state ~= 1 then
         return {
             success = false,
-            message = 'Vehicle is not in a garage — impound it on site with /' ..
-                      ((impoundCfg().OnSite or {}).Command or 'impound'),
+            message = 'Vehicle is not in a garage — impound it on site',
         }
     end
     if activeImpound(vehicle.id) then
@@ -347,7 +346,7 @@ end)
 -- ─────────────────────────────────────────────────────────────────────────────
 -- On-site impound
 --
--- The officer runs /impound next to a car. Everything the client claims is
+-- The officer runs /mdtimpound next to a car. Everything the client claims is
 -- re-checked here against the real entity: a client that lies about a net id, a
 -- plate or the distance gets nothing.
 -- ─────────────────────────────────────────────────────────────────────────────
