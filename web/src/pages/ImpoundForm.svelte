@@ -52,7 +52,8 @@
 			reason = reasons[0]?.label ?? "";
 			fee = reasons[0]?.fee ?? 0;
 			lot = lots[0]?.id ?? "";
-			duration = defaultDuration;
+			const rec = reasons[0]?.hold ?? defaultDuration;
+			duration = durations.some((d) => d.id === rec) ? rec : defaultDuration;
 			return;
 		}
 
@@ -72,7 +73,8 @@
 				reason = reasons[0]?.label ?? "";
 				fee = reasons[0]?.fee ?? 0;
 				lot = lots[0]?.id ?? "";
-				duration = defaultDuration;
+				const rec = reasons[0]?.hold ?? defaultDuration;
+			duration = durations.some((d) => d.id === rec) ? rec : defaultDuration;
 				loaded = true;
 			} catch {
 				error = "Could not load impound settings";
@@ -146,7 +148,7 @@
 				{/if}
 
 				<ImpoundFormFields
-					{reasons} {lots} {durations} {maxFee}
+					{reasons} {lots} {durations} {defaultDuration} {maxFee}
 					bind:reason bind:fee bind:lot bind:duration bind:notes bind:photo
 				/>
 

@@ -12,6 +12,7 @@
 		reasons = [],
 		lots = [],
 		durations = [],
+		defaultDuration = "",
 		maxFee = 50000,
 		reason = $bindable(""),
 		fee = $bindable(0),
@@ -23,6 +24,7 @@
 		reasons?: ImpoundReason[];
 		lots?: ImpoundLot[];
 		durations?: ImpoundDuration[];
+		defaultDuration?: string;
 		maxFee?: number;
 		reason?: string;
 		fee?: number;
@@ -39,11 +41,17 @@
 		return "$" + (n ?? 0).toLocaleString();
 	}
 
-	// Picking a reason pre-fills the fee it's configured for; it stays editable.
+	// Picking a reason pre-fills both the fee and the hold it's configured for. Both
+	// stay editable — a reason is a starting point, not a verdict.
 	function onReasonChange(label: string) {
 		reason = label;
 		const r = reasons.find((x) => x.label === label);
-		if (r) fee = r.fee;
+		if (!r) return;
+		fee = r.fee;
+		const recommended = r.hold ?? defaultDuration;
+		// Only snap to it if it's actually one of the configured durations, so a typo
+		// in the config can't leave the picker with nothing selected.
+		if (durations.some((d) => d.id === recommended)) duration = recommended;
 	}
 
 	function adjustFee(delta: number) {
@@ -61,6 +69,14 @@
 		if (d.days <= 0) return "Can be released as soon as the fee is settled.";
 		return `Cannot be released for ${d.days} day${d.days === 1 ? "" : "s"}, even if the fee is paid.`;
 	});
+
+	let recommendedHold = $derived.by(() => {
+		const r = reasons.find((x) => x.label === reason);
+		const id = r?.hold ?? defaultDuration;
+		return durations.some((d) => d.id === id) ? id : "";
+	});
+	let recommendedHoldLabel = $derived(durations.find((d) => d.id === recommendedHold)?.label ?? "");
+	let holdIsCustom = $derived(!!recommendedHold && duration !== recommendedHold);
 
 	let reasonDefaultFee = $derived(reasons.find((r) => r.label === reason)?.fee ?? 0);
 	let feeIsCustom = $derived(fee !== reasonDefaultFee);
@@ -97,17 +113,27 @@
 
 {#if durations.length > 0}
 	<div class="form-group form-full">
-		<span class="field-label">Hold Period</span>
+		<span class="field-label">
+			Hold Period
+			{#if holdIsCustom}
+				<button class="hold-reset" type="button" onclick={() => (duration = recommendedHold)}>
+					reset to {recommendedHoldLabel.toLowerCase()}
+				</button>
+			{/if}
+		</span>
 		<div class="hold-picker">
 			{#each durations as d (d.id)}
 				<button
 					class="hold-chip"
 					class:on={duration === d.id}
+					class:recommended={d.id === recommendedHold && duration !== d.id}
 					class:indefinite={d.days === undefined || d.days === null}
 					type="button"
+					title={d.id === recommendedHold ? "Recommended for this reason" : ""}
 					onclick={() => (duration = d.id)}
 				>
 					{d.label}
+					{#if d.id === recommendedHold}<span class="hold-star">•</span>{/if}
 				</button>
 			{/each}
 		</div>
@@ -340,6 +366,24 @@
 		font-size: 10px;
 		color: rgba(255, 255, 255, 0.35);
 	}
+	/* The reason's recommendation stays marked even after you pick something else, so
+	   you can always see what you're deviating from — and get back to it. */
+	.hold-chip.recommended { border-color: rgba(255, 255, 255, 0.16); }
+	.hold-star { margin-left: 3px; color: var(--accent-70); font-weight: 700; }
+	.hold-reset {
+		margin-left: auto;
+		background: none;
+		border: none;
+		padding: 0;
+		color: rgba(255, 255, 255, 0.3);
+		font-size: 9px;
+		font-weight: 600;
+		text-transform: none;
+		letter-spacing: 0;
+		text-decoration: underline;
+		cursor: pointer;
+	}
+	.hold-reset:hover { color: rgba(255, 255, 255, 0.8); }
 
 	/* Fee editor: steppers + quick amounts, echoing the license-points editor. */
 	.fee-editor {

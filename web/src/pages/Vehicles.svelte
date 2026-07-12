@@ -2,7 +2,7 @@
 	import { onMount } from "svelte";
 	import { formatDate, formatDateTime } from "../utils/datetime";
 	import ImpoundFormFields from "../components/impound/ImpoundFormFields.svelte";
-	import type { ImpoundDuration } from "../interfaces/IImpound";
+	import type { ImpoundDuration, ImpoundReason, ImpoundLot } from "../interfaces/IImpound";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -48,8 +48,8 @@
 		owner_name?: string | null;
 		owner_citizenid?: string | null;
 	}
-	interface ImpoundReason { label: string; fee: number }
-	interface ImpoundLot { id: string; label: string }
+	// Use the shared definitions rather than re-declaring them here — a local copy is
+	// how the reason's `hold` field went missing in the first place.
 
 	let canImpound = $derived(authService ? (authService.hasPermission("vehicle_impound") ?? false) : true);
 	let canRelease = $derived(authService ? (authService.hasPermission("vehicle_impound_release") ?? false) : true);
@@ -143,7 +143,10 @@
 		imReason = first?.label ?? "";
 		imFee = first?.fee ?? 0;
 		imLot = impoundLots[0]?.id ?? "";
-		imDuration = defaultDuration;
+		// Start on the hold the pre-selected reason recommends, not the global default,
+		// so the form is never internally inconsistent the moment it opens.
+		const rec = impoundReasons[0]?.hold ?? defaultDuration;
+		imDuration = impoundDurations.some((d) => d.id === rec) ? rec : defaultDuration;
 		imNotes = "";
 		imPhoto = "";
 		showImpoundModal = true;
@@ -1099,6 +1102,7 @@
 							reasons={impoundReasons}
 							lots={impoundLots}
 							durations={impoundDurations}
+							{defaultDuration}
 							{maxFee}
 							bind:reason={imReason}
 							bind:fee={imFee}

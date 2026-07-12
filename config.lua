@@ -355,15 +355,19 @@ Config.Impound = {
 
     -- Impound reasons offered in the MDT, each with a default fee (the officer
     -- can still edit the fee when impounding).
+    -- `hold` is the duration id (see Durations below) that gets pre-selected when an
+    -- officer picks this reason. It's a recommendation, not a rule: the officer can
+    -- always change it before filing. Omit it and the reason falls back to
+    -- DefaultDuration.
     Reasons = {
-        { label = 'Evidence / Investigation', fee = 0 },
-        { label = 'Reckless Driving',         fee = 750 },
-        { label = 'Illegal Parking',          fee = 250 },
-        { label = 'Unregistered Vehicle',     fee = 500 },
-        { label = 'Stolen Vehicle Recovery',  fee = 0 },
-        { label = 'DUI',                      fee = 1500 },
-        { label = 'Illegal Modifications',    fee = 1000 },
-        { label = 'Abandoned Vehicle',        fee = 300 },
+        { label = 'Evidence / Investigation', fee = 0,    hold = 'hold' },
+        { label = 'Reckless Driving',         fee = 750,  hold = '1d' },
+        { label = 'Illegal Parking',          fee = 250,  hold = 'immediate' },
+        { label = 'Unregistered Vehicle',     fee = 500,  hold = 'immediate' },
+        { label = 'Stolen Vehicle Recovery',  fee = 0,    hold = 'immediate' },
+        { label = 'DUI',                      fee = 1500, hold = '3d' },
+        { label = 'Illegal Modifications',    fee = 1000, hold = '1d' },
+        { label = 'Abandoned Vehicle',        fee = 300,  hold = 'immediate' },
     },
 
     DefaultFee = 500,

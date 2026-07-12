@@ -3,6 +3,8 @@
 export interface ImpoundReason {
 	label: string;
 	fee: number;
+	/** Duration id pre-selected when this reason is picked. Advisory: the officer can change it. */
+	hold?: string;
 }
 
 export interface ImpoundLot {
