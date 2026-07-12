@@ -96,7 +96,10 @@
 			);
 
 			if (res?.success) {
-				await close();
+				// Lua has already released NUI focus and is carrying on with the radio
+				// call and the tow — just get the form out of the way. Calling the
+				// close callback here would cancel the sequence it just started.
+				onClose();
 			} else {
 				error = res?.message || "Failed to impound vehicle";
 			}

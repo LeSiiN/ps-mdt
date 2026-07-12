@@ -203,8 +203,8 @@ export const TAB_TO_COMPONENT_MAP: Record<MDTTab, ComponentId> = {
 	Preferences: "settings",
 } as const;
 
-export const DEFAULT_TIME = "16:20";
-export const DEFAULT_DATE = "03.15.2024";
+export const DEFAULT_TIME = "04:20";
+export const DEFAULT_DATE = "Loading...";
 
 /** App version and branding per job type */
 export const APP_INFO = {

@@ -3,11 +3,14 @@
 --
 -- /impound takes the vehicle the officer is sitting in, or the closest one.
 --
+-- The officer writes the vehicle up on a clipboard, then radios for a tow. Both
+-- animated steps are cancellable — walk away and nothing is written. Once the
+-- record exists the vehicle fades out and is removed.
+--
 -- Two outcomes, decided by the server:
---   * The vehicle has an owner  → the full impound form opens (the same UI as in
---     the MDT) and the car is removed once the record is written.
---   * Nobody owns it (traffic)  → it is simply towed away and the officer earns a
---     small payout for keeping the streets clear.
+--   * The vehicle has an owner  → the impound form opens (the same UI as the MDT)
+--   * Nobody owns it (traffic)  → no form, and the officer earns a small payout
+--     for clearing the road.
 --
 -- The client only proposes; every check that matters (distance, occupants,
 -- ownership, payout limits) is re-done server-side.
@@ -21,7 +24,12 @@ local function cfg()
     return ((Config and Config.Impound) or {}).OnSite or {}
 end
 
--- The vehicle the officer means: the one they're in, else the nearest in range.
+local function seqCfg()
+    return cfg().Sequence or {}
+end
+
+-- ── Finding the vehicle ──────────────────────────────────────────────────────
+
 local function targetVehicle()
     local ped = PlayerPedId()
 
@@ -44,8 +52,8 @@ local function targetVehicle()
     return best
 end
 
--- Is a real player in there? NPC occupants are fine — a parked car with a sleeping
--- ped in it is still litter. Only actual players block the tow.
+-- NPC occupants are fine — a parked car with a sleeping ped in it is still litter.
+-- Only actual players block an impound.
 local function hasPlayerInside(veh)
     for _, playerId in ipairs(GetActivePlayers()) do
         local ped = GetPlayerPed(playerId)
@@ -56,17 +64,89 @@ local function hasPlayerInside(veh)
     return false
 end
 
-local function openImpoundForm(ctx)
-    SendNUIMessage({
-        action = 'showImpoundForm',
-        data = {
-            plate = ctx.plate,
-            model = ctx.model,
-            netId = ctx.netId,
+-- ── The two animated steps ───────────────────────────────────────────────────
+
+-- Writing the vehicle up. ox_lib handles the prop and the anim, and gives us the
+-- cancel for free.
+local function playNotepad()
+    return lib.progressBar({
+        duration  = seqCfg().NotepadMs or 4500,
+        label     = 'Documenting the vehicle',
+        canCancel = true,
+        disable   = { move = false, car = true, combat = true },
+        anim = {
+            dict = 'missheistdockssetup1clipboard@base',
+            clip = 'base',
+            flag = 49,
+        },
+        prop = {
+            model = GetHashKey('prop_notepad_01'),
+            bone  = 18905,
+            pos   = vec3(0.1, 0.02, 0.05),
+            rot   = vec3(10.0, 0.0, 0.0),
         },
     })
-    SetNuiFocus(true, true)
 end
+
+-- Calling it in on the radio.
+local function playRadio()
+    return lib.progressBar({
+        duration  = seqCfg().RadioMs or 6000,
+        label     = 'Calling in a tow truck',
+        canCancel = true,
+        disable   = { move = false, car = true, combat = true },
+        anim = {
+            dict = 'amb@code_human_police_investigate@idle_a',
+            clip = 'idle_b',
+            flag = 49,
+        },
+    })
+end
+
+-- ── Removal ──────────────────────────────────────────────────────────────────
+
+-- The vehicle is hauled off: fade it out, then the server deletes it.
+local function fadeOutVehicle(veh)
+    if not DoesEntityExist(veh) then return end
+    local ms = cfg().FadeMs or 1200
+    local steps = 17
+    local wait = math.max(16, math.floor(ms / steps))
+
+    for i = steps, 0, -1 do
+        if not DoesEntityExist(veh) then break end
+        SetEntityAlpha(veh, math.floor(255 * (i / steps)), false)
+        Wait(wait)
+    end
+end
+
+-- Radio it in, then the vehicle is taken away: it fades out and the server removes
+-- it for good.
+local function finishImpound(veh, netId, serverCall, payload)
+    if not playRadio() then
+        ps.notify('Impound cancelled', 'error')
+        return
+    end
+
+    local res = ps.callback(resourceName .. ':server:' .. serverCall, payload)
+    if not res or not res.success then
+        ps.notify((res and res.message) or 'Impound failed', 'error')
+        return
+    end
+
+    ps.notify(res.message or 'Vehicle impounded', 'success')
+
+    if DoesEntityExist(veh) then
+        fadeOutVehicle(veh)
+    end
+
+    TriggerServerEvent(resourceName .. ':server:removeVehicle', netId)
+end
+
+-- ── Entry point ──────────────────────────────────────────────────────────────
+
+-- Set while the officer is filling in the form, so we know what to impound when
+-- they submit it.
+local pending = nil
 
 local function runImpound()
     if busy then return end
@@ -85,7 +165,6 @@ local function runImpound()
         return
     end
 
-    -- Make sure the entity is networked before handing a net id to the server.
     local netId = NetworkGetNetworkIdFromEntity(veh)
     if not netId or netId == 0 then
         ps.notify('That vehicle cannot be impounded', 'error')
@@ -95,7 +174,6 @@ local function runImpound()
 
     local plate = GetVehicleNumberPlateText(veh)
     if plate then plate = plate:gsub('%s+', ''):upper() end
-
     local model = GetDisplayNameFromVehicleModel(GetEntityModel(veh))
 
     local res = ps.callback(resourceName .. ':server:inspectOnSiteVehicle', {
@@ -110,25 +188,28 @@ local function runImpound()
         return
     end
 
-    if res.owned then
-        -- Owned: officer fills in reason, fee, lot, notes, photo.
-        openImpoundForm({ plate = res.plate, model = res.model, netId = netId })
+    -- Write it up first, whichever kind of vehicle it turns out to be.
+    if not playNotepad() then
+        ps.notify('Impound cancelled', 'error')
         busy = false
         return
     end
 
-    -- Unowned traffic: no form, just tow it.
-    local out = ps.callback(resourceName .. ':server:cleanupVehicle', {
-        netId = netId,
-        plate = plate,
-    })
-
-    if out and out.success then
-        ps.notify(out.message or 'Vehicle removed', 'success')
-    else
-        ps.notify((out and out.message) or 'Could not remove that vehicle', 'error')
+    if res.owned then
+        -- Owned: the officer fills in reason, fee, lot, notes, photo. The sequence
+        -- continues when they submit the form.
+        pending = { veh = veh, netId = netId, plate = res.plate }
+        SendNUIMessage({
+            action = 'showImpoundForm',
+            data = { plate = res.plate, model = res.model, netId = netId },
+        })
+        SetNuiFocus(true, true)
+        busy = false
+        return
     end
 
+    -- Unowned traffic: no paperwork needed.
+    finishImpound(veh, netId, 'cleanupVehicle', { netId = netId, plate = plate })
     busy = false
 end
 
@@ -136,29 +217,43 @@ RegisterCommand(cfg().Command or 'impound', function()
     CreateThread(runImpound)
 end, false)
 
--- So the command can be bound to a target/interaction later on.
+-- So this can be hung off a target or a keybind later.
 exports('impoundNearbyVehicle', function()
     CreateThread(runImpound)
 end)
 
--- ── NUI callbacks for the standalone form ──────────────────────────────────────
+-- ── NUI callbacks for the standalone form ────────────────────────────────────
 -- Deliberately no MDTOpen check: this form lives outside the MDT.
 
 RegisterNUICallback('submitOnSiteImpound', function(data, cb)
-    if not data or not data.netId or not data.plate then
-        cb({ success = false, message = 'Missing vehicle' })
+    if not pending or not data then
+        cb({ success = false, message = 'No vehicle selected' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:impoundOnSite', data)
-    cb(result or { success = false, message = 'Impound failed' })
+
+    -- Close the form first: the officer should watch themselves radio it in, not
+    -- stare at a dialog while it happens.
+    SetNuiFocus(false, false)
+    cb({ success = true })
+
+    local job = pending
+    pending = nil
+
+    data.netId = job.netId
+    data.plate = job.plate
+    data.onSite = true
+
+    CreateThread(function()
+        finishImpound(job.veh, job.netId, 'impoundOnSite', data)
+    end)
 end)
 
 RegisterNUICallback('closeImpoundForm', function(_, cb)
+    pending = nil
     SetNuiFocus(false, false)
     cb({ success = true })
 end)
 
--- The standalone form needs the reason/lot/fee config too.
 RegisterNUICallback('getImpoundFormConfig', function(_, cb)
     local result = ps.callback(resourceName .. ':server:getImpoundConfig', {})
     cb(result or {})

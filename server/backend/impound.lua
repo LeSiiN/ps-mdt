@@ -346,7 +346,7 @@ end)
 -- ─────────────────────────────────────────────────────────────────────────────
 -- On-site impound
 --
--- The officer runs /mdtimpound next to a car. Everything the client claims is
+-- The officer runs /impound next to a car. Everything the client claims is
 -- re-checked here against the real entity: a client that lies about a net id, a
 -- plate or the distance gets nothing.
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -360,27 +360,35 @@ local function onSiteCfg()
     return (impoundCfg().OnSite) or {}
 end
 
--- Pay an officer. The ps bridge is an external resource and only removeMoney is
--- used anywhere else in the MDT, so addMoney may or may not exist — fall back to
--- the framework rather than erroring on a bridge that doesn't provide it.
+-- Pay an officer. ps.addMoney doesn't exist on the bridge, so go through the
+-- framework player object — the same object charges.lua already gets back from
+-- ps.getPlayerByIdentifier, which is proven to work here.
 local function payOfficer(src, account, amount, reason)
     if amount <= 0 then return true end
 
-    if type(ps) == 'table' and type(ps.addMoney) == 'function' then
-        local ok, res = pcall(ps.addMoney, src, account, amount, reason)
-        if ok and res ~= false then return true end
+    local cid = ps.getIdentifier and ps.getIdentifier(src) or nil
+    local Player = cid and ps.getPlayerByIdentifier(cid) or nil
+
+    if Player and Player.Functions and Player.Functions.AddMoney then
+        local ok = pcall(Player.Functions.AddMoney, account, amount, reason)
+        if ok then return true end
     end
 
-    -- QBCore / QBX both expose AddMoney on the player object.
+    -- Fall back to the core export if the bridge handed us something unexpected.
     local ok = pcall(function()
         local core = GetResourceState('qbx_core') == 'started'
             and exports['qbx_core']:GetCoreObject()
             or exports['qb-core']:GetCoreObject()
-        local Player = core.Functions.GetPlayer(src)
-        if Player and Player.Functions and Player.Functions.AddMoney then
-            Player.Functions.AddMoney(account, amount, reason)
+        local P = core.Functions.GetPlayer(src)
+        if not P or not P.Functions or not P.Functions.AddMoney then
+            error('no usable player object')
         end
+        P.Functions.AddMoney(account, amount, reason)
     end)
+
+    if not ok then
+        ps.warn(('[impound] could not pay $%d to source %s'):format(amount, tostring(src)))
+    end
     return ok
 end
 
@@ -409,6 +417,37 @@ local function resolveVehicle(src, netId)
 
     return entity, nil
 end
+
+-- The vehicle isn't deleted the instant the record is written: it stays put for the
+-- moment it takes the client to fade it out. This watchdog is the safety net for a
+-- client that crashes, alt-F4s or never reports back — the world can never keep a
+-- car that the database calls impounded.
+local REMOVAL_GRACE = 30 -- seconds
+local function scheduleRemoval(netId, seconds)
+    netId = tonumber(netId)
+    if not netId then return end
+
+    CreateThread(function()
+        Wait((seconds or 60) * 1000)
+        local entity = NetworkGetEntityFromNetworkId(netId)
+        if entity and entity ~= 0 and DoesEntityExist(entity) then
+            DeleteEntity(entity)
+        end
+    end)
+end
+
+-- The client finished fading the vehicle out: take it out of the world for good.
+RegisterNetEvent(resourceName .. ':server:removeVehicle', function(netId)
+    local src = source
+    if not CheckAuth(src) then return end
+    netId = tonumber(netId)
+    if not netId then return end
+
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if entity and entity ~= 0 and DoesEntityExist(entity) then
+        DeleteEntity(entity)
+    end
+end)
 
 -- Is a real player sitting in this vehicle? NPC occupants are fine; players are not.
 local function hasPlayerOccupant(entity)
@@ -486,8 +525,8 @@ ps.registerCallback(resourceName .. ':server:impoundOnSite', function(source, pa
         return result or { success = false, message = 'Impound failed' }
     end
 
-    -- Only remove the car once the record actually exists.
-    if DoesEntityExist(entity) then DeleteEntity(entity) end
+    -- Give the client a moment to fade it out; this is the backstop if it never does.
+    scheduleRemoval(payload.netId, REMOVAL_GRACE)
 
     return result
 end)
@@ -534,9 +573,9 @@ ps.registerCallback(resourceName .. ':server:cleanupVehicle', function(source, p
     local maxPerShift = cfg.MaxPerShift or 0
     local capped = maxPerShift > 0 and state.count >= maxPerShift
 
-    -- The car is removed either way — the cap only stops the payout, so an officer
-    -- can still clear the streets after hitting the limit.
-    if DoesEntityExist(entity) then DeleteEntity(entity) end
+    -- The car goes either way — the cap only stops the payout, so an officer can
+    -- still clear the streets after hitting the limit.
+    scheduleRemoval(payload.netId, REMOVAL_GRACE)
 
     state.last = now
     state.count = state.count + 1
@@ -569,8 +608,8 @@ ps.registerCallback(resourceName .. ':server:cleanupVehicle', function(source, p
         reward  = reward,
         capped  = capped,
         message = capped
-            and 'Vehicle removed — shift payout limit reached'
-            or  ('Vehicle removed — earned $%d'):format(reward),
+            and 'Towed away — shift payout limit reached'
+            or  ('Towed away — earned $%d'):format(reward),
     }
 end)
 
