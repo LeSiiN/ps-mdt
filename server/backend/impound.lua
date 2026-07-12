@@ -54,6 +54,72 @@ local function mailOwner(citizenid, subject, body)
     )
 end
 
+-- ── Hold periods ─────────────────────────────────────────────────────────────
+-- How long the vehicle stays put before it may be released at all. Independent of
+-- the fee: paying up doesn't shorten a hold, and a hold expiring doesn't waive the
+-- fee. Only an officer with the override permission can cut a hold short.
+
+local function getDuration(id)
+    for _, d in ipairs(impoundCfg().Durations or {}) do
+        if d.id == id then return d end
+    end
+    return nil
+end
+
+local function defaultDuration()
+    return getDuration(impoundCfg().DefaultDuration or 'immediate')
+        or (impoundCfg().Durations or {})[1]
+end
+
+--- Turn a configured duration into what actually gets stored.
+--- @return string holdType, number|nil holdUntil, string|nil holdLabel
+local function resolveHold(id)
+    local d = getDuration(id) or defaultDuration()
+    if not d then return 'immediate', nil, nil end
+
+    if d.days == nil then
+        return 'indefinite', nil, d.label
+    end
+    if (d.days or 0) <= 0 then
+        return 'immediate', nil, d.label
+    end
+    return 'timed', os.time() + (d.days * 86400), d.label
+end
+
+--- Is this vehicle allowed out yet?
+--- @return boolean releasable, string|nil reasonItIsNot
+local function holdStatus(row)
+    local t = row.hold_type or 'immediate'
+    if t == 'indefinite' then
+        return false, 'This vehicle is held until an officer authorises its release'
+    end
+    if t == 'timed' then
+        local until_ = tonumber(row.hold_until) or 0
+        if os.time() < until_ then
+            local left = until_ - os.time()
+            local days = math.floor(left / 86400)
+            local hours = math.floor((left % 86400) / 3600)
+            local when = days > 0
+                and ('%d day(s), %d hour(s)'):format(days, hours)
+                or ('%d hour(s)'):format(math.max(1, hours))
+            return false, ('This vehicle is held for another %s'):format(when)
+        end
+    end
+    return true, nil
+end
+
+-- Attach the hold state to a row on read, so the UI doesn't have to work it out.
+local function decorateHold(r)
+    local releasable, why = holdStatus(r)
+    r.hold_releasable = releasable
+    r.hold_reason = why
+    if r.hold_type == 'timed' and r.hold_until then
+        r.hold_seconds_left = math.max(0, (tonumber(r.hold_until) or 0) - os.time())
+    else
+        r.hold_seconds_left = 0
+    end
+end
+
 -- ── Storage fee ──────────────────────────────────────────────────────────────
 -- Derived from the impound date rather than accumulated by a timer: that makes it
 -- restart-proof, impossible to drift, and correct even for rows written before
@@ -157,6 +223,8 @@ local function doImpound(src, payload)
     local photo = type(payload.photo) == 'string' and payload.photo:sub(1, 255) or nil
     if photo == '' then photo = nil end
 
+    local holdType, holdUntil, holdLabel = resolveHold(payload.duration)
+
     local lotId = payload.lot and tostring(payload.lot) or defaultLotId()
     if not getLot(lotId) then
         return { success = false, message = 'Unknown impound lot' }
@@ -189,9 +257,14 @@ local function doImpound(src, payload)
     MySQL.insert.await([[
         INSERT INTO mdt_impound
             (vehicleid, status, plate, reason, notes, photo, lot, linkedreport, fee, fee_paid,
+             hold_type, hold_until, hold_label,
              officer_citizenid, officer_name, time)
-        VALUES (?, 'active', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-    ]], { vehicle.id, plate, reason, notes, photo, lotId, linkedReport, fee, cid, officerName, os.time() })
+        VALUES (?, 'active', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+    ]], {
+        vehicle.id, plate, reason, notes, photo, lotId, linkedReport, fee,
+        holdType, holdUntil, holdLabel,
+        cid, officerName, os.time(),
+    })
 
     -- Recovering the car closes any active BOLO on it.
     local boloClosed = clearVehicleBolo(plate)
@@ -211,6 +284,12 @@ local function doImpound(src, payload)
     else
         body = body .. '\nRelease fee: none'
     end
+    if holdType == 'indefinite' then
+        body = body .. '\n\nHold: the vehicle will not be released until law enforcement authorises it.'
+    elseif holdType == 'timed' and holdUntil then
+        body = body .. ('\n\nHold: the vehicle cannot be released before %s.')
+            :format(os.date('%Y-%m-%d %H:%M', holdUntil))
+    end
     body = body .. '\n\nSpeak to an officer to arrange release. The longer it stays with us, the more it will cost you.'
     mailOwner(vehicle.citizenid, ('Vehicle impounded — %s'):format(plate), body)
 
@@ -224,8 +303,9 @@ local function doImpound(src, payload)
             reportId     = linkedReport,
             onSite       = payload.onSite == true,
             boloClosed   = boloClosed,
-            action_label = ('Impounded %s at %s — %s (fee $%d)'):format(
-                plate, (lot and lot.label) or lotId, reason, fee),
+            hold         = holdLabel,
+            action_label = ('Impounded %s at %s — %s (fee $%d, held: %s)'):format(
+                plate, (lot and lot.label) or lotId, reason, fee, holdLabel or 'immediate'),
         })
     end
 
@@ -349,6 +429,31 @@ ps.registerCallback(resourceName .. ':server:releaseImpound', function(source, p
         return { success = false, message = ('Outstanding fee of $%d must be paid first'):format(owed) }
     end
 
+    -- Hold gate. Cutting a hold short is a deliberate override: it needs its own
+    -- permission and a written reason, and it is logged as an override rather than
+    -- quietly passed off as a routine release.
+    local releasable, holdWhy = holdStatus(row)
+    local override = payload.override == true
+    local overrideReason = type(payload.overrideReason) == 'string'
+        and payload.overrideReason:sub(1, 300) or nil
+    if overrideReason == '' then overrideReason = nil end
+
+    if not releasable then
+        if not override then
+            return { success = false, message = holdWhy, held = true }
+        end
+        if not CheckPermission(src, 'vehicle_impound_override') then
+            return { success = false, message = 'You are not authorised to override an impound hold' }
+        end
+        if not overrideReason then
+            return { success = false, message = 'An override needs a reason' }
+        end
+    else
+        -- Nothing to override; treat it as the routine release it is.
+        override = false
+        overrideReason = nil
+    end
+
     local lotId = row.lot or defaultLotId()
     local lot = getLot(lotId)
     if not lot then return { success = false, message = 'Unknown impound lot' } end
@@ -360,9 +465,10 @@ ps.registerCallback(resourceName .. ':server:releaseImpound', function(source, p
     MySQL.update.await('UPDATE player_vehicles SET state = 1 WHERE plate = ?', { plate })
     MySQL.update.await([[
         UPDATE mdt_impound
-        SET status = 'released', released_at = ?, released_by_citizenid = ?, released_by_name = ?
+        SET status = 'released', released_at = ?, released_by_citizenid = ?, released_by_name = ?,
+            override_reason = ?
         WHERE id = ?
-    ]], { os.time(), cid, officerName, row.id })
+    ]], { os.time(), cid, officerName, overrideReason, row.id })
 
     -- Let the owner know it's waiting for them. By e-mail, so it also reaches them
     -- if they were offline when it was released.
@@ -372,10 +478,15 @@ ps.registerCallback(resourceName .. ':server:releaseImpound', function(source, p
             :format(plate))
 
     if ps.auditLog then
-        ps.auditLog(src, 'vehicle_released', 'vehicle', plate, {
-            plate        = plate,
-            lot          = lotId,
-            action_label = ('Released %s from %s'):format(plate, lot.label or lotId),
+        ps.auditLog(src, override and 'vehicle_impound_override' or 'vehicle_released', 'vehicle', plate, {
+            plate           = plate,
+            lot             = lotId,
+            override        = override,
+            override_reason = overrideReason,
+            hold            = row.hold_label,
+            action_label = override
+                and ('OVERRODE the hold on %s and released it — %s'):format(plate, overrideReason)
+                or ('Released %s from %s'):format(plate, (lot and lot.label) or lotId),
         })
     end
 
@@ -674,6 +785,7 @@ ps.registerCallback(resourceName .. ':server:getImpoundLot', function(source)
     local rows = MySQL.query.await([[
         SELECT
             i.id, i.plate, i.reason, i.notes, i.photo, i.lot, i.fee, i.fee_paid,
+            i.hold_type, i.hold_until, i.hold_label,
             i.officer_name, i.time, i.linkedreport,
             pv.vehicle AS model,
             pv.citizenid AS owner_citizenid,
@@ -688,12 +800,13 @@ ps.registerCallback(resourceName .. ':server:getImpoundLot', function(source)
         ORDER BY i.time DESC
     ]]) or {}
 
-    -- Storage is derived, so it has to be attached on read.
+    -- Storage and hold state are derived, so they're attached on read.
     for _, r in ipairs(rows) do
         local storage, days = storageInfo(r.time)
         r.storage = storage
         r.days_held = days
         r.total = (r.fee or 0) + storage
+        decorateHold(r)
     end
 
     return { vehicles = rows }
@@ -710,6 +823,7 @@ ps.registerCallback(resourceName .. ':server:getImpoundHistory', function(source
 
     local rows = MySQL.query.await([[
         SELECT id, status, reason, notes, photo, lot, fee, fee_paid, linkedreport,
+               hold_type, hold_until, hold_label, override_reason,
                officer_name, time, released_at, released_by_name
         FROM mdt_impound
         WHERE plate = ?
@@ -723,6 +837,7 @@ ps.registerCallback(resourceName .. ':server:getImpoundHistory', function(source
             r.storage = storage
             r.days_held = days
             r.total = (r.fee or 0) + storage
+            decorateHold(r)
         else
             r.storage = 0
             r.total = r.fee or 0
@@ -750,6 +865,8 @@ ps.registerCallback(resourceName .. ':server:getImpoundConfig', function(source)
             perDay  = (cfg.Storage or {}).PerDay or 0,
             maxDays = (cfg.Storage or {}).MaxDays or 0,
         },
+        durations       = cfg.Durations or {},
+        defaultDuration = cfg.DefaultDuration or 'immediate',
     }
 end)
 

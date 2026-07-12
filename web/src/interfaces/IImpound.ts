@@ -10,6 +10,14 @@ export interface ImpoundLot {
 	label: string;
 }
 
+/** How long the vehicle is held before it may be released at all. */
+export interface ImpoundDuration {
+	id: string;
+	label: string;
+	/** undefined = held until an officer releases it; 0 = releasable immediately. */
+	days?: number;
+}
+
 export interface ImpoundConfig {
 	reasons: ImpoundReason[];
 	lots: ImpoundLot[];
@@ -17,4 +25,6 @@ export interface ImpoundConfig {
 	maxFee: number;
 	requireFeePaid: boolean;
 	storage: { perDay: number; maxDays: number };
+	durations: ImpoundDuration[];
+	defaultDuration: string;
 }

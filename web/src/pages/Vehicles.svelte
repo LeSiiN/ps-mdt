@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { formatDate, formatDateTime } from "../utils/datetime";
 	import ImpoundFormFields from "../components/impound/ImpoundFormFields.svelte";
+	import type { ImpoundDuration } from "../interfaces/IImpound";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -30,6 +31,13 @@
 		storage?: number;
 		days_held?: number;
 		total?: number;
+		hold_type?: 'immediate' | 'timed' | 'indefinite';
+		hold_until?: number | null;
+		hold_label?: string | null;
+		hold_releasable?: boolean;
+		hold_reason?: string | null;
+		hold_seconds_left?: number;
+		override_reason?: string | null;
 		photo?: string | null;
 		linkedreport: number | null;
 		officer_name: string | null;
@@ -45,6 +53,23 @@
 
 	let canImpound = $derived(authService ? (authService.hasPermission("vehicle_impound") ?? false) : true);
 	let canRelease = $derived(authService ? (authService.hasPermission("vehicle_impound_release") ?? false) : true);
+	function holdLeft(seconds: number): string {
+		const d = Math.floor(seconds / 86400);
+		const h = Math.floor((seconds % 86400) / 3600);
+		if (d > 0) return `${d}d ${h}h left`;
+		if (h > 0) return `${h}h left`;
+		return `${Math.max(1, Math.floor(seconds / 60))}m left`;
+	}
+
+	let canOverride = $derived(authService ? (authService.hasPermission("vehicle_impound_override") ?? false) : true);
+
+	let impoundDurations = $state<ImpoundDuration[]>([]);
+	let defaultDuration = $state("");
+
+	// Early release: cutting a hold short is deliberate, so it needs a reason.
+	let overrideOpen = $state(false);
+	let overridePlate = $state("");
+	let overrideReason = $state("");
 
 	let impoundHistory = $state<ImpoundRecord[]>([]);
 	let impoundBusy    = $state(false);
@@ -63,6 +88,7 @@
 	let imReason = $state("");
 	let imFee    = $state(0);
 	let imLot    = $state("");
+	let imDuration = $state("");
 	let imNotes  = $state("");
 	let imPhoto  = $state("");
 
@@ -79,11 +105,13 @@
 	async function loadImpoundConfig() {
 		if (impoundCfgLoaded) return;
 		try {
-			const res = await fetchNui<{ reasons: ImpoundReason[]; lots: ImpoundLot[]; defaultFee: number; requireFeePaid: boolean; maxFee: number }>(
+			const res = await fetchNui<{ reasons: ImpoundReason[]; lots: ImpoundLot[]; durations: ImpoundDuration[]; defaultFee: number; requireFeePaid: boolean; maxFee: number; defaultDuration: string }>(
 				NUI_EVENTS.IMPOUND.GET_IMPOUND_CONFIG, {},
-				{ reasons: [], lots: [], defaultFee: 500, requireFeePaid: true, maxFee: 50000 });
+				{ reasons: [], lots: [], durations: [], defaultFee: 500, requireFeePaid: true, maxFee: 50000, defaultDuration: "immediate" });
 			impoundReasons = res?.reasons ?? [];
 			impoundLots = res?.lots ?? [];
+			impoundDurations = res?.durations ?? [];
+			defaultDuration = res?.defaultDuration || impoundDurations[0]?.id || "";
 			requireFeePaid = res?.requireFeePaid ?? true;
 			if (typeof res?.maxFee === "number") maxFee = res.maxFee;
 			impoundCfgLoaded = true;
@@ -115,6 +143,7 @@
 		imReason = first?.label ?? "";
 		imFee = first?.fee ?? 0;
 		imLot = impoundLots[0]?.id ?? "";
+		imDuration = defaultDuration;
 		imNotes = "";
 		imPhoto = "";
 		showImpoundModal = true;
@@ -149,7 +178,7 @@
 		try {
 			const res = await fetchNui<{ success: boolean; message?: string }>(
 				NUI_EVENTS.IMPOUND.IMPOUND_VEHICLE,
-				{ plate, reason: imReason, fee: imFee, lot: imLot, notes: imNotes.trim() || undefined, photo: imPhoto.trim() || undefined },
+				{ plate, reason: imReason, fee: imFee, lot: imLot, duration: imDuration, notes: imNotes.trim() || undefined, photo: imPhoto.trim() || undefined },
 				{ success: true, message: "Impounded" });
 			if (res?.success) {
 				globalNotifications.success(res.message || "Vehicle impounded");
@@ -187,12 +216,14 @@
 		}
 	}
 
-	async function releaseVehicle(plate: string) {
+	async function releaseVehicle(plate: string, override?: { reason: string }) {
 		if (impoundBusy) return;
 		impoundBusy = true;
 		try {
 			const res = await fetchNui<{ success: boolean; message?: string }>(
-				NUI_EVENTS.IMPOUND.RELEASE_IMPOUND, { plate }, { success: true, message: "Released" });
+				NUI_EVENTS.IMPOUND.RELEASE_IMPOUND,
+				{ plate, override: !!override, overrideReason: override?.reason },
+				{ success: true, message: "Released" });
 			if (res?.success) {
 				globalNotifications.success(res.message || "Vehicle released");
 				if (selectedVehicle?.plate === plate) {
@@ -809,6 +840,22 @@
 								{/if}
 							</div>
 
+							<div class="imp-row">
+								<span class="imp-label">Hold</span>
+								<span class="imp-value">
+									{#if activeImpound.hold_type === 'indefinite'}
+										<span class="hold-pill hold-locked">Until released by an officer</span>
+									{:else if activeImpound.hold_type === 'timed' && !activeImpound.hold_releasable}
+										<span class="hold-pill hold-timed">
+											{activeImpound.hold_label || 'Held'} · {holdLeft(activeImpound.hold_seconds_left ?? 0)}
+										</span>
+										<span class="hold-until">until {formatDateTime(activeImpound.hold_until ?? 0)}</span>
+									{:else}
+										<span class="hold-pill hold-free">Releasable</span>
+									{/if}
+								</span>
+							</div>
+
 							{#if activeImpound.notes}
 								<div class="imp-notes">{activeImpound.notes}</div>
 							{/if}
@@ -831,12 +878,24 @@
 											Collect {money(activeImpound.total ?? activeImpound.fee)}
 										</button>
 									{/if}
-									<button class="release-btn" disabled={impoundBusy}
+									{#if activeImpound.hold_releasable === false && canOverride}
+										<button class="danger-btn" disabled={impoundBusy}
+											onclick={() => { overridePlate = selectedVehicle!.plate; overrideReason = ""; overrideOpen = true; }}>
+											Early release
+										</button>
+									{/if}
+									<button class="release-btn"
+										disabled={impoundBusy || activeImpound.hold_releasable === false}
+										title={activeImpound.hold_releasable === false ? (activeImpound.hold_reason ?? '') : ''}
 										onclick={() => releaseVehicle(selectedVehicle!.plate)}>
 										Release vehicle
 									</button>
 								</div>
-								{#if requireFeePaid && (activeImpound.total ?? activeImpound.fee) > 0 && !activeImpound.fee_paid}
+								{#if activeImpound.hold_releasable === false}
+									<div class="imp-gate-hint">
+										{activeImpound.hold_reason}{#if !canOverride} — you are not authorised to override this hold{/if}
+									</div>
+								{:else if requireFeePaid && (activeImpound.total ?? activeImpound.fee) > 0 && !activeImpound.fee_paid}
 									<div class="imp-hint">The fee must be collected before this vehicle can be released.</div>
 								{:else}
 									<div class="imp-hint">Releasing returns the vehicle to the owner's garage.</div>
@@ -1039,10 +1098,12 @@
 						<ImpoundFormFields
 							reasons={impoundReasons}
 							lots={impoundLots}
+							durations={impoundDurations}
 							{maxFee}
 							bind:reason={imReason}
 							bind:fee={imFee}
 							bind:lot={imLot}
+							bind:duration={imDuration}
 							bind:notes={imNotes}
 							bind:photo={imPhoto}
 						/>
@@ -1214,6 +1275,49 @@
 	</div>
 {/if}
 
+	<!-- Early release: overriding a hold somebody set on purpose, so it asks why and
+	     the reason goes into the audit trail under the officer's name. -->
+	{#if overrideOpen}
+		<div class="modal-backdrop">
+			<div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+				<div class="modal-header">
+					<h3>Early release — {overridePlate}</h3>
+					<button class="close-btn" aria-label="Close" onclick={() => (overrideOpen = false)}>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+					</button>
+				</div>
+
+				<div class="modal-body">
+					<p class="override-warn">
+						This vehicle is under a hold. Releasing it now overrides that decision and will be recorded against your name.
+					</p>
+					<div class="form-group">
+						<span class="field-label">Reason <span class="req">*</span></span>
+						<textarea class="form-input" rows="3" maxlength="300" bind:value={overrideReason}
+							placeholder="Why is this vehicle being released early?"></textarea>
+					</div>
+				</div>
+
+				<div class="modal-footer">
+					<span class="modal-hint">Logged in the audit trail</span>
+					<div class="modal-footer-right">
+						<button class="cancel-btn" disabled={impoundBusy} onclick={() => (overrideOpen = false)}>Cancel</button>
+						<button class="danger-btn"
+							disabled={impoundBusy || overrideReason.trim().length < 3}
+							onclick={async () => {
+								await releaseVehicle(overridePlate, { reason: overrideReason.trim() });
+								overrideOpen = false;
+							}}>
+							Release anyway
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Impound photo, full size -->
 	{#if photoLightbox}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1275,6 +1379,11 @@
 										{#if (v.days_held ?? 0) > 0}
 											<span class="lot-days">{v.days_held}d</span>
 										{/if}
+										{#if v.hold_type === 'indefinite'}
+											<span class="hold-pill hold-locked">Held</span>
+										{:else if v.hold_type === 'timed' && !v.hold_releasable}
+											<span class="hold-pill hold-timed">{holdLeft(v.hold_seconds_left ?? 0)}</span>
+										{/if}
 									</div>
 									<div class="lot-line2">
 										<span class="lot-reason">{v.reason || "—"}</span>
@@ -1290,7 +1399,10 @@
 										{#if v.fee > 0 && !v.fee_paid}
 											<button class="primary-btn" disabled={impoundBusy} onclick={() => payFee(v.plate!)}>Collect</button>
 										{/if}
-										<button class="release-btn" disabled={impoundBusy} onclick={() => releaseVehicle(v.plate!)}>Release</button>
+										<button class="release-btn"
+											disabled={impoundBusy || v.hold_releasable === false}
+											title={v.hold_releasable === false ? (v.hold_reason ?? '') : ''}
+											onclick={() => releaseVehicle(v.plate!)}>Release</button>
 									{/if}
 									<button class="cancel-btn" onclick={() => { showLotView = false; viewVehicle(v.plate!); }}>Open</button>
 								</div>
@@ -2835,6 +2947,33 @@
 	.lot-dot { width: 2px; height: 2px; border-radius: 50%; background: rgba(255, 255, 255, 0.2); }
 	.lot-side { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 	.lot-unpaid { color: rgba(248, 113, 113, 0.8); font-weight: 600; }
+
+	/* Hold state */
+	.hold-pill { border-radius: 3px; padding: 1px 6px; font-size: 9px; font-weight: 600; }
+	.hold-free { background: rgba(16, 185, 129, 0.1); color: rgba(52, 211, 153, 0.85); }
+	.hold-timed { background: rgba(251, 191, 36, 0.1); color: rgba(252, 211, 77, 0.9); }
+	.hold-locked { background: rgba(239, 68, 68, 0.1); color: rgba(248, 113, 113, 0.9); }
+	.hold-until { margin-left: 6px; font-size: 10px; color: rgba(255, 255, 255, 0.3); }
+
+	.imp-gate-hint {
+		margin-top: 5px;
+		font-size: 10px;
+		font-style: italic;
+		color: rgba(252, 211, 77, 0.75);
+	}
+
+	/* Early release */
+	.override-warn {
+		margin: 0 0 10px;
+		padding: 8px 10px;
+		background: rgba(239, 68, 68, 0.07);
+		border: 1px solid rgba(239, 68, 68, 0.18);
+		border-radius: 4px;
+		font-size: 11px;
+		line-height: 1.5;
+		color: rgba(252, 165, 165, 0.9);
+	}
+	.req { color: rgba(248, 113, 113, 0.8); }
 	.lot-days {
 		font-size: 9px;
 		font-weight: 600;

@@ -6,24 +6,28 @@
 	 * roadside are the same fields, so they live in one component and can't drift
 	 * apart.
 	 */
-	import type { ImpoundReason, ImpoundLot } from "../../interfaces/IImpound";
+	import type { ImpoundReason, ImpoundLot, ImpoundDuration } from "../../interfaces/IImpound";
 
 	let {
 		reasons = [],
 		lots = [],
+		durations = [],
 		maxFee = 50000,
 		reason = $bindable(""),
 		fee = $bindable(0),
 		lot = $bindable(""),
+		duration = $bindable(""),
 		notes = $bindable(""),
 		photo = $bindable(""),
 	}: {
 		reasons?: ImpoundReason[];
 		lots?: ImpoundLot[];
+		durations?: ImpoundDuration[];
 		maxFee?: number;
 		reason?: string;
 		fee?: number;
 		lot?: string;
+		duration?: string;
 		notes?: string;
 		photo?: string;
 	} = $props();
@@ -45,6 +49,18 @@
 	function adjustFee(delta: number) {
 		fee = Math.min(maxFee, Math.max(0, fee + delta));
 	}
+
+	let selectedDuration = $derived(durations.find((d) => d.id === duration));
+	// What the officer is actually choosing, in plain words.
+	let holdSummary = $derived.by(() => {
+		const d = selectedDuration;
+		if (!d) return "";
+		if (d.days === undefined || d.days === null) {
+			return "Held until an officer authorises release. Overriding this is logged.";
+		}
+		if (d.days <= 0) return "Can be released as soon as the fee is settled.";
+		return `Cannot be released for ${d.days} day${d.days === 1 ? "" : "s"}, even if the fee is paid.`;
+	});
 
 	let reasonDefaultFee = $derived(reasons.find((r) => r.label === reason)?.fee ?? 0);
 	let feeIsCustom = $derived(fee !== reasonDefaultFee);
@@ -78,6 +94,28 @@
 		{/each}
 	</select>
 </div>
+
+{#if durations.length > 0}
+	<div class="form-group form-full">
+		<span class="field-label">Hold Period</span>
+		<div class="hold-picker">
+			{#each durations as d (d.id)}
+				<button
+					class="hold-chip"
+					class:on={duration === d.id}
+					class:indefinite={d.days === undefined || d.days === null}
+					type="button"
+					onclick={() => (duration = d.id)}
+				>
+					{d.label}
+				</button>
+			{/each}
+		</div>
+		{#if holdSummary}
+			<span class="hold-summary">{holdSummary}</span>
+		{/if}
+	</div>
+{/if}
 
 <div class="form-group form-full">
 	<span class="field-label">
@@ -269,6 +307,38 @@
 		object-fit: contain;
 		display: block;
 		border-radius: 4px;
+	}
+
+	/* Hold period: a row of chips rather than a dropdown — the choice matters, so it
+	   should be visible rather than hidden behind a click. */
+	.hold-picker { display: flex; flex-wrap: wrap; gap: 4px; }
+	.hold-chip {
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.55);
+		font-size: 10px;
+		font-weight: 600;
+		padding: 4px 9px;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.hold-chip:hover { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.15); }
+	.hold-chip.on {
+		background: rgba(255, 255, 255, 0.1);
+		color: rgba(255, 255, 255, 0.95);
+		border-color: rgba(255, 255, 255, 0.22);
+	}
+	/* An indefinite hold is the heavy option, so it looks like one once picked. */
+	.hold-chip.indefinite.on {
+		background: rgba(239, 68, 68, 0.12);
+		color: rgba(252, 165, 165, 0.95);
+		border-color: rgba(239, 68, 68, 0.3);
+	}
+	.hold-summary {
+		margin-top: 3px;
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.35);
 	}
 
 	/* Fee editor: steppers + quick amounts, echoing the license-points editor. */

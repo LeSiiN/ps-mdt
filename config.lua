@@ -373,6 +373,20 @@ Config.Impound = {
     -- Require the fee to be paid before a vehicle can be released.
     RequireFeePaid = true,
 
+    -- How long the vehicle is held before it may be released at all.
+    --   days = 0    → releasable straight away
+    --   days = n    → held for n days
+    --   days = nil  → held until an officer decides otherwise
+    -- The fee still has to be paid on top; the hold is about time, not money.
+    Durations = {
+        { id = 'immediate', label = 'Releasable immediately', days = 0 },
+        { id = '1d',        label = '1 day',                  days = 1 },
+        { id = '3d',        label = '3 days',                 days = 3 },
+        { id = '7d',        label = '7 days',                 days = 7 },
+        { id = 'hold',      label = 'Until an officer releases it' },
+    },
+    DefaultDuration = 'hold',
+
     -- E-mail the owner when their vehicle is impounded, charged, or released.
     -- The owner is usually nowhere near the vehicle when it happens, so an on-screen
     -- notification they never see is worse than useless. Uses Config.Phone.
@@ -634,6 +648,7 @@ Config.ManagementPermissions = {
     -- Impound
     'vehicle_impound',
     'vehicle_impound_release',
+    'vehicle_impound_override',
     -- Cameras & Bodycams
     'cameras_view',
     'bodycams_view',

@@ -9,7 +9,7 @@
 	 */
 	import { fetchNui } from "../utils/fetchNui";
 	import ImpoundFormFields from "../components/impound/ImpoundFormFields.svelte";
-	import type { ImpoundReason, ImpoundLot } from "../interfaces/IImpound";
+	import type { ImpoundReason, ImpoundLot, ImpoundDuration } from "../interfaces/IImpound";
 
 	let { show = false, vehicle = null, onClose = () => {} }: {
 		show: boolean;
@@ -19,12 +19,15 @@
 
 	let reasons = $state<ImpoundReason[]>([]);
 	let lots = $state<ImpoundLot[]>([]);
+	let durations = $state<ImpoundDuration[]>([]);
 	let maxFee = $state(50000);
 	let loaded = $state(false);
+	let defaultDuration = $state("");
 
 	let reason = $state("");
 	let fee = $state(0);
 	let lot = $state("");
+	let duration = $state("");
 	let notes = $state("");
 	let photo = $state("");
 
@@ -49,20 +52,27 @@
 			reason = reasons[0]?.label ?? "";
 			fee = reasons[0]?.fee ?? 0;
 			lot = lots[0]?.id ?? "";
+			duration = defaultDuration;
 			return;
 		}
 
 		(async () => {
 			try {
 				const res = await fetchNui<{
-					reasons: ImpoundReason[]; lots: ImpoundLot[]; maxFee: number;
-				}>("getImpoundFormConfig", {}, { reasons: [], lots: [], maxFee: 50000 });
+					reasons: ImpoundReason[]; lots: ImpoundLot[]; durations: ImpoundDuration[];
+					maxFee: number; defaultDuration: string;
+				}>("getImpoundFormConfig", {}, {
+					reasons: [], lots: [], durations: [], maxFee: 50000, defaultDuration: "immediate",
+				});
 				reasons = res?.reasons ?? [];
 				lots = res?.lots ?? [];
+				durations = res?.durations ?? [];
 				if (typeof res?.maxFee === "number") maxFee = res.maxFee;
+				defaultDuration = res?.defaultDuration || durations[0]?.id || "";
 				reason = reasons[0]?.label ?? "";
 				fee = reasons[0]?.fee ?? 0;
 				lot = lots[0]?.id ?? "";
+				duration = defaultDuration;
 				loaded = true;
 			} catch {
 				error = "Could not load impound settings";
@@ -88,6 +98,7 @@
 					reason,
 					fee,
 					lot,
+					duration,
 					notes: notes.trim() || undefined,
 					photo: photo.trim() || undefined,
 					onSite: true,
@@ -135,8 +146,8 @@
 				{/if}
 
 				<ImpoundFormFields
-					{reasons} {lots} {maxFee}
-					bind:reason bind:fee bind:lot bind:notes bind:photo
+					{reasons} {lots} {durations} {maxFee}
+					bind:reason bind:fee bind:lot bind:duration bind:notes bind:photo
 				/>
 
 				{#if error}
@@ -180,8 +191,11 @@
 		background: rgba(26, 28, 33, 0.97);
 		border: 1px solid rgba(255, 255, 255, 0.1);
 		border-radius: 6px;
-		width: min(540px, 92vw);
-		max-height: 85vh;
+		/* Roomier than the MDT's modals on purpose: this one floats over the game at
+		   native resolution rather than sitting inside a full-screen tablet, so the
+		   type that reads fine in the MDT is cramped out here. */
+		width: min(720px, 94vw);
+		max-height: 88vh;
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
@@ -191,10 +205,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 10px 16px;
+		padding: 13px 20px;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 	}
-	.modal-header h3 { margin: 0; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+	.modal-header h3 { margin: 0; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
 	.close-btn {
 		display: flex;
 		align-items: center;
@@ -208,8 +222,8 @@
 		transition: all 0.1s;
 	}
 	.close-btn:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
-	.modal-body { padding: 14px 16px; overflow-y: auto; }
-	.form-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+	.modal-body { padding: 18px 20px; overflow-y: auto; }
+	.form-body { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 	.form-full { grid-column: 1 / -1; }
 
 	.vehicle-strip {
@@ -243,19 +257,33 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: 10px;
-		padding: 10px 16px;
+		gap: 12px;
+		padding: 13px 20px;
 		border-top: 1px solid rgba(255, 255, 255, 0.09);
 	}
-	.modal-footer-right { display: flex; gap: 6px; }
-	.modal-hint { font-size: 10px; color: rgba(255, 255, 255, 0.35); }
+	.modal-footer-right { display: flex; gap: 8px; }
+	.modal-hint { font-size: 11px; color: rgba(255, 255, 255, 0.35); }
+
+	/* The shared form fields are sized for the MDT. Scale them up here — and only
+	   here — so the on-site form is comfortable without touching the MDT modal. */
+	.modal :global(.field-label) { font-size: 10px; }
+	.modal :global(.form-input) { font-size: 12.5px; padding: 7px 10px; }
+	.modal :global(.form-select) { font-size: 12px; }
+	.modal :global(.fee-editor) { padding: 12px 15px; }
+	.modal :global(.fee-value) { font-size: 26px; min-width: 118px; }
+	.modal :global(.fee-currency) { font-size: 17px; }
+	.modal :global(.fee-step) { width: 32px; height: 32px; }
+	.modal :global(.fee-chip) { font-size: 10px; padding: 4px 9px; }
+	.modal :global(.hold-chip) { font-size: 11px; padding: 5px 11px; }
+	.modal :global(.hold-summary) { font-size: 11px; }
+	.modal :global(.photo-thumb) { height: 190px; }
 	.cancel-btn {
 		background: transparent;
 		color: rgba(255, 255, 255, 0.4);
 		border: 1px solid rgba(255, 255, 255, 0.06);
 		border-radius: 3px;
-		padding: 4px 10px;
-		font-size: 10px;
+		padding: 6px 14px;
+		font-size: 11px;
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.1s;
@@ -266,8 +294,8 @@
 		color: rgba(248, 113, 113, 0.75);
 		border: 1px solid rgba(239, 68, 68, 0.12);
 		border-radius: 3px;
-		padding: 4px 12px;
-		font-size: 10px;
+		padding: 6px 16px;
+		font-size: 11px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.1s;

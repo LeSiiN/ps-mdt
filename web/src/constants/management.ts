@@ -81,6 +81,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 			{ key: "vehicles_edit_dmv", label: "Edit Vehicle Points", description: "Set license points on a vehicle record" },
 			{ key: "vehicle_impound", label: "Impound Vehicles", description: "Impound a vehicle: set the reason, fee and lot" },
 			{ key: "vehicle_impound_release", label: "Release Impounds & Collect Fees", description: "Release impounded vehicles and charge the impound fee" },
+			{ key: "vehicle_impound_override", label: "Override Impound Holds", description: "Release a vehicle before its hold period is up. Every override is logged" },
 		],
 	},
 	{

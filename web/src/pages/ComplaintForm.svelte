@@ -320,8 +320,11 @@
 		background: rgba(26, 28, 33, 0.97);
 		border: 1px solid rgba(255, 255, 255, 0.1);
 		border-radius: 6px;
-		width: min(580px, 92vw);
-		max-height: 88vh;
+		/* Bigger than an MDT modal on purpose: this floats over the game world at
+		   native resolution, and it's a form a civilian has to actually read and
+		   write a paragraph into. */
+		width: min(760px, 94vw);
+		max-height: 90vh;
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
@@ -331,10 +334,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 10px 16px;
+		padding: 13px 20px;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 	}
-	.modal-header h3 { margin: 0; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+	.modal-header h3 { margin: 0; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
 	.close-btn {
 		display: flex;
 		align-items: center;
@@ -349,10 +352,10 @@
 	}
 	.close-btn:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
 
-	.modal-body { padding: 14px 16px; overflow-y: auto; }
+	.modal-body { padding: 18px 20px; overflow-y: auto; }
 	.modal-body::-webkit-scrollbar { width: 5px; }
 	.modal-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
-	.form-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+	.form-body { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 	.form-group { display: flex; flex-direction: column; gap: 3px; }
 	.form-full { grid-column: 1 / -1; }
 
@@ -361,7 +364,7 @@
 		align-items: center;
 		gap: 8px;
 		color: rgba(255, 255, 255, 0.35);
-		font-size: 9px;
+		font-size: 10px;
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.6px;
@@ -376,9 +379,9 @@
 		background: rgba(255, 255, 255, 0.03);
 		border: 1px solid rgba(255, 255, 255, 0.06);
 		border-radius: 3px;
-		padding: 5px 8px;
+		padding: 7px 10px;
 		color: rgba(255, 255, 255, 0.8);
-		font-size: 11px;
+		font-size: 12.5px;
 		font-family: inherit;
 		transition: border-color 0.1s;
 		width: 100%;
@@ -386,7 +389,7 @@
 	}
 	.form-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.1); }
 	.form-input::placeholder { color: rgba(255, 255, 255, 0.2); }
-	.form-select { padding-right: 22px; font-size: 10px; cursor: pointer; }
+	.form-select { padding-right: 24px; font-size: 12px; cursor: pointer; }
 	.form-input option { background: #1a1d23; }
 	textarea.form-input { resize: vertical; line-height: 1.45; }
 
@@ -407,9 +410,9 @@
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		border-radius: 3px;
 		color: rgba(255, 255, 255, 0.7);
-		font-size: 10px;
+		font-size: 11px;
 		font-weight: 600;
-		padding: 4px 12px;
+		padding: 6px 14px;
 		cursor: pointer;
 		transition: all 0.1s;
 	}
@@ -424,7 +427,7 @@
 	}
 	.evidence-tile {
 		position: relative;
-		height: 92px;
+		height: 115px;
 		border-radius: 4px;
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		background: rgba(255, 255, 255, 0.03);
@@ -440,7 +443,7 @@
 		cursor: zoom-in;
 	}
 	/* Fixed height, auto width: the tile hugs the picture instead of letterboxing it. */
-	.evidence-open img { height: 100%; width: auto; max-width: 220px; object-fit: contain; display: block; }
+	.evidence-open img { height: 100%; width: auto; max-width: 280px; object-fit: contain; display: block; }
 	.evidence-broken {
 		display: flex;
 		flex-direction: column;
@@ -480,19 +483,19 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: 10px;
-		padding: 10px 16px;
+		gap: 12px;
+		padding: 13px 20px;
 		border-top: 1px solid rgba(255, 255, 255, 0.09);
 	}
 	.modal-footer-right { display: flex; gap: 6px; }
-	.modal-hint { font-size: 10px; color: rgba(255, 255, 255, 0.35); }
+	.modal-hint { font-size: 11px; color: rgba(255, 255, 255, 0.35); }
 	.cancel-btn {
 		background: transparent;
 		color: rgba(255, 255, 255, 0.4);
 		border: 1px solid rgba(255, 255, 255, 0.06);
 		border-radius: 3px;
-		padding: 4px 10px;
-		font-size: 10px;
+		padding: 6px 14px;
+		font-size: 11px;
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.1s;
@@ -503,8 +506,8 @@
 		color: rgba(52, 211, 153, 0.7);
 		border: 1px solid rgba(16, 185, 129, 0.1);
 		border-radius: 3px;
-		padding: 4px 12px;
-		font-size: 10px;
+		padding: 6px 16px;
+		font-size: 11px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.1s;
