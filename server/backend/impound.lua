@@ -36,6 +36,24 @@ local function isTruthy(v)
     return v == true or v == 1 or v == '1'
 end
 
+-- ── Owner e-mails ────────────────────────────────────────────────────────────
+-- The owner is almost never standing next to the car when it gets impounded, and
+-- may well be offline. An on-screen notification they never see is worse than
+-- useless, so they get an e-mail instead — it waits for them.
+
+local function mailOwner(citizenid, subject, body)
+    if not citizenid then return end
+    if not impoundCfg().NotifyOwner then return end
+    if not SendCitizenMail then return end
+
+    SendCitizenMail(
+        citizenid,
+        impoundCfg().MailSender or 'Vehicle Impound Unit',
+        subject,
+        body
+    )
+end
+
 -- ── Storage fee ──────────────────────────────────────────────────────────────
 -- Derived from the impound date rather than accumulated by a timer: that makes it
 -- restart-proof, impossible to drift, and correct even for rows written before
@@ -178,6 +196,24 @@ local function doImpound(src, payload)
     -- Recovering the car closes any active BOLO on it.
     local boloClosed = clearVehicleBolo(plate)
 
+    -- Tell the owner. They had no way of knowing before this.
+    local lotForMail = getLot(lotId)
+    local storageCfg = impoundCfg().Storage or {}
+    local body = ('Your vehicle %s has been impounded.'):format(plate)
+    body = body .. ('\n\nReason: %s'):format(reason)
+    body = body .. ('\nHeld at: %s'):format((lotForMail and lotForMail.label) or lotId)
+    if fee > 0 then
+        body = body .. ('\nRelease fee: $%d'):format(fee)
+        if (storageCfg.PerDay or 0) > 0 then
+            body = body .. ('\nStorage: $%d per day, up to %d days')
+                :format(storageCfg.PerDay, storageCfg.MaxDays or 0)
+        end
+    else
+        body = body .. '\nRelease fee: none'
+    end
+    body = body .. '\n\nSpeak to an officer to arrange release. The longer it stays with us, the more it will cost you.'
+    mailOwner(vehicle.citizenid, ('Vehicle impounded — %s'):format(plate), body)
+
     if ps.auditLog then
         local lot = getLot(lotId)
         ps.auditLog(src, 'vehicle_impounded', 'vehicle', plate, {
@@ -256,7 +292,17 @@ ps.registerCallback(resourceName .. ':server:payImpoundFee', function(source, pa
         return { success = false, message = 'Owner could not cover the fee' }
     end
 
+    -- Money leaving an account warrants immediate feedback, so the on-screen note
+    -- stays; the e-mail is the receipt they can actually go back and read.
     ps.notify(ownerSrc, ('$%d impound fee charged for %s'):format(owed, plate), 'error')
+
+    local receipt = ('$%d has been charged for the release of %s.'):format(owed, plate)
+    if storage > 0 then
+        receipt = receipt .. ('\n\nImpound fee: $%d\nStorage: $%d\nTotal: $%d')
+            :format(row.fee or 0, storage, owed)
+    end
+    receipt = receipt .. '\n\nYour vehicle can now be released.'
+    mailOwner(vehicle.citizenid, ('Impound fee paid — %s'):format(plate), receipt)
 
     if ps.auditLog then
         ps.auditLog(src, 'vehicle_impound_fee_paid', 'vehicle', plate, {
@@ -318,16 +364,12 @@ ps.registerCallback(resourceName .. ':server:releaseImpound', function(source, p
         WHERE id = ?
     ]], { os.time(), cid, officerName, row.id })
 
-    -- Let the owner know it's waiting for them.
-    if vehicle.citizenid then
-        local owner = ps.getPlayerByIdentifier(vehicle.citizenid)
-        local ownerSrc = owner and (owner.PlayerData and owner.PlayerData.source or owner.source) or nil
-        if ownerSrc then
-            ps.notify(ownerSrc,
-                ('Your vehicle %s has been released — it is back in your garage'):format(plate),
-                'success')
-        end
-    end
+    -- Let the owner know it's waiting for them. By e-mail, so it also reaches them
+    -- if they were offline when it was released.
+    mailOwner(vehicle.citizenid,
+        ('Vehicle released — %s'):format(plate),
+        ('Your vehicle %s has been released from the impound lot.\n\nIt is back in your garage.')
+            :format(plate))
 
     if ps.auditLog then
         ps.auditLog(src, 'vehicle_released', 'vehicle', plate, {

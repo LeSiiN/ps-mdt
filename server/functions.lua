@@ -489,6 +489,37 @@ function GetCitizenPhoneNumber(citizenid, fallback)
 end
 
 -- Convenience export so other resources can reuse the same resolution.
+--- Send an e-mail to a citizen through the configured phone resource.
+--- Mirrors the lb-phone flow court.lua already uses: resolve the citizen's number,
+--- ask the phone for the mail address behind it, then send.
+--- Silent no-op when no phone resource is configured or running, so nothing that
+--- calls this ever depends on a phone being installed.
+--- @return boolean sent
+function SendCitizenMail(citizenid, sender, subject, message)
+    if not citizenid then return false end
+
+    local cfg = (Config and Config.Phone) or {}
+    local res = cfg.Resource
+    if not res or res == '' then return false end
+    if GetResourceState(res) ~= 'started' then return false end
+
+    local number = GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid) or nil
+    if not number or tostring(number) == '' then return false end
+
+    local ok, email = pcall(function() return exports[res]:GetEmailAddress(number) end)
+    if not ok or not email or tostring(email) == '' then return false end
+
+    local sent = pcall(function()
+        exports[res]:SendMail({
+            to      = email,
+            sender  = sender or 'Los Santos Police Department',
+            subject = subject or '',
+            message = message or '',
+        })
+    end)
+    return sent and true or false
+end
+
 exports('GetCitizenPhoneNumber', function(citizenid, fallback)
     return GetCitizenPhoneNumber(citizenid, fallback)
 end)

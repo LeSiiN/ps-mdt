@@ -16,6 +16,93 @@ local function buildComplaintNumber(id)
 end
 
 -- Submit a complaint (NO CheckAuth -- civilians can submit)
+local function iaCfg()
+    return (Config and Config.IA) or {}
+end
+
+-- What each status means to somebody who doesn't work at IA.
+local STATUS_TEXT = {
+    open          = 'has been received and is awaiting review',
+    under_review  = 'is now under investigation',
+    investigated  = 'has been investigated and is awaiting a decision',
+    sustained     = 'has been upheld — the complaint was found to be justified',
+    exonerated    = 'has been closed — the officer was found to have acted correctly',
+    unfounded     = 'has been closed — no evidence was found to support it',
+    closed        = 'has been closed',
+}
+
+--- Let the complainant know their complaint moved on. The success screen tells them
+--- they'll be contacted, so this is the part that keeps that promise.
+local function mailComplainantStatus(complaintId, status)
+    if not iaCfg().NotifyComplainant then return end
+    if not SendCitizenMail then return end
+
+    local row = MySQL.single.await([[
+        SELECT complaint_number, complainant_citizenid, officer_name
+        FROM mdt_ia_complaints WHERE id = ?
+    ]], { complaintId })
+    if not row or not row.complainant_citizenid then return end
+
+    local what = STATUS_TEXT[status] or ('is now marked "' .. tostring(status) .. '"')
+    local body = ('Your complaint %s %s.'):format(row.complaint_number or '', what)
+    if row.officer_name and row.officer_name ~= '' then
+        body = body .. ('\n\nOfficer named in the complaint: %s'):format(row.officer_name)
+    end
+    body = body .. '\n\nYou do not need to reply to this message. If we need anything further from you, we will be in touch.'
+
+    SendCitizenMail(
+        row.complainant_citizenid,
+        iaCfg().MailSender or 'Internal Affairs',
+        ('Complaint %s — update'):format(row.complaint_number or ''),
+        body
+    )
+end
+
+-- Anti-spam. Complaints are a serious accusation; nobody needs to file two a second.
+-- ComplaintCooldown[citizenid] = os.clock-ish timestamp in ms
+local ComplaintCooldown = {}
+
+AddEventHandler('playerDropped', function()
+    local cid = ps.getIdentifier and ps.getIdentifier(source) or nil
+    if cid then ComplaintCooldown[cid] = nil end
+end)
+
+--- Work out which officer a complaint is actually about.
+---
+--- The complaint used to keep only the name the civilian typed, and an officer's
+--- IA history was found by string-matching it. "Officer Walker" instead of
+--- "James Walker" meant the complaint never reached his profile at all. We resolve
+--- it to a citizenid here instead — and when we can't, we say so by leaving it NULL
+--- rather than guessing and attaching it to the wrong person.
+---
+--- @return string|nil citizenid
+local function resolveOfficer(name, badge)
+    name  = tostring(name or ''):gsub('^%s+', ''):gsub('%s+$', '')
+    badge = tostring(badge or ''):gsub('^%s+', ''):gsub('%s+$', '')
+
+    -- A badge is unique and unambiguous, so trust it first.
+    if badge ~= '' then
+        local row = MySQL.single.await([[
+            SELECT citizenid FROM mdt_profiles
+            WHERE badge_number = ? OR callsign = ?
+            LIMIT 2
+        ]], { badge, badge })
+        if row and row.citizenid then return row.citizenid end
+    end
+
+    if name == '' then return nil end
+
+    -- Fall back to the name, but only when it points at exactly one officer.
+    local rows = MySQL.query.await([[
+        SELECT citizenid FROM mdt_profiles
+        WHERE LOWER(TRIM(fullname)) = LOWER(TRIM(?))
+        LIMIT 2
+    ]], { name }) or {}
+
+    if #rows == 1 then return rows[1].citizenid end
+    return nil -- no match, or ambiguous: better unassigned than wrong
+end
+
 ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, data)
     local src = source
     data = data or {}
@@ -23,6 +110,20 @@ ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, 
     local citizenid = ps.getIdentifier(src)
     if not citizenid then
         return { success = false, error = 'Missing citizen id' }
+    end
+
+    -- Anti-spam.
+    local cooldownMs = iaCfg().CooldownMs or 0
+    if cooldownMs > 0 then
+        local last = ComplaintCooldown[citizenid]
+        local now = GetGameTimer()
+        if last and (now - last) < cooldownMs then
+            local wait = math.ceil((cooldownMs - (now - last)) / 60000)
+            return {
+                success = false,
+                error = ('You have already filed a complaint recently. Try again in about %d minute(s).'):format(math.max(1, wait)),
+            }
+        end
     end
 
     local player = MySQL.single.await([[
@@ -48,18 +149,31 @@ ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, 
 
     local officerName = data.officerName or data.officer_name or ''
     local officerBadge = data.officerBadge or data.officer_badge or ''
+
+    -- Attach the complaint to a real officer where we can. NULL means "we couldn't
+    -- tell who this is about" — IA assigns it by hand rather than it going nowhere.
+    local officerCid = resolveOfficer(officerName, officerBadge)
+
+    -- The success screen promises the complainant will be contacted, so record a
+    -- number they can actually be reached on.
+    local complainantPhone = data.complainantPhone or data.complainant_phone
+    if not complainantPhone or complainantPhone == '' then
+        complainantPhone = GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid) or nil
+    end
     local incidentDate = data.incidentDate or data.incident_date or nil
     local incidentLocation = data.incidentLocation or data.incident_location or ''
 
     local complaintId = MySQL.insert.await([[
         INSERT INTO mdt_ia_complaints
-        (complaint_number, complainant_citizenid, complainant_name, complainant_phone, officer_name, officer_badge,
+        (complaint_number, complainant_citizenid, complainant_name, complainant_phone,
+         officer_citizenid, officer_name, officer_badge,
          category, description, incident_date, incident_location, witnesses, evidence, status, job_type)
-        VALUES ('', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
+        VALUES ('', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
     ]], {
         citizenid,
         complainantName,
-        data.complainantPhone or data.complainant_phone or nil,
+        complainantPhone,
+        officerCid,
         officerName,
         officerBadge,
         data.category or 'other',
@@ -78,6 +192,8 @@ ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, 
     local complaintNumber = buildComplaintNumber(complaintId)
     MySQL.update.await('UPDATE mdt_ia_complaints SET complaint_number = ? WHERE id = ?', { complaintNumber, complaintId })
 
+    ComplaintCooldown[citizenid] = GetGameTimer()
+
     return {
         success = true,
         complaintNumber = complaintNumber
@@ -88,11 +204,9 @@ end)
 ps.registerCallback(resourceName .. ':server:getIAComplaints', function(source, pageNum, filters)
     local src = source
     filters = filters or {}
-    print(('[ps-mdt] getIAComplaints called | page=%s | status=[%s] | search=[%s]'):format(
-        tostring(pageNum), tostring(filters.status), tostring(filters.search)))
 
     if not CheckAuth(src) then
-        print('[ps-mdt] getIAComplaints: CheckAuth FAILED for source ' .. tostring(src))
+        ps.debug('getIAComplaints: CheckAuth failed for source ' .. tostring(src))
         return { complaints = {}, hasMore = false }
     end
 
@@ -140,22 +254,8 @@ ps.registerCallback(resourceName .. ':server:getIAComplaints', function(source, 
     local ok, rows = pcall(MySQL.query.await, query, values)
 
     if not ok then
-        print('^1[ps-mdt] getIAComplaints QUERY FAILED: ' .. tostring(rows) .. '^0')
+        ps.warn('[getIAComplaints] query failed: ' .. tostring(rows))
         return { complaints = {}, hasMore = false }
-    end
-
-    print(('[ps-mdt] getIAComplaints: query OK, returned %d rows | whereClause=[%s]'):format(
-        rows and #rows or 0, whereClause))
-
-    -- Debug: dump all rows if empty but table has data
-    if rows and #rows == 0 then
-        local chk, all = pcall(MySQL.query.await, 'SELECT id, status, complaint_number FROM mdt_ia_complaints LIMIT 10')
-        if chk and all then
-            print(('[ps-mdt] getIAComplaints: table has %d rows total'):format(#all))
-            for _, r in ipairs(all) do
-                print(('[ps-mdt]   -> id=%s status=[%s] number=[%s]'):format(tostring(r.id), tostring(r.status), tostring(r.complaint_number)))
-            end
-        end
     end
 
     return {
@@ -195,20 +295,35 @@ ps.registerCallback(resourceName .. ':server:getIAComplaint', function(source, d
     }
 end)
 
--- Get IA complaints against a specific officer (by name match)
-ps.registerCallback(resourceName .. ':server:getIAHistoryForOfficer', function(source, officerName)
+-- Get IA complaints against a specific officer.
+--
+-- Matches on the officer's citizenid where the complaint carries one, and still
+-- falls back to the name so complaints filed before the link existed (or ones IA
+-- never managed to assign) don't vanish from the profile.
+ps.registerCallback(resourceName .. ':server:getIAHistoryForOfficer', function(source, officerName, officerCid)
     local src = source
     if not CheckAuth(src) then return {} end
 
-    if not officerName or officerName == '' then return {} end
+    if (not officerName or officerName == '') and (not officerCid or officerCid == '') then
+        return {}
+    end
 
     local ok, rows = pcall(MySQL.query.await, [[
         SELECT id, complaint_number, category, status, created_at
         FROM mdt_ia_complaints
-        WHERE officer_name LIKE ? AND job_type = ?
+        WHERE job_type = ?
+          AND (
+                (officer_citizenid IS NOT NULL AND officer_citizenid = ?)
+             OR (officer_citizenid IS NULL AND ? <> '' AND officer_name LIKE ?)
+          )
         ORDER BY created_at DESC
         LIMIT 50
-    ]], { '%' .. officerName .. '%', GetMdtDomain(src) })
+    ]], {
+        GetMdtDomain(src),
+        officerCid or '',
+        officerName or '',
+        '%' .. (officerName or '') .. '%',
+    })
 
     if not ok then return {} end
     return rows or {}
@@ -235,6 +350,17 @@ ps.registerCallback(resourceName .. ':server:updateIAComplaintInfo', function(so
     if updates.officer_badge ~= nil then
         sets[#sets + 1] = 'officer_badge = ?'
         vals[#vals + 1] = updates.officer_badge
+    end
+
+    -- IA correcting the name or badge is exactly when an unassigned complaint can
+    -- finally be pinned to a real officer, so re-resolve it here.
+    if updates.officer_name ~= nil or updates.officer_badge ~= nil then
+        local existing = MySQL.single.await(
+            'SELECT officer_name, officer_badge FROM mdt_ia_complaints WHERE id = ?', { complaintId })
+        local name  = updates.officer_name  ~= nil and updates.officer_name  or (existing and existing.officer_name)
+        local badge = updates.officer_badge ~= nil and updates.officer_badge or (existing and existing.officer_badge)
+        sets[#sets + 1] = 'officer_citizenid = ?'
+        vals[#vals + 1] = resolveOfficer(name, badge)
     end
     if updates.incident_date ~= nil then
         sets[#sets + 1] = 'incident_date = ?'
@@ -269,6 +395,8 @@ ps.registerCallback(resourceName .. ':server:updateIAStatus', function(source, c
         ps.warn('[updateIAStatus] Failed: ' .. tostring(err))
         return { success = false, error = 'Failed to update status: ' .. tostring(err) }
     end
+
+    mailComplainantStatus(complaintId, status)
 
     return { success = true }
 end)

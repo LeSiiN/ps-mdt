@@ -484,7 +484,7 @@
 			const officerName = `${selectedOfficer.firstName} ${selectedOfficer.lastName}`;
 			const result = await fetchNui<Array<{ id: number; complaint_number: string; category: string; status: string; created_at: string }>>(
 				NUI_EVENTS.IA.GET_IA_HISTORY_FOR_OFFICER,
-				{ officerName },
+				{ officerName, officerCid: selectedOfficer.citizenid },
 				[]
 			);
 			iaHistory = Array.isArray(result) ? result : [];

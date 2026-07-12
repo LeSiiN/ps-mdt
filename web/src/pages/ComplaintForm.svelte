@@ -1,588 +1,576 @@
 <script lang="ts">
-    import { GetParentResourceName } from "../utils/fivem";
+	/**
+	 * Internal Affairs complaint form.
+	 *
+	 * Standalone: opened with /complaint or the openComplaint export, outside the
+	 * MDT, so civilians can file a complaint without any police access. Styled to
+	 * match the modals inside the MDT so it doesn't look like a different product.
+	 */
+	import { fetchNui } from "../utils/fetchNui";
+	import { NUI_EVENTS } from "../constants/nuiEvents";
 
-    let { show = false, onClose = () => {} }: { show: boolean; onClose: () => void } = $props();
+	let { show = false, onClose = () => {} }: { show: boolean; onClose: () => void } = $props();
 
-    // Form fields
-    let officerName = $state("");
-    let officerBadge = $state("");
-    let category = $state("other");
-    let description = $state("");
-    let incidentDate = $state("");
-    let incidentLocation = $state("");
-    let witnesses = $state("");
-    let evidenceUrl = $state("");
-    let evidenceList: { url: string; label: string }[] = $state([]);
+	interface EvidenceItem {
+		url: string;
+		broken: boolean;
+	}
 
-    // Submission state
-    let submitting = $state(false);
-    let submitted = $state(false);
-    let complaintNumber = $state("");
-    let errorMessage = $state("");
+	let officerName = $state("");
+	let officerBadge = $state("");
+	let category = $state("other");
+	let description = $state("");
+	let incidentDate = $state("");
+	let incidentLocation = $state("");
+	let witnesses = $state("");
+	let evidenceUrl = $state("");
+	let evidenceList = $state<EvidenceItem[]>([]);
 
-    const categories = [
-        { value: "misconduct", label: "Misconduct" },
-        { value: "excessive_force", label: "Excessive Force" },
-        { value: "corruption", label: "Corruption" },
-        { value: "negligence", label: "Negligence" },
-        { value: "discrimination", label: "Discrimination" },
-        { value: "other", label: "Other" },
-    ];
+	let submitting = $state(false);
+	let submitted = $state(false);
+	let complaintNumber = $state("");
+	let errorMessage = $state("");
+	let lightboxUrl = $state<string | null>(null);
 
-    let isFormValid = $derived(
-        officerName.trim() !== "" && category !== "" && description.trim() !== ""
-    );
+	const categories = [
+		{ value: "misconduct", label: "Misconduct" },
+		{ value: "excessive_force", label: "Excessive Force" },
+		{ value: "corruption", label: "Corruption" },
+		{ value: "negligence", label: "Negligence" },
+		{ value: "discrimination", label: "Discrimination" },
+		{ value: "other", label: "Other" },
+	];
 
-    function addEvidence() {
-        if (evidenceUrl.trim() === "") return;
-        const url = evidenceUrl.trim();
-        const label = url.length > 50 ? url.substring(0, 50) + "..." : url;
-        evidenceList = [...evidenceList, { url, label }];
-        evidenceUrl = "";
-    }
+	const DESC_MAX = 2000;
 
-    function removeEvidence(index: number) {
-        evidenceList = evidenceList.filter((_, i) => i !== index);
-    }
+	let isFormValid = $derived(
+		officerName.trim() !== "" && category !== "" && description.trim().length >= 20,
+	);
 
-    function resetForm() {
-        officerName = "";
-        officerBadge = "";
-        category = "other";
-        description = "";
-        incidentDate = "";
-        incidentLocation = "";
-        witnesses = "";
-        evidenceUrl = "";
-        evidenceList = [];
-        submitting = false;
-        submitted = false;
-        complaintNumber = "";
-        errorMessage = "";
-    }
+	// An incident can't have happened tomorrow.
+	const today = new Date().toISOString().split("T")[0];
 
-    function handleCancel() {
-        resetForm();
-        // Fire NUI callback to let the game know the form was closed
-        fetch(`https://${GetParentResourceName()}/closeComplaint`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json; charset=UTF-8" },
-            body: JSON.stringify({}),
-        }).catch(() => {});
-        onClose();
-    }
+	function addEvidence() {
+		const url = evidenceUrl.trim();
+		if (url === "") return;
+		if (evidenceList.some((e) => e.url === url)) {
+			evidenceUrl = "";
+			return;
+		}
+		evidenceList = [...evidenceList, { url, broken: false }];
+		evidenceUrl = "";
+	}
 
-    async function handleSubmit() {
-        if (!isFormValid || submitting) return;
+	function removeEvidence(index: number) {
+		evidenceList = evidenceList.filter((_, i) => i !== index);
+	}
 
-        submitting = true;
-        errorMessage = "";
+	function markBroken(index: number) {
+		evidenceList = evidenceList.map((e, i) => (i === index ? { ...e, broken: true } : e));
+	}
 
-        const data = {
-            officerName: officerName.trim(),
-            officerBadge: officerBadge.trim(),
-            category,
-            description: description.trim(),
-            incidentDate,
-            incidentLocation: incidentLocation.trim(),
-            witnesses: witnesses.trim(),
-            evidence: evidenceList,
-        };
+	function resetForm() {
+		officerName = "";
+		officerBadge = "";
+		category = "other";
+		description = "";
+		incidentDate = "";
+		incidentLocation = "";
+		witnesses = "";
+		evidenceUrl = "";
+		evidenceList = [];
+		submitting = false;
+		submitted = false;
+		complaintNumber = "";
+		errorMessage = "";
+		lightboxUrl = null;
+	}
 
-        try {
-            const resourceName = GetParentResourceName();
-            const resp = await fetch(`https://${resourceName}/submitComplaint`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json; charset=UTF-8" },
-                body: JSON.stringify(data),
-            });
+	async function handleCancel() {
+		resetForm();
+		await fetchNui(NUI_EVENTS.IA.CLOSE_COMPLAINT, {}, { success: true });
+		onClose();
+	}
 
-            if (!resp.ok) {
-                throw new Error(`Request failed with status ${resp.status}`);
-            }
+	async function handleSubmit() {
+		if (!isFormValid || submitting) return;
 
-            const result = await resp.json();
-            complaintNumber = result?.complaintNumber || "IA-2026-UNKNOWN";
-            submitted = true;
+		submitting = true;
+		errorMessage = "";
 
-            // Auto-close after 3 seconds
-            setTimeout(() => {
-                resetForm();
-                onClose();
-            }, 3000);
-        } catch (err) {
-            errorMessage = "Failed to submit complaint. Please try again.";
-            console.error("[ComplaintForm] Submit error:", err);
-        } finally {
-            submitting = false;
-        }
-    }
+		try {
+			const res = await fetchNui<{ success?: boolean; complaintNumber?: string; error?: string }>(
+				NUI_EVENTS.IA.SUBMIT_COMPLAINT,
+				{
+					officerName: officerName.trim(),
+					officerBadge: officerBadge.trim(),
+					category,
+					description: description.trim(),
+					incidentDate,
+					incidentLocation: incidentLocation.trim(),
+					witnesses: witnesses.trim(),
+					evidence: evidenceList.map((e) => ({ url: e.url, label: e.url })),
+				},
+				{ success: true, complaintNumber: "IA-0000" },
+			);
+
+			if (res?.success === false) {
+				errorMessage = res.error || "Failed to submit complaint. Please try again.";
+				return;
+			}
+
+			complaintNumber = res?.complaintNumber || "IA-UNKNOWN";
+			submitted = true;
+		} catch {
+			errorMessage = "Failed to submit complaint. Please try again.";
+		} finally {
+			submitting = false;
+		}
+	}
 </script>
 
+<svelte:window onkeydown={(e) => {
+	if (!show) return;
+	if (e.key === "Escape") {
+		if (lightboxUrl) { lightboxUrl = null; return; }
+		handleCancel();
+	}
+}} />
+
 {#if show}
-<div class="complaint-overlay">
-    <div class="complaint-card">
-        {#if submitted}
-            <!-- Success State -->
-            <button class="close-btn" onclick={() => handleCancel()} aria-label="Close">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-            <div class="success-container">
-                <div class="success-icon">&#x2714;</div>
-                <h2 class="success-title">Complaint Filed Successfully</h2>
-                <p class="success-number">Your complaint number: <strong>{complaintNumber}</strong></p>
-                <p class="success-note">You will be contacted if further information is needed.</p>
-            </div>
-        {:else}
-            <!-- Form State -->
-            <div class="card-header">
-                <span class="header-icon">&#x1F6E1;</span>
-                <h2 class="header-title">Internal Affairs Complaint</h2>
-            </div>
+	<div class="modal-backdrop">
+		<div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+			{#if submitted}
+				<div class="modal-header">
+					<h3>Complaint Filed</h3>
+					<button class="close-btn" aria-label="Close" onclick={handleCancel}>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+					</button>
+				</div>
 
-            {#if errorMessage}
-                <div class="error-banner">{errorMessage}</div>
-            {/if}
+				<div class="modal-body success-body">
+					<div class="success-mark">
+						<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+					</div>
+					<p class="success-lead">Your complaint has been filed with Internal Affairs.</p>
 
-            <form class="complaint-form" onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
-                <!-- Officer Name -->
-                <div class="form-group">
-                    <label class="form-label" for="officerName">Officer Name <span class="required">*</span></label>
-                    <input
-                        id="officerName"
-                        type="text"
-                        class="form-input"
-                        placeholder="Officer name or badge number"
-                        bind:value={officerName}
-                        required
-                    />
-                </div>
+					<div class="success-number">
+						<span class="field-label">Reference</span>
+						<span class="ref-value">{complaintNumber}</span>
+					</div>
 
-                <!-- Officer Badge -->
-                <div class="form-group">
-                    <label class="form-label" for="officerBadge">Officer Badge</label>
-                    <input
-                        id="officerBadge"
-                        type="text"
-                        class="form-input"
-                        placeholder="Badge #"
-                        bind:value={officerBadge}
-                    />
-                </div>
+					<p class="success-note">Write this number down — you'll need it to follow up. You'll be contacted if further information is needed.</p>
+				</div>
 
-                <!-- Category -->
-                <div class="form-group">
-                    <label class="form-label" for="category">Category <span class="required">*</span></label>
-                    <select id="category" class="form-input form-select" bind:value={category} required>
-                        {#each categories as cat}
-                            <option value={cat.value}>{cat.label}</option>
-                        {/each}
-                    </select>
-                </div>
+				<div class="modal-footer">
+					<span class="modal-hint">Filed under your own name</span>
+					<div class="modal-footer-right">
+						<button class="primary-btn" onclick={handleCancel}>Done</button>
+					</div>
+				</div>
+			{:else}
+				<div class="modal-header">
+					<h3>Internal Affairs Complaint</h3>
+					<button class="close-btn" aria-label="Close" onclick={handleCancel}>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+					</button>
+				</div>
 
-                <!-- Incident Date -->
-                <div class="form-group">
-                    <label class="form-label" for="incidentDate">Incident Date</label>
-                    <input
-                        id="incidentDate"
-                        type="date"
-                        class="form-input"
-                        bind:value={incidentDate}
-                    />
-                </div>
+				<div class="modal-body form-body">
+					{#if errorMessage}
+						<div class="form-error form-full">{errorMessage}</div>
+					{/if}
 
-                <!-- Location -->
-                <div class="form-group">
-                    <label class="form-label" for="incidentLocation">Location</label>
-                    <input
-                        id="incidentLocation"
-                        type="text"
-                        class="form-input"
-                        placeholder="Where did this occur?"
-                        bind:value={incidentLocation}
-                    />
-                </div>
+					<div class="form-group">
+						<span class="field-label">Officer <span class="req">*</span></span>
+						<input class="form-input" bind:value={officerName} placeholder="Officer's name" />
+					</div>
 
-                <!-- Description -->
-                <div class="form-group">
-                    <label class="form-label" for="description">Description <span class="required">*</span></label>
-                    <textarea
-                        id="description"
-                        class="form-input form-textarea"
-                        rows="5"
-                        placeholder="Describe the incident in detail..."
-                        bind:value={description}
-                        required
-                    ></textarea>
-                </div>
+					<div class="form-group">
+						<span class="field-label">Badge Number</span>
+						<input class="form-input" bind:value={officerBadge} placeholder="If you know it" />
+					</div>
 
-                <!-- Witnesses -->
-                <div class="form-group">
-                    <label class="form-label" for="witnesses">Witnesses</label>
-                    <textarea
-                        id="witnesses"
-                        class="form-input form-textarea"
-                        rows="2"
-                        placeholder="Names/descriptions of witnesses"
-                        bind:value={witnesses}
-                    ></textarea>
-                </div>
+					<div class="form-group">
+						<span class="field-label">Category <span class="req">*</span></span>
+						<select class="form-input form-select" bind:value={category}>
+							{#each categories as cat}
+								<option value={cat.value}>{cat.label}</option>
+							{/each}
+						</select>
+					</div>
 
-                <!-- Evidence -->
-                <div class="form-group">
-                    <label class="form-label">Evidence</label>
-                    <div class="evidence-input-row">
-                        <input
-                            type="url"
-                            class="form-input evidence-url-input"
-                            placeholder="Paste evidence URL..."
-                            bind:value={evidenceUrl}
-                            onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); addEvidence(); } }}
-                        />
-                        <button type="button" class="btn-add-evidence" onclick={addEvidence}>Add</button>
-                    </div>
-                    {#if evidenceList.length > 0}
-                        <ul class="evidence-list">
-                            {#each evidenceList as item, i}
-                                <li class="evidence-item">
-                                    <span class="evidence-label" title={item.url}>{item.label}</span>
-                                    <button type="button" class="btn-remove-evidence" onclick={() => removeEvidence(i)}>&times;</button>
-                                </li>
-                            {/each}
-                        </ul>
-                    {/if}
-                </div>
+					<div class="form-group">
+						<span class="field-label">Incident Date</span>
+						<input class="form-input" type="date" max={today} bind:value={incidentDate} />
+					</div>
 
-                <!-- Buttons -->
-                <div class="form-actions">
-                    <button
-                        type="submit"
-                        class="btn-submit"
-                        disabled={!isFormValid || submitting}
-                    >
-                        {submitting ? "Submitting..." : "Submit Complaint"}
-                    </button>
-                    <button type="button" class="btn-cancel" onclick={handleCancel}>
-                        Cancel
-                    </button>
-                </div>
-            </form>
-        {/if}
-    </div>
-</div>
+					<div class="form-group form-full">
+						<span class="field-label">Location</span>
+						<input class="form-input" bind:value={incidentLocation} placeholder="Where did this happen?" />
+					</div>
+
+					<div class="form-group form-full">
+						<span class="field-label">
+							What happened? <span class="req">*</span>
+							<span class="counter" class:counter-low={description.trim().length > 0 && description.trim().length < 20}>
+								{description.length}/{DESC_MAX}
+							</span>
+						</span>
+						<textarea class="form-input" rows="6" maxlength={DESC_MAX} bind:value={description}
+							placeholder="Describe the incident in as much detail as you can — what happened, when, and who was involved."></textarea>
+						{#if description.trim().length > 0 && description.trim().length < 20}
+							<span class="hint-warn">Please give a bit more detail (at least 20 characters).</span>
+						{/if}
+					</div>
+
+					<div class="form-group form-full">
+						<span class="field-label">Witnesses</span>
+						<textarea class="form-input" rows="2" bind:value={witnesses}
+							placeholder="Anyone else who saw this"></textarea>
+					</div>
+
+					<div class="form-group form-full">
+						<span class="field-label">Evidence <span class="optional">(image links)</span></span>
+						<div class="evidence-row">
+							<input class="form-input" bind:value={evidenceUrl}
+								placeholder="https://…  paste a screenshot link"
+								onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); addEvidence(); } }} />
+							<button class="add-btn" type="button" disabled={!evidenceUrl.trim()} onclick={addEvidence}>Add</button>
+						</div>
+
+						{#if evidenceList.length > 0}
+							<div class="evidence-grid">
+								{#each evidenceList as item, i (item.url)}
+									<div class="evidence-tile" class:is-broken={item.broken}>
+										{#if item.broken}
+											<div class="evidence-broken">
+												<span>Couldn't load</span>
+												<span class="evidence-url">{item.url}</span>
+											</div>
+										{:else}
+											<button class="evidence-open" type="button" title="Click to enlarge"
+												onclick={() => (lightboxUrl = item.url)}>
+												<img src={item.url} alt="Evidence" onerror={() => markBroken(i)} />
+											</button>
+										{/if}
+										<button class="evidence-remove" type="button" aria-label="Remove"
+											onclick={() => removeEvidence(i)}>
+											<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+												<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+											</svg>
+										</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				<div class="modal-footer">
+					<span class="modal-hint">This is filed under your own name</span>
+					<div class="modal-footer-right">
+						<button class="cancel-btn" disabled={submitting} onclick={handleCancel}>Cancel</button>
+						<button class="primary-btn" disabled={!isFormValid || submitting} onclick={handleSubmit}>
+							{submitting ? "Submitting…" : "File Complaint"}
+						</button>
+					</div>
+				</div>
+			{/if}
+		</div>
+	</div>
+
+	{#if lightboxUrl}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="lightbox-overlay" onclick={() => (lightboxUrl = null)}>
+			<div class="lightbox-card" onclick={(e) => e.stopPropagation()}>
+				<button class="lightbox-close" aria-label="Close" onclick={() => (lightboxUrl = null)}>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+				<img class="lightbox-img" src={lightboxUrl} alt="Evidence" />
+			</div>
+		</div>
+	{/if}
 {/if}
 
 <style>
-    .complaint-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.85);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 3000;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
+	/* Same language as the Add Weapon modal inside the MDT. No backdrop-filter:
+	   CEF paints it solid black instead of blurring. */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1100;
+	}
+	.modal {
+		/* Not --card-dark-bg: that's near-black, which works inside the MDT's own
+		   chrome but reads as a void floating over the game world. */
+		background: rgba(26, 28, 33, 0.97);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 6px;
+		width: min(580px, 92vw);
+		max-height: 88vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+	}
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 10px 16px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+	}
+	.modal-header h3 { margin: 0; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+	.close-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		color: rgba(255, 255, 255, 0.3);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		padding: 4px;
+		border-radius: 3px;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.close-btn:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
 
-    .complaint-card {
-        background: rgb(18, 18, 22);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        max-width: 550px;
-        width: 100%;
-        max-height: 85vh;
-        overflow-y: auto;
-        padding: 28px 32px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-        position: relative;
-    }
+	.modal-body { padding: 14px 16px; overflow-y: auto; }
+	.modal-body::-webkit-scrollbar { width: 5px; }
+	.modal-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+	.form-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+	.form-group { display: flex; flex-direction: column; gap: 3px; }
+	.form-full { grid-column: 1 / -1; }
 
-    .close-btn {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 6px;
-        color: rgba(255, 255, 255, 0.6);
-        cursor: pointer;
-        padding: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.15s;
-    }
-    .close-btn:hover {
-        background: rgba(255, 255, 255, 0.12);
-        color: rgba(255, 255, 255, 0.9);
-    }
+	.field-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: rgba(255, 255, 255, 0.35);
+		font-size: 9px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.6px;
+	}
+	.req { color: rgba(248, 113, 113, 0.8); }
+	.optional { color: rgba(255, 255, 255, 0.2); font-weight: 500; text-transform: none; letter-spacing: 0; }
+	.counter { margin-left: auto; color: rgba(255, 255, 255, 0.25); font-variant-numeric: tabular-nums; }
+	.counter-low { color: rgba(251, 191, 36, 0.8); }
+	.hint-warn { font-size: 10px; color: rgba(251, 191, 36, 0.8); }
 
-    .card-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 24px;
-        padding-bottom: 16px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    }
+	.form-input {
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 5px 8px;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 11px;
+		font-family: inherit;
+		transition: border-color 0.1s;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.form-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.1); }
+	.form-input::placeholder { color: rgba(255, 255, 255, 0.2); }
+	.form-select { padding-right: 22px; font-size: 10px; cursor: pointer; }
+	.form-input option { background: #1a1d23; }
+	textarea.form-input { resize: vertical; line-height: 1.45; }
 
-    .header-icon {
-        font-size: 22px;
-        line-height: 1;
-    }
+	.form-error {
+		background: rgba(239, 68, 68, 0.08);
+		border: 1px solid rgba(239, 68, 68, 0.2);
+		border-radius: 4px;
+		padding: 7px 10px;
+		font-size: 10px;
+		color: rgba(248, 113, 113, 0.95);
+	}
 
-    .header-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: rgba(255, 255, 255, 0.87);
-        margin: 0;
-    }
+	/* Evidence: the links render as pictures, so you can see what you attached. */
+	.evidence-row { display: flex; gap: 6px; }
+	.add-btn {
+		flex-shrink: 0;
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.7);
+		font-size: 10px;
+		font-weight: 600;
+		padding: 4px 12px;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.add-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
+	.add-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-    .error-banner {
-        background: rgba(239, 68, 68, 0.15);
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        color: rgb(252, 165, 165);
-        padding: 10px 14px;
-        border-radius: 6px;
-        font-size: 13px;
-        margin-bottom: 16px;
-    }
+	.evidence-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 6px;
+	}
+	.evidence-tile {
+		position: relative;
+		height: 92px;
+		border-radius: 4px;
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		background: rgba(255, 255, 255, 0.03);
+		overflow: hidden;
+	}
+	.evidence-tile.is-broken { border-color: rgba(239, 68, 68, 0.25); }
+	.evidence-open {
+		display: block;
+		height: 100%;
+		padding: 0;
+		border: none;
+		background: none;
+		cursor: zoom-in;
+	}
+	/* Fixed height, auto width: the tile hugs the picture instead of letterboxing it. */
+	.evidence-open img { height: 100%; width: auto; max-width: 220px; object-fit: contain; display: block; }
+	.evidence-broken {
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 3px;
+		width: 150px;
+		height: 100%;
+		padding: 0 9px;
+		font-size: 9px;
+		color: rgba(248, 113, 113, 0.85);
+	}
+	.evidence-url {
+		color: rgba(255, 255, 255, 0.3);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.evidence-remove {
+		position: absolute;
+		top: 4px;
+		right: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.65);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		color: rgba(255, 255, 255, 0.8);
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.evidence-remove:hover { background: rgba(239, 68, 68, 0.8); color: #fff; }
 
-    .complaint-form {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-    }
+	.modal-footer {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 16px;
+		border-top: 1px solid rgba(255, 255, 255, 0.09);
+	}
+	.modal-footer-right { display: flex; gap: 6px; }
+	.modal-hint { font-size: 10px; color: rgba(255, 255, 255, 0.35); }
+	.cancel-btn {
+		background: transparent;
+		color: rgba(255, 255, 255, 0.4);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 4px 10px;
+		font-size: 10px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.cancel-btn:hover:not(:disabled) { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
+	.primary-btn {
+		background: rgba(16, 185, 129, 0.06);
+		color: rgba(52, 211, 153, 0.7);
+		border: 1px solid rgba(16, 185, 129, 0.1);
+		border-radius: 3px;
+		padding: 4px 12px;
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.primary-btn:hover:not(:disabled) { background: rgba(16, 185, 129, 0.12); color: rgba(110, 231, 183, 0.9); }
+	.primary-btn:disabled, .cancel-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    .form-group {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
+	/* Success */
+	.success-body { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 20px; text-align: center; }
+	.success-mark {
+		display: grid;
+		place-items: center;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		background: rgba(16, 185, 129, 0.1);
+		border: 1px solid rgba(16, 185, 129, 0.25);
+		color: rgba(52, 211, 153, 0.9);
+	}
+	.success-lead { margin: 0; font-size: 12px; color: rgba(255, 255, 255, 0.8); }
+	.success-number {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 4px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		border-radius: 5px;
+		padding: 9px 22px;
+	}
+	.ref-value {
+		font-family: monospace;
+		font-size: 17px;
+		font-weight: 700;
+		letter-spacing: 1px;
+		color: rgba(252, 211, 77, 0.95);
+	}
+	.success-note { margin: 0; max-width: 340px; font-size: 10px; line-height: 1.5; color: rgba(255, 255, 255, 0.35); }
 
-    .form-label {
-        font-size: 13px;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.7);
-    }
-
-    .required {
-        color: rgb(239, 68, 68);
-    }
-
-    .form-input {
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 6px;
-        padding: 10px 12px;
-        color: rgba(255, 255, 255, 0.87);
-        font-size: 14px;
-        font-family: inherit;
-        outline: none;
-        transition: border-color 0.15s ease;
-    }
-
-    .form-input::placeholder {
-        color: rgba(255, 255, 255, 0.35);
-    }
-
-    .form-input:focus {
-        border-color: rgba(100, 140, 255, 0.5);
-    }
-
-    .form-select {
-        appearance: none;
-        cursor: pointer;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff80' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 12px center;
-        padding-right: 32px;
-    }
-
-    .form-select option {
-        background: rgb(18, 18, 22);
-        color: rgba(255, 255, 255, 0.87);
-    }
-
-    .form-textarea {
-        resize: vertical;
-        min-height: 40px;
-    }
-
-    .evidence-input-row {
-        display: flex;
-        gap: 8px;
-    }
-
-    .evidence-url-input {
-        flex: 1;
-    }
-
-    .btn-add-evidence {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 6px;
-        color: rgba(255, 255, 255, 0.87);
-        padding: 10px 16px;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background 0.15s ease;
-        white-space: nowrap;
-    }
-
-    .btn-add-evidence:hover {
-        background: rgba(255, 255, 255, 0.15);
-    }
-
-    .evidence-list {
-        list-style: none;
-        margin: 8px 0 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    .evidence-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 4px;
-        padding: 6px 10px;
-    }
-
-    .evidence-label {
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.6);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        flex: 1;
-        margin-right: 8px;
-    }
-
-    .btn-remove-evidence {
-        background: none;
-        border: none;
-        color: rgba(239, 68, 68, 0.7);
-        font-size: 16px;
-        cursor: pointer;
-        padding: 0 4px;
-        line-height: 1;
-        transition: color 0.15s ease;
-    }
-
-    .btn-remove-evidence:hover {
-        color: rgb(239, 68, 68);
-    }
-
-    .form-actions {
-        display: flex;
-        gap: 10px;
-        margin-top: 8px;
-        padding-top: 16px;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .btn-submit {
-        flex: 1;
-        background: rgb(59, 130, 246);
-        border: none;
-        border-radius: 6px;
-        color: #fff;
-        padding: 12px 20px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.15s ease, opacity 0.15s ease;
-    }
-
-    .btn-submit:hover:not(:disabled) {
-        background: rgb(37, 99, 235);
-    }
-
-    .btn-submit:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .btn-cancel {
-        background: rgba(255, 255, 255, 0.1);
-        border: none;
-        border-radius: 6px;
-        color: rgba(255, 255, 255, 0.7);
-        padding: 12px 20px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background 0.15s ease;
-    }
-
-    .btn-cancel:hover {
-        background: rgba(255, 255, 255, 0.15);
-    }
-
-    /* Success State */
-    .success-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        padding: 40px 20px;
-        gap: 12px;
-    }
-
-    .success-icon {
-        font-size: 48px;
-        color: rgb(34, 197, 94);
-        line-height: 1;
-        margin-bottom: 8px;
-    }
-
-    .success-title {
-        font-size: 20px;
-        font-weight: 600;
-        color: rgba(255, 255, 255, 0.87);
-        margin: 0;
-    }
-
-    .success-number {
-        font-size: 15px;
-        color: rgba(255, 255, 255, 0.6);
-        margin: 0;
-    }
-
-    .success-number strong {
-        color: rgba(255, 255, 255, 0.87);
-    }
-
-    .success-note {
-        font-size: 13px;
-        color: rgba(255, 255, 255, 0.5);
-        margin: 4px 0 0;
-    }
-
-    /* Scrollbar styling */
-    .complaint-card::-webkit-scrollbar {
-        width: 6px;
-    }
-
-    .complaint-card::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    .complaint-card::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.12);
-        border-radius: 3px;
-    }
-
-    .complaint-card::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.2);
-    }
+	/* Lightbox — same as the citizen profile's */
+	.lightbox-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.85);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+	}
+	.lightbox-card { position: relative; max-width: 90vw; max-height: 90vh; display: flex; flex-direction: column; padding-top: 40px; }
+	.lightbox-close {
+		position: absolute;
+		top: 0;
+		right: 0;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 4px;
+		color: rgba(255, 255, 255, 0.6);
+		cursor: pointer;
+		padding: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.1s;
+		z-index: 10;
+	}
+	.lightbox-close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+	.lightbox-img { max-width: 90vw; max-height: calc(90vh - 40px); object-fit: contain; display: block; border-radius: 4px; }
 </style>

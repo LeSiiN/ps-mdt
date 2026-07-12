@@ -304,6 +304,8 @@ export const NUI_EVENTS = {
 		SAVE_COLOR_CONFIG: "saveColorConfig",
 	},
 	IA: {
+		SUBMIT_COMPLAINT: "submitComplaint",
+		CLOSE_COMPLAINT: "closeComplaint",
 		GET_IA_COMPLAINTS: "getIAComplaints",
 		GET_IA_COMPLAINT: "getIAComplaint",
 		GET_IA_HISTORY_FOR_OFFICER: "getIAHistoryForOfficer",

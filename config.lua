@@ -142,6 +142,18 @@ Config.Phone = {
 }
 
 
+-- Internal Affairs
+Config.IA = {
+    -- Anti-spam: how long a citizen must wait between filing complaints.
+    CooldownMs = 300000, -- 5 minutes
+
+    -- E-mail the complainant when their complaint changes status. Uses the phone
+    -- resource from Config.Phone; silently skipped if none is running.
+    NotifyComplainant = true,
+    MailSender = 'Internal Affairs',
+}
+
+
 -- Housing / Properties Integration
 -- The MDT shows the properties a citizen owns on their profile. Every housing
 -- resource stores this in a different table with different column names, so
@@ -360,6 +372,12 @@ Config.Impound = {
     FeeAccount = 'bank',
     -- Require the fee to be paid before a vehicle can be released.
     RequireFeePaid = true,
+
+    -- E-mail the owner when their vehicle is impounded, charged, or released.
+    -- The owner is usually nowhere near the vehicle when it happens, so an on-screen
+    -- notification they never see is worse than useless. Uses Config.Phone.
+    NotifyOwner = true,
+    MailSender  = 'Vehicle Impound Unit',
 
     -- Storage fee: grows for every day the vehicle sits in the lot, capped so it
     -- can never run away. Computed from the impound date, never accumulated by a
