@@ -31,7 +31,11 @@ end)
 -- Live update pushed by the server whenever a warrant is issued, closed or
 -- approved. Gated to LEO so we don't hand law-enforcement data to other NUIs.
 RegisterNetEvent(resourceName .. ':client:updateActiveWarrants', function(data)
-    if ps.getJobType() == 'leo' then
+    -- Use the config-based LEO check (Config.PoliceJobType / PoliceJobs) instead
+    -- of a hardcoded 'leo' type — otherwise servers whose police job type isn't
+    -- literally "leo" never receive the live update, so judge-approved warrants
+    -- only appear after a manual refresh.
+    if exports[resourceName]:IsLEOJob() then
         SendNUI('updateActiveWarrants', data or {})
     end
 end)

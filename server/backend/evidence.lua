@@ -88,15 +88,13 @@ ps.registerCallback(resourceName .. ':server:searchEvidenceItems', function(sour
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
-    if not query or tostring(query) == '' then
-        return { success = true, data = { items = {}, total = 0, page = 1, limit = limit or 20 } }
-    end
-
-    query = tostring(query)
+    local _, likeQuery = NormalizeSearch(query)
     page = tonumber(page) or 1
     limit = tonumber(limit) or 20
+    if not likeQuery then
+        return { success = true, data = { items = {}, total = 0, page = 1, limit = limit } }
+    end
     local offset = (page - 1) * limit
-    local likeQuery = '%' .. query .. '%'
 
     local totalRow = MySQL.single.await([[
         SELECT COUNT(id) as total

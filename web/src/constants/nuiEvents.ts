@@ -35,6 +35,7 @@ export const NUI_EVENTS = {
 		GET_HEARINGS: "getHearings",
 		GET_HEARING: "getHearing",
 		CREATE_HEARING: "createHearing",
+		CREATE_HEARING_FROM_WARRANT: "createHearingFromWarrant",
 		UPDATE_HEARING: "updateHearing",
 		DELETE_HEARING: "deleteHearing",
 		ADD_ATTENDEE: "addHearingAttendee",
@@ -48,6 +49,16 @@ export const NUI_EVENTS = {
 	DISPATCH: {
 		ATTACH_TO_DISPATCH: "attachToDispatch",
 		DETACH_FROM_DISPATCH: "detachFromDispatch",
+		ASSIGN_TO_DISPATCH: "assignToDispatch",
+		DISMISS_DISPATCH: "dismissDispatch",
+		SET_DISPATCH_NOTE: "setDispatchNote",
+		DELETE_DISPATCH_NOTE: "deleteDispatchNote",
+		CREATE_MANUAL_DISPATCH: "createManualDispatch",
+		GET_CALL_CODES: "getCallCodes",
+		RESOLVE_STREET: "resolveDispatchStreet",
+		CREATE_DISPATCH: "createDispatch",
+		GET_DISPATCH_CODES: "getDispatchCodes",
+		GET_STREET_AT_COORDS: "getStreetAtCoords",
 		ROUTE_TO_DISPATCH: "routeToDispatch",
 	},
 	NAVIGATION: {
@@ -114,6 +125,7 @@ export const NUI_EVENTS = {
 		GET_CITIZEN_TAGS: 'getCitizenTags',
 		ADD_CITIZEN_TAG: 'addCitizenTag',
 		REMOVE_CITIZEN_TAG: 'removeCitizenTag',
+		GET_CITIZEN_TIMELINE: 'getCitizenTimeline',
 	},
 	VEHICLE: {
 		GET_VEHICLES: "getVehicles",
@@ -121,6 +133,14 @@ export const NUI_EVENTS = {
 		GET_VEHICLE: "getVehicle",
 		UPDATE_VEHICLE: "updateVehicle",
 		GET_REPORTS_BY_PLATE: "getReportsByPlate",
+	},
+	IMPOUND: {
+		IMPOUND_VEHICLE: "impoundVehicle",
+		RELEASE_IMPOUND: "releaseImpound",
+		PAY_IMPOUND_FEE: "payImpoundFee",
+		GET_IMPOUND_LOT: "getImpoundLot",
+		GET_IMPOUND_HISTORY: "getImpoundHistory",
+		GET_IMPOUND_CONFIG: "getImpoundConfig",
 	},
 	WEAPON: {
 		GET_WEAPONS: "getWeapons",
@@ -134,6 +154,7 @@ export const NUI_EVENTS = {
 	},
 	CHARGE: {
 		GET_CHARGES: "getCharges",
+		GET_CHARGE_CATEGORIES: "getChargeCategories",
 		ADD_CHARGE: "addCharge",
 		UPDATE_CHARGE: "updateCharge",
 		DELETE_CHARGE: "deleteCharge",
@@ -178,6 +199,8 @@ export const NUI_EVENTS = {
 		DELETE_FTO_ASSIGNMENT: "deleteFTOAssignment",
 		CREATE_FTO_DOR: "createFTODor",
 		DELETE_FTO_DOR: "deleteFTODor",
+		ADVANCE_FTO_PHASE: "advanceFTOPhase",
+		SET_FTO_STATUS: "setFTOStatus",
 		GET_FTO_PHASES: "getFTOPhases",
 		SAVE_FTO_PHASES: "saveFTOPhases",
 		GET_FTO_COMPETENCIES: "getFTOCompetencies",
@@ -249,6 +272,7 @@ export const NUI_EVENTS = {
 		REORDER_PATROLS: "reorderPatrols",
 		SET_PATROL_ZONE: "setPatrolZone",
 		GET_OFFICER_STATUS_CONFIG: "getOfficerStatusConfig",
+		GET_OFFICER_STATUS_BREAKDOWN: "getOfficerStatusBreakdown",
 		SET_OFFICER_STATUS: "setOfficerStatus",
 	},
 	MANAGEMENT: {
@@ -280,6 +304,8 @@ export const NUI_EVENTS = {
 		SAVE_COLOR_CONFIG: "saveColorConfig",
 	},
 	IA: {
+		SUBMIT_COMPLAINT: "submitComplaint",
+		CLOSE_COMPLAINT: "closeComplaint",
 		GET_IA_COMPLAINTS: "getIAComplaints",
 		GET_IA_COMPLAINT: "getIAComplaint",
 		GET_IA_HISTORY_FOR_OFFICER: "getIAHistoryForOfficer",
@@ -306,6 +332,9 @@ export const NUI_EVENTS = {
 		REVIEW_WARRANT_REQUEST: "reviewWarrantRequest",
 		CREATE_WARRANT_REQUEST: "createWarrantRequest",
 		CLOSE_WARRANT_REQUEST: "closeWarrantRequest",
+		GET_WARRANT_HEARING: "getWarrantHearing",
+		SCHEDULE_WARRANT_HEARING: "scheduleWarrantHearing",
+		REMOVE_WARRANT_HEARING: "removeWarrantHearing",
 		GET_COURT_ORDERS: "getCourtOrders",
 		CREATE_COURT_ORDER: "createCourtOrder",
 		UPDATE_COURT_ORDER: "updateCourtOrder",
@@ -404,6 +433,15 @@ export const ALL_NUI_EVENTS = [
 	"yjsUpdate",
 	"yjsBatch",
 	"pollYjsUpdates",
+	"impoundVehicle",
+	"releaseImpound",
+	"payImpoundFee",
+	"getImpoundLot",
+	"getImpoundHistory",
+	"getImpoundConfig",
+	"submitOnSiteImpound",
+	"closeImpoundForm",
+	"getImpoundFormConfig",
 ] as const;
 
 export type WeaponNuiEvents = typeof NUI_EVENTS.WEAPON;

@@ -1,4 +1,12 @@
-local impoundList = {}
+-- isRequestVehicle: kept only so external resources that call this ps-mdt v1
+-- export don't error. The in-memory impound list it used to read was never
+-- populated, so it always returned false — impound state now lives in
+-- mdt_impound (see server/backend/impound.lua).
+local function isRequestVehicle(_vehId)
+    return false
+end
+
+exports('isRequestVehicle', isRequestVehicle)
 
 -- IsCidFelon: checks if a citizen has felony charges
 local function IsCidFelon(sentCid, cb)
@@ -20,16 +28,3 @@ local function IsCidFelon(sentCid, cb)
 end
 
 exports('IsCidFelon', IsCidFelon)
-
--- isRequestVehicle: checks in-memory impound list
-local function isRequestVehicle(vehId)
-    for i = #impoundList, 1, -1 do
-        if impoundList[i] and impoundList[i]['vehicle'] == vehId then
-            table.remove(impoundList, i)
-            return true
-        end
-    end
-    return false
-end
-
-exports('isRequestVehicle', isRequestVehicle)

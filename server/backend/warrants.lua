@@ -165,6 +165,10 @@ ps.registerCallback(resourceName .. ':server:closeWarrant', function(source, dat
     ]], { reportId, citizenid })
 
     if updated and updated > 0 then
+        -- Closing the warrant also removes any hearing it placed on the calendar.
+        if RemoveWarrantHearingsForReport then
+            RemoveWarrantHearingsForReport(reportId)
+        end
         if ps.auditLog then
             ps.auditLog(src, 'warrant_closed', 'warrant', reportId, {
                 citizenid = citizenid

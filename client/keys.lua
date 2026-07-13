@@ -151,7 +151,7 @@ function OpenMDT()
     -- Only visibility + auth + focus run synchronously so the panel appears
     -- instantly. Everything cosmetic (sound, tablet prop/animation) or map-
     -- related is pushed to later frames so opening never spikes one frame.
-    SendNUI('setVisible', { visible = true, debugMode = Config.Debug })
+    SendNUI('setVisible', { visible = true, debugMode = Config.Debug, dateTime = Config.DateTime })
 
     if isCivilian then
         -- Civilian mode: send auth with civilian flag
@@ -252,5 +252,6 @@ if not Config.Keys.OpenMDT.enabled then
     ps.debug('MDT Open Keybind Disabled')
 else
     ps.debug('MDT Open Keybind Enabled: ' .. Config.Keys.OpenMDT.key)
-    ps.addKeybind(Config.Keys.OpenMDT.key, Config.Commands.Open.command)
+    local message = 'Open MDT'
+    ps.addKeybind(Config.Keys.OpenMDT.key, Config.Commands.Open.command, message)
 end

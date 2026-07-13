@@ -149,6 +149,29 @@ Config.Commands = {
 }
 ```
 
+Commands the resource registers:
+
+| Command | What it does |
+|---------|-------------|
+| `/mdt` | Opens the MDT |
+| `/motd` | Message of the day |
+| `/mdtimpound` | Impounds the vehicle you're in or standing next to (name set by `Config.Impound.OnSite.Command`) |
+| `/complaint` | Opens the standalone IA complaint form. Works for civilians, no MDT needed |
+| `/cameraplacer` | Places security cameras around the map |
+
+### Date and time format
+
+How every date and time in the MDT is rendered:
+
+```lua
+Config.DateTime = {
+    TimeFormat = '24',           -- '24' or '12'
+    DateFormat = 'DD-MM-YYYY',   -- 'MM-DD-YYYY', 'DD-MM-YYYY', or 'YYYY-MM-DD'
+}
+```
+
+This applies everywhere: reports, warrants, the court calendar, audit logs, and the timestamp burned into camera, bodycam, and dashcam footage.
+
 ### Data sharing between departments
 
 ```lua
@@ -170,14 +193,55 @@ Config.Sharing = {
 }
 ```
 
-### Impound locations
+### Impound
+
+Lots, reasons, fees, and the on-site impound flow all live under `Config.Impound`:
 
 ```lua
-Config.ImpoundLocations = {
-    [1] = vector4(409.09, -1623.37, 29.29, 232.07),  -- LSPD
-    [2] = vector4(-436.42, 5982.29, 31.34, 136.0),   -- Paleto
+Config.Impound = {
+    Lots = {
+        { id = 'lspd',   label = 'LSPD Impound' },
+        { id = 'paleto', label = 'Paleto Impound' },
+    },
+
+    -- Each reason carries a default fee. The officer can still edit it.
+    Reasons = {
+        { label = 'Evidence / Investigation', fee = 0 },
+        { label = 'DUI',                      fee = 1500 },
+        { label = 'Illegal Modifications',    fee = 1000 },
+        -- ...
+    },
+
+    DefaultFee     = 500,
+    MaxFee         = 50000,
+    FeeAccount     = 'bank',   -- 'bank' or 'cash'
+    RequireFeePaid = true,     -- fee must be collected before release
+
+    -- Storage grows for every day the vehicle sits in the lot, then stops.
+    Storage = {
+        PerDay  = 500,
+        MaxDays = 7,
+    },
+
+    OnSite = {
+        Command     = 'mdtimpound',
+        MaxDistance = 6.0,
+
+        -- The officer writes the vehicle up, then radios it in. Both steps are
+        -- cancellable: walk away and nothing is written.
+        Sequence = { NotepadMs = 4500, RadioMs = 6000 },
+        FadeMs   = 1500,
+
+        -- Payout for clearing an unowned vehicle off the street.
+        Cleanup = {
+            RewardMin = 100, RewardMax = 200, Account = 'cash',
+            Cooldown  = 120, MaxPerShift = 20,
+        },
+    },
 }
 ```
+
+Storage fees are worked out from the impound date rather than counted up by a timer, so they survive restarts and can't drift.
 
 ### Other stuff worth changing
 
@@ -189,8 +253,13 @@ Config.ImpoundLocations = {
 | `Config.RegisterWeaponsAutomatically` | true | Auto-register weapons on purchase |
 | `Config.RegisterCreatedWeapons` | false | Auto-register crafted weapons |
 | `Config.UseWolfknightRadar` | true | Wolfknight plate reader integration |
-| `Config.UseCQCMugshot` | true | CQC mugshot trigger |
 | `Config.Fuel` | 'LegacyFuel' | Your fuel resource name |
+| `Config.Radio.Enabled` | true | Push-to-talk from inside the MDT |
+| `Config.Radio.VoiceSystem` | 'auto' | `auto`, `pma-voice`, `saltychat`, or `yaca` |
+| `Config.Dashcam.Positions` | — | Per-model dashcam positions. Vehicles not listed here can't be viewed |
+| `Config.OfficerStatus.Default` | 'active' | Status an officer starts a shift on |
+| `Config.VehicleInsurance` / `Config.VehicleRegistration` / `Config.VehiclePoints` | — | Turn each vehicle column on or off. Disabled ones vanish from the grid entirely |
+| `Config.CivilianAccess` | — | Civilian mode: profile and legislation view |
 | `Config.Debug` | false | Debug logging |
 
 ## Preview
@@ -207,7 +276,7 @@ Config.ImpoundLocations = {
 Look up any player. See their name, photo, gender, DOB, phone, fingerprint, job, vehicles, properties, arrest count, and linked reports. Edit licenses, add tags, upload photos, and take mugshots.
 
 ### Reports
-Write incident reports with a rich text editor. Add suspects, victims, officers, charges, and evidence. Tag and restrict reports by department or rank.
+Write incident reports with a rich text editor. Add suspects, victims, officers, charges, and evidence. Tag and restrict reports by department or rank. Two officers can write the same report at once and see each other's cursors live.
 
 ### Cases
 Group related reports into investigations. Assign officers, set priority and status, attach files, track everything in one place.
@@ -222,7 +291,14 @@ Issue warrants with expiry dates. Track felony/misdemeanor/infraction counts. Cl
 Be On Lookout alerts for people and vehicles. Set status, share across departments.
 
 ### Vehicles
-Search by plate, view registration and owner, manage DMV records. Handle impounds with configurable lot locations.
+Search by plate, view registration and owner, manage DMV records and licence points. Insurance and registration checks hook into external resources, and each of those columns disappears from the grid entirely when you turn the feature off.
+
+### Impound
+Impound a vehicle from the MDT (only while it's sitting in a garage) or on the street with `/mdtimpound`. The on-site flow opens the same impound form the MDT uses, so an officer only ever learns one screen.
+
+Every impound records the reason, officer, lot, fee, notes, and an optional photo link. Releasing doesn't wipe the record, so each vehicle keeps a full impound history. The fee grows with a daily storage charge that stops at a configurable cap, and a lot view lists everything currently held with its outstanding fees. Impounding a vehicle with an active BOLO resolves that BOLO automatically.
+
+Vehicles nobody owns are a separate case: they're simply hauled away and the officer earns a small payout for keeping the streets clear, rate-limited by a cooldown and a per-shift cap.
 
 ### Weapons
 Firearm registry with serial tracking and ownership history.
@@ -232,6 +308,33 @@ Place cameras around the map (23 prop models available). View feeds with pan, zo
 
 ### Bodycams
 Watch live feeds from on-duty officers.
+
+### Dashcams
+Live feeds from police vehicles, with per-model camera positions. Cars that haven't been configured are blocked server-side rather than showing a broken view.
+
+### Map and Patrols
+A live map of on-duty officers and police vehicles. Draw patrol zones, assign officers to them, and get entry and exit notifications. Dispatch calls show up on the same map, and units can be dragged onto a call to attach them.
+
+### Officer Status
+Officers set their own status (available, busy, on a call), which feeds the roster, the map, and dispatch.
+
+### Radio
+Push-to-talk from inside the MDT, so an officer can keep talking while typing a report. Detects pma-voice, SaltyChat, or YaCA automatically.
+
+### Court and DOJ
+A shared calendar for hearings and training, with per-category permissions and missed-hearing tracking. Reminders arrive as notifications even when the MDT is closed.
+
+### Bulletin Board
+Department noticeboard with per-job categories you can reorder, pin, and restrict.
+
+### SOP
+Standard operating procedures, grouped into categories, with acknowledgement tracking so you can see who has read what.
+
+### FTO
+Field training: assign trainees to training officers, record daily observation reports, and rate competencies.
+
+### Civilian Mode
+A cut-down MDT (profile and legislation only) that civilian resources can open — phone apps, courthouse scripts, and the like.
 
 ### Dashboard
 Stats overview: reports this week vs last week, active units, job info.
@@ -258,7 +361,7 @@ File and manage internal affairs complaints against officers. Track complaint st
 Create performance reviews for officers covering coachable moments, commendations, and developmental feedback. Supervisors can document incidents from cases, traffic stops, or any notable officer conduct. PPR records are tied to officer profiles and accessible from both the Personnel sidebar and the officer's profile PPR tab.
 
 ### Management
-Admin panel for the department. Set permissions per rank, post bulletins, view audit logs, manage tags. There are 25 permissions you can assign per role covering citizens, BOLOs, vehicles, weapons, cases, evidence, reports, warrants, charges, dispatch, cameras, bodycams, notes, and management access.
+Admin panel for the department. Set permissions per rank, post bulletins, view audit logs, manage tags. There are 62 permissions you can assign per role, covering citizens, reports, cases, evidence, BOLOs, warrants, vehicles and impounds, weapons, charges, dispatch, cameras, bodycams, dashcams, patrols, the bulletin board, SOPs, FTO, the court calendar, and management access.
 
 ### Audit Trail
 Every action gets logged. Who did what, when. Covers: logins, reports, cases, evidence, warrants, vehicles, weapons, charges, searches, dispatch, officers, sentencing, arrests, ICU. Each category toggles on/off from the settings page.
@@ -278,14 +381,16 @@ For other resources to interact with the MDT.
 | `isViewingCamera` | - | `boolean` | Returns whether the player is currently viewing a security camera feed |
 | `openComplaint` | - | — | Opens the standalone IA complaint form (works outside the MDT, useful for civilian resources) |
 | `openCivilianMDT` | - | — | Opens the MDT in civilian mode (profile + legislation view only). Use from phone apps, courthouse scripts, etc. |
+| `impoundNearbyVehicle` | - | — | Runs the on-site impound on the vehicle the officer is in or standing next to. Hang this off a target or a keybind instead of the command |
 
 ### Server Exports
 
 | Export | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
 | `IsCidFelon` | `citizenid: string`, `cb: function?` | `boolean` | Checks if a citizen has any felony charges on record. Supports both callback and direct return |
-| `isRequestVehicle` | `vehicleId: number` | `boolean` | Checks if a vehicle was flagged for impound via the MDT. Consumes the entry on match |
 | `registerWeapon` | `citizenid: string`, `weaponName: string`, `serial: string`, `info: string?` | - | Registers a weapon in the MDT firearms registry with ownership history |
+| `GetCitizenPhoneNumber` | `citizenid: string` | `string?` | Returns a citizen's phone number |
+| `isRequestVehicle` | `vehicleId: number` | `boolean` | **Deprecated.** Always returns `false`. Kept so v1 resources that call it don't error — impound state now lives in the `mdt_impound` table |
 
 # 1of1 Servers - VPS & Dedicated Servers
 
@@ -305,4 +410,4 @@ We host some of the biggest FiveM servers in the industry such as Prodigy RP, Sm
 - Free transfer of files and setup  
 - Free Windows licenses  
 - Windows Remote Desktop  
-- 24/7 Support with ~30 min average ticket response  
+- 24/7 Support with ~30 min average ticket response

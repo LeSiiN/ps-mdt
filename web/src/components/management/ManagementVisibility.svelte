@@ -124,6 +124,18 @@
 						<span class="role-title">{currentRole.label}</span>
 						{#if currentRole.isBoss}
 							<span class="boss-note">Boss roles always see all tabs</span>
+						{:else}
+							{#if mgmt.isDirty}
+								<span class="dirty-hint">Unsaved changes</span>
+							{/if}
+							<button
+								class="save-btn"
+								class:dirty={mgmt.isDirty}
+								onclick={() => mgmt.saveAllRoles()}
+								disabled={mgmt.isSaving}
+							>
+								{mgmt.isSaving ? "Saving..." : "Save Visibility"}
+							</button>
 						{/if}
 					</div>
 
@@ -168,17 +180,6 @@
 						{/each}
 					</div>
 
-					{#if !currentRole.isBoss}
-						<div class="save-row">
-							<button
-								class="save-btn"
-								onclick={() => mgmt.saveAllRoles()}
-								disabled={mgmt.isSaving}
-							>
-								{mgmt.isSaving ? "Saving..." : "Save Visibility"}
-							</button>
-						</div>
-					{/if}
 				{/if}
 			</div>
 		</div>
@@ -314,24 +315,50 @@
 		align-items: center;
 		gap: 8px;
 		padding: 8px 16px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 		flex-shrink: 0;
+		/* Stays visible while scrolling the tab list. */
+		position: sticky;
+		top: 0;
+		z-index: 5;
+		background: var(--card-dark-bg, #16181d);
 	}
+	.role-title-row .dirty-hint {
+		margin-left: auto;
+		font-size: 10px;
+		color: rgba(234, 179, 8, 0.75);
+		animation: fadeIn 0.2s ease-out;
+	}
+	.role-title-row .dirty-hint + .save-btn { margin-left: 0; }
+	.role-title-row .save-btn { margin-left: auto; }
+	.save-btn.dirty {
+		background: rgba(var(--accent-rgb), 0.14);
+		border-color: rgba(var(--accent-rgb), 0.25);
+		color: rgba(var(--accent-text-rgb), 0.95);
+	}
+	@keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
 
 	.role-title { font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.8); }
 	.boss-note { font-size: 10px; color: rgba(110, 231, 183, 0.6); }
 
 	.groups-list { flex: 1; }
 
-	.group-section { border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
-	.group-section:last-child { border-bottom: none; }
+	.group-section {
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 6px;
+		margin: 0 12px 8px;
+		overflow: hidden;
+	}
+	.group-section:first-child { margin-top: 12px; }
 
 	.group-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 8px 16px;
-		background: rgba(255, 255, 255, 0.015);
+		padding: 8px 12px;
+		background: rgba(255, 255, 255, 0.02);
+		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 	}
 
 	.group-label-row { display: flex; align-items: center; gap: 6px; }
@@ -370,15 +397,18 @@
 		color: rgba(239, 68, 68, 0.7);
 	}
 
-	.group-tabs { padding: 0 16px; }
+	.group-tabs { padding: 0; }
 
 	.tab-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 6px 0 6px 20px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+		padding: 6px 12px 6px 20px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+		transition: background 0.1s;
 	}
+	.tab-row:last-child { border-bottom: none; }
+	.tab-row:hover { background: rgba(255, 255, 255, 0.02); }
 
 	.tab-row:last-child { border-bottom: none; }
 
@@ -420,12 +450,6 @@
 	.toggle input:checked + .toggle-slider { background: rgba(var(--accent-rgb), 0.35); }
 	.toggle input:checked + .toggle-slider::before { transform: translateX(14px); background: rgba(255, 255, 255, 0.85); }
 	.toggle input:disabled + .toggle-slider { opacity: 0.4; cursor: not-allowed; }
-
-	.save-row {
-		padding: 10px 16px;
-		border-top: 1px solid rgba(255, 255, 255, 0.06);
-		flex-shrink: 0;
-	}
 
 	.save-btn {
 		background: rgba(var(--accent-rgb), 0.06);

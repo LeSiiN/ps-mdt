@@ -128,6 +128,18 @@
 						<span class="role-title">{currentRole.label}</span>
 						{#if currentRole.isBoss}
 							<span class="boss-note">Boss roles have all permissions enabled</span>
+						{:else}
+							{#if mgmt.isDirty}
+								<span class="dirty-hint">Unsaved changes</span>
+							{/if}
+							<button
+								class="save-btn"
+								class:dirty={mgmt.isDirty}
+								onclick={() => mgmt.saveAllRoles()}
+								disabled={mgmt.isSaving}
+							>
+								{mgmt.isSaving ? "Saving..." : "Save Permissions"}
+							</button>
 						{/if}
 					</div>
 
@@ -173,18 +185,6 @@
 							</div>
 						{/each}
 					</div>
-
-					{#if !currentRole.isBoss}
-						<div class="save-row">
-							<button
-								class="save-btn"
-								onclick={() => mgmt.saveAllRoles()}
-								disabled={mgmt.isSaving}
-							>
-								{mgmt.isSaving ? "Saving..." : "Save Permissions"}
-							</button>
-						</div>
-					{/if}
 				{/if}
 			</div>
 		</div>
@@ -350,9 +350,28 @@
 		align-items: center;
 		gap: 8px;
 		padding: 8px 16px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 		flex-shrink: 0;
+		/* Stays visible while scrolling the permission list. */
+		position: sticky;
+		top: 0;
+		z-index: 5;
+		background: var(--card-dark-bg, #16181d);
 	}
+	.role-title-row .dirty-hint {
+		margin-left: auto;
+		font-size: 10px;
+		color: rgba(234, 179, 8, 0.75);
+		animation: fadeIn 0.2s ease-out;
+	}
+	.role-title-row .dirty-hint + .save-btn { margin-left: 0; }
+	.role-title-row .save-btn { margin-left: auto; }
+	.save-btn.dirty {
+		background: rgba(var(--accent-rgb), 0.14);
+		border-color: rgba(var(--accent-rgb), 0.25);
+		color: rgba(var(--accent-text-rgb), 0.95);
+	}
+	@keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
 
 	.role-title {
 		font-size: 11px;
@@ -371,8 +390,13 @@
 	}
 
 	.category-section {
-		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 6px;
+		margin: 0 12px 8px;
+		overflow: hidden;
 	}
+	.category-section:first-child { margin-top: 12px; }
 
 	.category-section:last-child {
 		border-bottom: none;
@@ -382,8 +406,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 8px 16px;
-		background: rgba(255, 255, 255, 0.015);
+		padding: 8px 12px;
+		background: rgba(255, 255, 255, 0.02);
+		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 	}
 
 	.category-label-row {
@@ -438,16 +463,19 @@
 	}
 
 	.category-perms {
-		padding: 0 16px;
+		padding: 0;
 	}
 
 	.permission-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 6px 0 6px 20px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+		padding: 6px 12px 6px 20px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+		transition: background 0.1s;
 	}
+	.permission-row:last-child { border-bottom: none; }
+	.permission-row:hover { background: rgba(255, 255, 255, 0.02); }
 
 	.permission-row:last-child {
 		border-bottom: none;
@@ -524,12 +552,6 @@
 	}
 
 	/* Save */
-	.save-row {
-		padding: 10px 16px;
-		border-top: 1px solid rgba(255, 255, 255, 0.06);
-		flex-shrink: 0;
-	}
-
 	.save-btn {
 		background: rgba(var(--accent-rgb), 0.06);
 		color: rgba(var(--accent-text-rgb), 0.7);

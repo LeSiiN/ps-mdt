@@ -31,6 +31,12 @@ export function createDashboardService() {
 				arrestsLast7: 0,
 				arrestsLast30: 0,
 			},
+			impound: {
+				held: 0,
+				outstanding: 0,
+				oldestDays: 0,
+				impoundedLast7: 0,
+			},
 		},
 	};
 
@@ -45,6 +51,8 @@ export function createDashboardService() {
 	const recentReportsPageSize = 10;
 	let activeBolos = $state(defaultState.activeBolos);
 	let bulletins = $state(defaultState.bulletins);
+	let upcomingHearings = $state<import("../interfaces/IDashboard").UpcomingHearing[]>([]);
+	let openCases = $state<import("../interfaces/IDashboard").OpenCase[]>([]);
 	let activeUnits = $state(defaultState.activeUnits);
 	let recentDispatches = $state(defaultState.recentDispatches);
 	let usageMetrics = $state(defaultState.usageMetrics);
@@ -230,6 +238,8 @@ export function createDashboardService() {
 			timeStatistics?: typeof weeklyTimeData;
 			activeWarrants?: typeof activeWarrants;
 			bulletins?: typeof bulletins;
+			upcomingHearings?: typeof upcomingHearings;
+			openCases?: typeof openCases;
 			activeBolos?: typeof activeBolos;
 			activeUnits?: typeof activeUnits;
 			recentDispatches?: typeof recentDispatches;
@@ -255,6 +265,8 @@ export function createDashboardService() {
 					checkAndStartCarousel();
 				}
 				activeBolos = data.activeBolos || activeBolos;
+				upcomingHearings = Array.isArray(data.upcomingHearings) ? data.upcomingHearings : upcomingHearings;
+				openCases = Array.isArray(data.openCases) ? data.openCases : openCases;
 				activeUnits = data.activeUnits || activeUnits;
 				recentDispatches = data.recentDispatches || recentDispatches;
 				usageMetrics = data.usageMetrics || usageMetrics;
@@ -338,6 +350,7 @@ export function createDashboardService() {
 			usageMetrics = {
 				totals: { reports: 247, arrests: 89, activeWarrants: 4 },
 				windows: { reportsLast7: 12, reportsLast30: 47, arrestsLast7: 5, arrestsLast30: 18 },
+				impound: { held: 6, outstanding: 4250, oldestDays: 3, impoundedLast7: 9 },
 			};
 			return;
 		}
@@ -368,6 +381,12 @@ export function createDashboardService() {
 		},
 		get activeBolos() {
 			return activeBolos;
+		},
+		get upcomingHearings() {
+			return upcomingHearings;
+		},
+		get openCases() {
+			return openCases;
 		},
 		get bulletins() {
 			return bulletins;

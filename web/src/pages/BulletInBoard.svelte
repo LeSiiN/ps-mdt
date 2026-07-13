@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { formatDateTime } from "../utils/datetime";
     import { fetchNui } from "../utils/fetchNui";
     import { NUI_EVENTS } from "../constants/nuiEvents";
     import type { AuthService } from "../services/authService.svelte";
@@ -128,12 +129,7 @@
     }
 
     function formatDate(dateStr: string): string {
-        try {
-            const d = new Date(dateStr);
-            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
-                   ' · ' +
-                   d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-        } catch { return dateStr; }
+        return formatDateTime(dateStr, dateStr);
     }
 
     function getCategoryMeta(value: string): SidebarCategory {
@@ -628,7 +624,7 @@
 
 <style>
     /* ── Layout ──────────────────────────────────────────────── */
-    .bulletin-page { display: flex; height: 100%; overflow: hidden; }
+    .bulletin-page { display: flex; height: 100%; overflow: hidden; background: var(--card-dark-bg); color: rgba(255, 255, 255, 0.9); }
 
     /* ── Sidebar ─────────────────────────────────────────────── */
     .bulletin-sidebar {

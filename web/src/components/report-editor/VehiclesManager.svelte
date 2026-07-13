@@ -1,8 +1,13 @@
 <script lang="ts">
 	import type { ReportVehicle } from "../../interfaces/IReportEditor";
-	import { fetchNui } from "../../utils/fetchNui";
 	import { isEnvBrowser } from "../../utils/misc";
+	import { createSearch } from "../../utils/searchNui";
 	import { NUI_EVENTS } from "../../constants/nuiEvents";
+
+	const runVehicleSearch = createSearch<ReportVehicle[]>(
+		NUI_EVENTS.REPORT.SEARCH_VEHICLES_FOR_REPORT,
+		[],
+	);
 
 	interface Props {
 		vehicles: ReportVehicle[];
@@ -48,11 +53,9 @@
 					{ plate: "XYZ 789", vehicle_label: "Truffade Adder", owner_name: "Sarah Williams", owner_citizenid: "DEF67890" },
 				];
 			} else {
-				const results = await fetchNui<ReportVehicle[]>(
-					NUI_EVENTS.REPORT.SEARCH_VEHICLES_FOR_REPORT,
-					{ query: query },
-					[],
-				);
+				const { results, stale } = await runVehicleSearch({ query });
+				// Ignore results from a query the user has already typed past.
+				if (stale) return;
 				searchResults = Array.isArray(results) ? results : [];
 			}
 		} catch {

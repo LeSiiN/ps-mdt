@@ -25,6 +25,18 @@ local function getCertifications(citizenid)
     return {}
 end
 
+-- Resolve a human-facing department label. Prefers the live job's label (online
+-- players), falls back to the shared job config's label (offline / DB rows), and
+-- finally the raw job name. Avoids showing the internal id like "police" as DEPT.
+local function deptLabel(jobName, jobObj)
+    if jobObj and jobObj.label and jobObj.label ~= '' then return jobObj.label end
+    if jobName and ps.getSharedJobData then
+        local shared = ps.getSharedJobData(jobName)
+        if shared and shared.label and shared.label ~= '' then return shared.label end
+    end
+    return jobName
+end
+
 local function buildRosterFromQbx(jobList, matchFn, defaultDept)
     local rosterList = {}
     local activeUnits = {}
@@ -67,6 +79,7 @@ local function buildRosterFromQbx(jobList, matchFn, defaultDept)
             local fullname = data.charinfo and (data.charinfo.firstname .. ' ' .. data.charinfo.lastname) or 'Unknown'
             local rank = job.grade and job.grade.name or 'Officer'
             local department = job.name or defaultDept
+            local departmentLabel = deptLabel(job.name, job) or department
             local certifications = getCertifications(citizenid)
 
             local onlineSrc = onlinePlayer and (onlinePlayer.PlayerData and onlinePlayer.PlayerData.source or onlinePlayer.source) or nil
@@ -78,6 +91,7 @@ local function buildRosterFromQbx(jobList, matchFn, defaultDept)
                 lastName = data.charinfo and data.charinfo.lastname or 'N/A',
                 rank = rank,
                 department = department,
+                departmentLabel = departmentLabel,
                 status = (onlinePlayer and job.onduty) and 'On Duty' or 'Off Duty',
                 certifications = certifications,
                 badgeNumber = callsign,
@@ -180,6 +194,7 @@ ps.registerCallback('ps-mdt:server:getRosterList', function(source)
                 lastName = lastName,
                 rank = rank,
                 department = jobName or employee.job or defaultDept,
+                departmentLabel = deptLabel(jobName, job) or jobName or employee.job or defaultDept,
                 status = status,
                 certifications = getCertifications(citizenid),
                 badgeNumber = callsign,
@@ -276,6 +291,34 @@ ps.registerCallback('ps-mdt:server:getJobGrades', function(source, payload)
 end)
 
 -- Promote/demote an officer (change their job grade)
+-- Set a player's job/grade directly through the active framework.
+-- The ps bridge's setJob path depends on a setPlayerData export that isn't
+-- present on this server, so promote/terminate calls silently failed. We talk to
+-- QBX first (the roster already uses qbx_core), then fall back to QBCore.
+---@return boolean ok
+local function setOfficerJob(targetSrc, jobName, grade)
+    grade = tonumber(grade) or 0
+
+    if GetResourceState('qbx_core') == 'started' and exports['qbx_core'] then
+        local ok, res = pcall(function()
+            return exports['qbx_core']:SetJob(targetSrc, jobName, grade)
+        end)
+        -- QBX returns true on success (and may return nil on older builds).
+        if ok and res ~= false then return true end
+    end
+
+    local ok, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
+    if ok and QBCore and QBCore.Functions then
+        local Player = QBCore.Functions.GetPlayer(targetSrc)
+        if Player and Player.Functions and Player.Functions.SetJob then
+            local sok = pcall(function() return Player.Functions.SetJob(jobName, grade) end)
+            if sok then return true end
+        end
+    end
+
+    return false
+end
+
 ps.registerCallback('ps-mdt:server:promoteOfficer', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -314,7 +357,9 @@ ps.registerCallback('ps-mdt:server:promoteOfficer', function(source, payload)
         return { success = false, message = 'You cannot change your own rank' }
     end
 
-    ps.setJob(targetSrc, jobName, newGrade)
+    if not setOfficerJob(targetSrc, jobName, newGrade) then
+        return { success = false, message = 'Failed to update rank (framework error)' }
+    end
 
     local gradeName = gradeData.name or ('Grade ' .. newGrade)
 
@@ -359,13 +404,35 @@ ps.registerCallback('ps-mdt:server:fireOfficer', function(source, payload)
         return { success = false, message = 'You cannot fire yourself' }
     end
 
-    ps.setJob(targetSrc, 'unemployed', 0)
-
-    if ps.auditLog then
-        ps.auditLog(src, 'officer_fired', 'officers', citizenid, {})
+    if not setOfficerJob(targetSrc, 'unemployed', 0) then
+        return { success = false, message = 'Failed to terminate officer (framework error)' }
     end
 
-    return { success = true, message = 'Officer has been terminated' }
+    -- Optional full personal-data wipe (boss panel toggle). Runs after the job
+    -- change so the person is already off the roster; only touches their own
+    -- footprint, never investigative/shared data. See personnel_cleanup.lua.
+    local cleanup = nil
+    if payload.deleteData and CleanupPersonnelData then
+        cleanup = CleanupPersonnelData(citizenid)
+    end
+
+    if ps.auditLog then
+        ps.auditLog(src, 'officer_fired', 'officers', citizenid, {
+            dataDeleted = payload.deleteData and true or false,
+            cleanupSteps = cleanup and cleanup.steps or nil,
+        })
+    end
+
+    local message = 'Officer has been terminated'
+    if payload.deleteData then
+        if cleanup and cleanup.ok then
+            message = 'Officer terminated and MDT data removed'
+        elseif cleanup then
+            message = 'Officer terminated, but data cleanup failed: ' .. tostring(cleanup.error)
+        end
+    end
+
+    return { success = true, message = message, cleanup = cleanup }
 end)
 
 -- Update officer callsign (wrapper around existing setCallsign for NUI)

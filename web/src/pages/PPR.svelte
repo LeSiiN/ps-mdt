@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate, formatDateTime } from "../utils/datetime";
 	import { isEnvBrowser } from "../utils/misc";
 	import { fetchNui } from "../utils/fetchNui";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -283,29 +284,11 @@
 	}
 
 	function formatDateValue(value: string | undefined): string {
-		if (!value) return "-";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return "-";
-		return date.toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		});
+		return formatDate(value, "-");
 	}
 
 	function formatDateTimeValue(value: string | undefined): string {
-		if (!value) return "-";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return "-";
-		return date.toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		}) + " " + date.toLocaleTimeString("en-US", {
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
-		});
+		return formatDateTime(value, "-");
 	}
 
 	function getCategoryPillClass(category: string): string {
@@ -419,7 +402,7 @@
 								</div>
 								<div class="field-group">
 									<span class="field-label">Incident Date</span>
-									<span class="field-value">{selectedEntry.entry.incident_date || '-'}</span>
+									<span class="field-value">{formatDateValue(selectedEntry.entry.incident_date)}</span>
 								</div>
 								<div class="field-group">
 									<span class="field-label">Location</span>

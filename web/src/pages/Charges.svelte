@@ -17,7 +17,29 @@
 	let hasLoadedCharges = $state(false);
 	let searchQuery = $state("");
 	let isLoading = $state(false);
-	let isEditing = $state(false);
+
+	// Phase 3: full create/edit/delete modal + category management.
+	type ChargeForm = {
+		code: string;
+		label: string;
+		type: Charge["type"];
+		category: string;
+		fine: number;
+		time: number;
+		color: string;
+		description: string;
+	};
+	let categories = $state<string[]>([]);
+	let showModal = $state(false);
+	let modalMode = $state<"create" | "edit">("create");
+	let modalOriginalCode = $state("");
+	let modalForm = $state<ChargeForm>({
+		code: "", label: "", type: "misdemeanor", category: "",
+		fine: 0, time: 0, color: "#6b7280", description: "",
+	});
+	let isSavingModal = $state(false);
+	let confirmDelete = $state(false);
+	let modalError = $state("");
 
 	let canEdit = $derived(authService?.hasPermission("charges_edit") ?? false);
 
@@ -95,6 +117,7 @@
 		} else {
 			loadCharges();
 		}
+		loadCategories();
 	});
 
 	function normalizeCharge(raw: Charge): Charge {
@@ -116,36 +139,6 @@
 
 	function toggleCollapse(type: Charge["type"]) {
 		collapsedState[type] = !collapsedState[type];
-	}
-
-	async function saveChargeUpdate(charge: Charge, payload: Partial<Charge>) {
-		try {
-			const result = await fetchNui(NUI_EVENTS.CHARGE.UPDATE_CHARGE, {
-				code: charge.code,
-				label: payload.label ?? charge.label,
-				fine: payload.fine ?? charge.fine,
-				time: payload.time ?? charge.time,
-				description: payload.description ?? charge.description,
-			});
-			if (result?.success) {
-				charges = charges.map((item) =>
-					item.code === charge.code
-						? {
-								...item,
-								label: payload.label ?? item.label,
-								fine: payload.fine ?? item.fine,
-								time: payload.time ?? item.time,
-								description: payload.description ?? item.description,
-							}
-						: item,
-				);
-				return true;
-			}
-			return false;
-		} catch (error) {
-			debugError("Failed to update charge:", error);
-			return false;
-		}
 	}
 
 	function hasCharges<K extends keyof GroupedCharges>(
@@ -172,8 +165,131 @@
 		}
 	}
 
-	function toggleEdit() {
-		isEditing = !isEditing;
+	async function loadCategories() {
+		if (isEnvBrowser()) {
+			categories = ["Offenses against persons", "Offences against Public Safety"];
+			return;
+		}
+		try {
+			const res = await fetchNui<string[]>(NUI_EVENTS.CHARGE.GET_CHARGE_CATEGORIES, {}, []);
+			categories = Array.isArray(res) ? res : [];
+		} catch {
+			categories = [];
+		}
+	}
+
+	function openCreate() {
+		modalMode = "create";
+		modalOriginalCode = "";
+		modalError = "";
+		confirmDelete = false;
+		modalForm = {
+			code: "", label: "", type: "misdemeanor", category: "",
+			fine: 0, time: 0, color: "#6b7280", description: "",
+		};
+		showModal = true;
+	}
+
+	function openManage(charge: Charge) {
+		modalMode = "edit";
+		modalOriginalCode = charge.code || "";
+		modalError = "";
+		confirmDelete = false;
+		modalForm = {
+			code: charge.code || "",
+			label: charge.label,
+			type: charge.type,
+			category: charge.category || "",
+			fine: Number(charge.fine) || 0,
+			time: Number(charge.time) || 0,
+			color: charge.color || "#6b7280",
+			description: charge.description || "",
+		};
+		showModal = true;
+	}
+
+	function closeModal() {
+		showModal = false;
+		confirmDelete = false;
+	}
+
+	async function saveModal() {
+		modalError = "";
+		const code = modalForm.code.trim();
+		const label = modalForm.label.trim();
+		if (!code || !label) {
+			modalError = "Code and name are required.";
+			return;
+		}
+		isSavingModal = true;
+		try {
+			if (modalMode === "create") {
+				const res = await fetchNui<{ success: boolean; message?: string }>(
+					NUI_EVENTS.CHARGE.ADD_CHARGE,
+					{ ...modalForm, code, label },
+				);
+				if (!res?.success) {
+					modalError = res?.message || "Failed to create charge.";
+					return;
+				}
+			} else {
+				const res = await fetchNui<{ success: boolean; message?: string; code?: string }>(
+					NUI_EVENTS.CHARGE.UPDATE_CHARGE,
+					{
+						code: modalOriginalCode,
+						newCode: code !== modalOriginalCode ? code : undefined,
+						label,
+						type: modalForm.type,
+						category: modalForm.category,
+						color: modalForm.color,
+						fine: modalForm.fine,
+						time: modalForm.time,
+						description: modalForm.description,
+					},
+				);
+				if (!res?.success) {
+					modalError = res?.message || "Failed to update charge.";
+					return;
+				}
+			}
+			showModal = false;
+			await loadCharges();
+			await loadCategories();
+		} catch (error) {
+			debugError("Failed to save charge:", error);
+			modalError = "Unexpected error saving charge.";
+		} finally {
+			isSavingModal = false;
+		}
+	}
+
+	async function removeCharge(force = false) {
+		isSavingModal = true;
+		modalError = "";
+		try {
+			const res = await fetchNui<{ success: boolean; message?: string; inUse?: number }>(
+				NUI_EVENTS.CHARGE.DELETE_CHARGE,
+				{ code: modalOriginalCode, force },
+			);
+			if (!res?.success) {
+				// Charge is in use — surface a confirm step instead of deleting silently.
+				if (res?.inUse && !force) {
+					confirmDelete = true;
+					modalError = res.message || "";
+					return;
+				}
+				modalError = res?.message || "Failed to delete charge.";
+				return;
+			}
+			showModal = false;
+			await loadCharges();
+			await loadCategories();
+		} catch (error) {
+			debugError("Failed to delete charge:", error);
+			modalError = "Unexpected error deleting charge.";
+		} finally {
+			isSavingModal = false;
+		}
 	}
 </script>
 
@@ -195,13 +311,8 @@
 				{isLoading ? "Loading..." : "Refresh"}
 			</button>
 			{#if canEdit}
-				<button
-					class="btn-edit"
-					class:active={isEditing}
-					onclick={toggleEdit}
-				>
-					<span class="material-icons btn-edit-icon">{isEditing ? "check" : "edit"}</span>
-					{isEditing ? "Done" : "Edit Charges"}
+				<button class="add-charge-btn" onclick={openCreate}>
+					<span class="material-icons" style="font-size: 12px;">add</span> New Charge
 				</button>
 			{/if}
 		</div>
@@ -230,8 +341,8 @@
 					collapsed={collapsedState.felony}
 					onToggle={() => toggleCollapse("felony")}
 					colorClass="felony"
-					onUpdate={saveChargeUpdate}
-					{isEditing}
+					onManage={openManage}
+					canManage={canEdit}
 				/>
 			{/if}
 
@@ -242,8 +353,8 @@
 					collapsed={collapsedState.misdemeanor}
 					onToggle={() => toggleCollapse("misdemeanor")}
 					colorClass="misdemeanor"
-					onUpdate={saveChargeUpdate}
-					{isEditing}
+					onManage={openManage}
+					canManage={canEdit}
 				/>
 			{/if}
 
@@ -254,15 +365,143 @@
 					collapsed={collapsedState.infraction}
 					onToggle={() => toggleCollapse("infraction")}
 					colorClass="infraction"
-					onUpdate={saveChargeUpdate}
-					{isEditing}
+					onManage={openManage}
+					canManage={canEdit}
 				/>
 			{/if}
 		{/if}
 	</div>
 </div>
 
+{#if showModal}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
+		<div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+			<div class="modal-header">
+				<h3>{modalMode === "create" ? "New Charge" : "Edit Charge"}</h3>
+				<button class="close-btn" aria-label="Close" onclick={closeModal}>
+					<span class="material-icons" style="font-size: 14px;">close</span>
+				</button>
+			</div>
+			<div class="modal-body form-body">
+				<div class="form-group">
+					<span class="field-label">Code</span>
+					<input class="form-input" bind:value={modalForm.code} placeholder="PC-001" />
+				</div>
+				<div class="form-group">
+					<span class="field-label">Class</span>
+					<select class="form-input form-select" bind:value={modalForm.type}>
+						<option value="felony">Felony</option>
+						<option value="misdemeanor">Misdemeanor</option>
+						<option value="infraction">Infraction</option>
+					</select>
+				</div>
+				<div class="form-group form-full">
+					<span class="field-label">Name</span>
+					<input class="form-input" bind:value={modalForm.label} placeholder="Charge name" />
+				</div>
+				<div class="form-group form-full">
+					<span class="field-label">Category</span>
+					<input class="form-input" bind:value={modalForm.category} list="charge-category-list" placeholder="Type a new category or pick an existing one" />
+					<datalist id="charge-category-list">
+						{#each categories as cat}<option value={cat}></option>{/each}
+					</datalist>
+				</div>
+				<div class="form-group">
+					<span class="field-label">Fine ($)</span>
+					<input class="form-input" type="number" min="0" bind:value={modalForm.fine} />
+				</div>
+				<div class="form-group">
+					<span class="field-label">Jail (months)</span>
+					<input class="form-input" type="number" min="0" bind:value={modalForm.time} />
+				</div>
+				<div class="form-group form-full">
+					<span class="field-label">Color</span>
+					<input class="form-input color-input" type="color" bind:value={modalForm.color} />
+				</div>
+				<div class="form-group form-full">
+					<span class="field-label">Description</span>
+					<textarea class="form-input" rows="3" bind:value={modalForm.description} placeholder="Description"></textarea>
+				</div>
+				{#if modalError}
+					<div class="form-group form-full"><span class="modal-error">{modalError}</span></div>
+				{/if}
+			</div>
+			<div class="modal-footer">
+				<div class="modal-footer-left">
+					{#if modalMode === "edit"}
+						{#if confirmDelete}
+							<button class="danger-btn" disabled={isSavingModal} onclick={() => removeCharge(true)}>Confirm delete</button>
+						{:else}
+							<button class="danger-ghost-btn" disabled={isSavingModal} onclick={() => removeCharge(false)}>Delete</button>
+						{/if}
+					{/if}
+				</div>
+				<div class="modal-footer-right">
+					<button class="cancel-btn" disabled={isSavingModal} onclick={closeModal}>Cancel</button>
+					<button class="primary-btn" disabled={isSavingModal} onclick={saveModal}>
+						{isSavingModal ? "Saving..." : modalMode === "create" ? "Create" : "Save"}
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
+	.add-charge-btn {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		background: rgba(59, 130, 246, 0.06);
+		border: 1px solid rgba(59, 130, 246, 0.1);
+		border-radius: 3px;
+		padding: 4px 10px;
+		color: rgba(147, 197, 253, 0.7);
+		font-size: 9px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.12s;
+		text-transform: none;
+		letter-spacing: 0;
+	}
+
+	.add-charge-btn:hover {
+		background: rgba(59, 130, 246, 0.12);
+		color: rgba(147, 197, 253, 0.95);
+	}
+
+	.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 999; }
+	.modal { background: var(--card-dark-bg); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; width: min(540px, 92vw); max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+	.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+	.modal-header h3 { margin: 0; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+	.close-btn { display: flex; align-items: center; justify-content: center; background: transparent; color: rgba(255, 255, 255, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); padding: 4px; border-radius: 3px; cursor: pointer; transition: all 0.1s; }
+	.close-btn:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
+	.modal-body { padding: 14px 16px; overflow-y: auto; }
+	.form-body { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+	.form-group { display: flex; flex-direction: column; gap: 3px; }
+	.form-full { grid-column: 1 / -1; }
+	.field-label { color: rgba(255, 255, 255, 0.35); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
+	.form-input { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 3px; padding: 5px 8px; color: rgba(255, 255, 255, 0.8); font-size: 11px; transition: border-color 0.1s; font-family: inherit; }
+	.form-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.1); }
+	.form-input::placeholder { color: rgba(255, 255, 255, 0.2); }
+	.form-select { cursor: pointer; }
+	.color-input { padding: 2px; height: 28px; cursor: pointer; }
+	textarea.form-input { resize: vertical; min-height: 60px; }
+	.modal-error { color: #f87171; font-size: 10px; }
+	.modal-footer { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 10px 16px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+	.modal-footer-left { display: flex; gap: 6px; }
+	.modal-footer-right { display: flex; gap: 6px; }
+	.cancel-btn { background: transparent; color: rgba(255, 255, 255, 0.4); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 3px; padding: 4px 10px; font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.1s; }
+	.cancel-btn:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
+	.primary-btn { background: rgba(16, 185, 129, 0.06); color: rgba(52, 211, 153, 0.7); border: 1px solid rgba(16, 185, 129, 0.1); border-radius: 3px; padding: 4px 12px; font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.1s; }
+	.primary-btn:hover { background: rgba(16, 185, 129, 0.12); color: rgba(110, 231, 183, 0.9); }
+	.primary-btn:disabled, .cancel-btn:disabled, .danger-btn:disabled, .danger-ghost-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.danger-btn { background: rgba(239, 68, 68, 0.12); color: rgba(248, 113, 113, 0.95); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 3px; padding: 4px 10px; font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.1s; }
+	.danger-ghost-btn { background: transparent; color: rgba(248, 113, 113, 0.7); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 3px; padding: 4px 10px; font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.1s; }
+	.danger-ghost-btn:hover { background: rgba(239, 68, 68, 0.1); color: rgba(248, 113, 113, 0.95); }
+
 	.charges-page {
 		display: flex;
 		flex-direction: column;
@@ -332,36 +571,6 @@
 	.btn-secondary:disabled {
 		opacity: 0.3;
 		cursor: not-allowed;
-	}
-
-	.btn-edit {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		background: transparent;
-		border: 1px solid rgba(255, 255, 255, 0.06);
-		border-radius: 3px;
-		padding: 4px 10px;
-		color: rgba(255, 255, 255, 0.4);
-		font-size: 10px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.1s;
-	}
-
-	.btn-edit:hover {
-		color: rgba(255, 255, 255, 0.7);
-		border-color: rgba(255, 255, 255, 0.1);
-	}
-
-	.btn-edit.active {
-		background: rgba(var(--accent-rgb), 0.06);
-		border-color: rgba(var(--accent-rgb), 0.1);
-		color: rgba(var(--accent-text-rgb), 0.7);
-	}
-
-	.btn-edit-icon {
-		font-size: 12px;
 	}
 
 	.charges-content {

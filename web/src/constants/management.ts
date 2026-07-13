@@ -78,7 +78,10 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		icon: "directions_car",
 		permissions: [
 			{ key: "vehicles_search", label: "Search Vehicles", description: "Search and view vehicle records" },
-			{ key: "vehicles_edit_dmv", label: "Edit Vehicle Points & Impound", description: "Set license points and impound/release vehicles" },
+			{ key: "vehicles_edit_dmv", label: "Edit Vehicle Points", description: "Set license points on a vehicle record" },
+			{ key: "vehicle_impound", label: "Impound Vehicles", description: "Impound a vehicle: set the reason, fee and lot" },
+			{ key: "vehicle_impound_release", label: "Release Impounds & Collect Fees", description: "Release impounded vehicles and charge the impound fee" },
+			{ key: "vehicle_impound_override", label: "Override Impound Holds", description: "Release a vehicle before its hold period is up. Every override is logged" },
 		],
 	},
 	{
@@ -146,6 +149,9 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 			{ key: "map_patrols_edit",   label: "Edit Patrols",   description: "Create, rename, delete and reorder patrols" },
 			{ key: "dispatch_attach", label: "Attach to Calls", description: "Attach or detach from dispatch calls" },
 			{ key: "dispatch_route", label: "Route to Calls", description: "Set GPS route to dispatch calls" },
+			{ key: "dispatch_assign", label: "Assign Units to Calls", description: "Dispatcher: attach or detach other units and patrols to calls (sets their waypoint)" },
+			{ key: "dispatch_notes", label: "Manage Call Notes", description: "Dispatcher: add, edit and remove a note on a dispatch call (shown to assigned units)" },
+			{ key: "dispatch_create", label: "Create Calls", description: "Dispatcher: create custom dispatch calls from the map (code, title, note, location, units)" },
 		],
 	},
 	{
@@ -218,7 +224,7 @@ export const TAB_VISIBILITY_KEYS = [
 	{ tabName: "Charges", key: "tab_hidden_charges", label: "Charges" },
 	{ tabName: "Awards", key: "tab_hidden_awards", label: "Awards" },
 	{ tabName: "Roster", key: "tab_hidden_roster", label: "Roster" },
-	{ tabName: "Map", key: "tab_hidden_map", label: "Map" },
+	{ tabName: "Map", key: "tab_hidden_map", label: "Dispatch" },
 	{ tabName: "Cameras", key: "tab_hidden_cameras", label: "Cameras" },
 	{ tabName: "Bodycams", key: "tab_hidden_bodycams", label: "Bodycams" },
 	{ tabName: "IA", key: "tab_hidden_ia", label: "Internal Affairs" },

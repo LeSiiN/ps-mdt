@@ -257,6 +257,7 @@ end
 
 -- Convert an epoch (already shifted to the desired timezone) to a date string.
 -- Uses Howard Hinnant's days->civil algorithm so no os/date library is needed.
+-- The output honours Config.DateTime so the CCTV overlay matches the MDT UI.
 local function epochToString(epoch)
     local days = math.floor(epoch / 86400)
     local secs = epoch % 86400
@@ -275,7 +276,31 @@ local function epochToString(epoch)
     local m = (mp < 10) and (mp + 3) or (mp - 9)
     if m <= 2 then y = y + 1 end
 
-    return ('%04d-%02d-%02d  %02d:%02d:%02d'):format(y, m, d, hour, minute, second)
+    local dt = (Config and Config.DateTime) or {}
+
+    -- Date part, dot-separated, in the configured order.
+    local dateStr
+    local fmt = dt.DateFormat or 'DD-MM-YYYY'
+    if fmt == 'MM-DD-YYYY' then
+        dateStr = ('%02d.%02d.%04d'):format(m, d, y)
+    elseif fmt == 'YYYY-MM-DD' then
+        dateStr = ('%04d.%02d.%02d'):format(y, m, d)
+    else -- DD-MM-YYYY
+        dateStr = ('%02d.%02d.%04d'):format(d, m, y)
+    end
+
+    -- Time part, 12h or 24h. Seconds are kept: a CCTV overlay wants them.
+    local timeStr
+    if tostring(dt.TimeFormat) == '12' then
+        local suffix = hour < 12 and 'AM' or 'PM'
+        local h12 = hour % 12
+        if h12 == 0 then h12 = 12 end
+        timeStr = ('%d:%02d:%02d %s'):format(h12, minute, second, suffix)
+    else
+        timeStr = ('%02d:%02d:%02d'):format(hour, minute, second)
+    end
+
+    return dateStr .. '  ' .. timeStr
 end
 
 local function getOverlayTime()

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate, formatDateTime } from "../utils/datetime";
 	import { createEvidenceService } from "../services/evidenceService.svelte";
 	import { isEnvBrowser } from "../utils/misc";
 	import type { createTabService } from "../services/tabService.svelte";
@@ -594,7 +595,7 @@
 						</span>
 						<span class="col-location">{item.location || "---"}</span>
 						<span class="col-stored"><span class="stored-dot" class:stored={item.stored}></span>{formatStored(item.stored)}</span>
-						<span class="col-date">{item.created_at ? new Date(item.created_at).toLocaleDateString() : "---"}</span>
+						<span class="col-date">{item.created_at ? formatDate(item.created_at) : "---"}</span>
 					</button>
 				{/each}
 			{/if}
@@ -641,7 +642,7 @@
 										{/if}
 									</span>
 									<span class="custody-time">
-										{entry.created_at ? new Date(entry.created_at).toLocaleString() : ""}
+										{entry.created_at ? formatDateTime(entry.created_at) : ""}
 									</span>
 									{#if entry.notes}
 										<span class="custody-notes">{entry.notes}</span>

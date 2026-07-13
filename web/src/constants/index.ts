@@ -127,6 +127,21 @@ export function getReportTypesForJob(jobType: 'leo' | 'ems' | 'doj'): readonly s
 
 export type MDTTab = (typeof MDT_TABS)[number]["name"];
 
+/**
+ * Display-label overrides for tabs. The tab's `name` stays the stable internal
+ * key (used for routing, permissions, saved UI state, the component map and
+ * server-side tab-hide permissions), while the UI renders this label instead.
+ * This lets us rename a tab visually without touching any of that machinery.
+ */
+export const TAB_LABEL_OVERRIDES: Partial<Record<MDTTab, string>> = {
+	Map: "Dispatch",
+};
+
+/** Human-facing label for a tab (falls back to the internal name). */
+export function getTabLabel(name: MDTTab): string {
+	return TAB_LABEL_OVERRIDES[name] ?? name;
+}
+
 /** Component identifiers for tab routing */
 export type ComponentId =
 	| "dashboard"
@@ -188,8 +203,8 @@ export const TAB_TO_COMPONENT_MAP: Record<MDTTab, ComponentId> = {
 	Preferences: "settings",
 } as const;
 
-export const DEFAULT_TIME = "16:20";
-export const DEFAULT_DATE = "03.15.2024";
+export const DEFAULT_TIME = "04:20";
+export const DEFAULT_DATE = "Loading...";
 
 /** App version and branding per job type */
 export const APP_INFO = {

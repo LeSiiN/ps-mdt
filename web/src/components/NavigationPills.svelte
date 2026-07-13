@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MDT_TABS, NAV_GROUPS, DOJ_NAV_GROUPS, getTabsForJob, type MDTTab, type ComponentId } from "../constants";
+	import { MDT_TABS, NAV_GROUPS, DOJ_NAV_GROUPS, getTabsForJob, getTabLabel, type MDTTab, type ComponentId } from "../constants";
 	import type { createTabService } from "../services/tabService.svelte";
 	import type { JobType } from "../interfaces/IUser";
 	import type { AuthService } from "../services/authService.svelte";
@@ -101,7 +101,7 @@
 									onclick={() => handleTabClick(tab)}
 								>
 									<span class="material-icons nav-icon">{tab.icon}</span>
-									<span>{tab.name}</span>
+									<span>{getTabLabel(tab.name)}</span>
 								</button>
 							{/if}
 						{/each}
@@ -119,7 +119,7 @@
 						onclick={() => handleTabClick(tab)}
 					>
 						<span class="material-icons nav-icon">{tab.icon}</span>
-						<span class:hide={collapsed}>{tab.name}</span>
+						<span class:hide={collapsed}>{getTabLabel(tab.name)}</span>
 					</button>
 				{/if}
 			{/each}

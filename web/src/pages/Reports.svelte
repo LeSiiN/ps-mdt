@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate as fmtDate, formatTime as fmtTime } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { debugError } from "../utils/debug";
@@ -201,19 +202,11 @@
 	}
 
 	function formatDate(timestamp: number): string {
-		return new Date(timestamp).toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		});
+		return fmtDate(timestamp);
 	}
 
 	function formatTime(timestamp: number): string {
-		return new Date(timestamp).toLocaleTimeString("en-US", {
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
-		});
+		return fmtTime(timestamp);
 	}
 
 	function getTagColor(tag: string): string {

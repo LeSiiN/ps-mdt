@@ -430,18 +430,17 @@ ps.registerCallback(resourceName .. ':server:searchPlayers', function(source, qu
     local src = source
     if not CheckAuth(src) then return end
 
-    if not query or query == '' then
-        return {}
-    end
+    local norm, likeQuery = NormalizeSearch(query)
+    if not likeQuery then return {} end
 
     if ps.auditLog then
         ps.auditLog(src, 'search_players', 'search', nil, {
-            query = query
+            query = norm
         })
     end
 
-    local likeQuery = '%' .. query .. '%'
-
+    -- No COLLATE cast on the join key (shared utf8mb4_general_ci) so the
+    -- mdt_profiles index stays usable instead of degrading to a full scan.
     local rows = MySQL.query.await([[
         SELECT
             p.citizenid,
@@ -450,16 +449,16 @@ ps.registerCallback(resourceName .. ':server:searchPlayers', function(source, qu
             JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.fingerprint')) as fingerprint,
             mp.profilepicture
         FROM players p
-        LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = p.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN mdt_profiles mp ON mp.citizenid = p.citizenid
         WHERE (
-            p.citizenid LIKE ?
-            OR JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) LIKE ?
-            OR JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) LIKE ?
-            OR CONCAT(
+            LOWER(p.citizenid) LIKE ?
+            OR LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname'))) LIKE ?
+            OR LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))) LIKE ?
+            OR LOWER(CONCAT(
                 JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')),
                 ' ',
                 JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
-            ) LIKE ?
+            )) LIKE ?
         )
         LIMIT 25
     ]], { likeQuery, likeQuery, likeQuery, likeQuery })
@@ -484,60 +483,76 @@ ps.registerCallback(resourceName .. ':server:searchOfficers', function(source, q
     local src = source
     if not CheckAuth(src) then return end
 
-    if not query or query == '' then
-        return {}
-    end
-
-    query = tostring(query)
-    if #query < 2 then
+    local norm, likeQuery = NormalizeSearch(query)
+    if not likeQuery or #norm < 2 then
         return {}
     end
 
     if ps.auditLog then
         ps.auditLog(src, 'search_officers', 'search', nil, {
-            query = query
+            query = norm
         })
     end
 
-    local likeQuery = '%' .. query .. '%'
+    -- Build the police-job filter as SQL (from Config.PoliceJobType / PoliceJobs)
+    -- instead of fetching arbitrary players and filtering in Lua afterwards.
+    -- The old approach took 50 random matches then dropped non-police, so on a
+    -- busy server an officer could be missing entirely. Filtering in SQL also
+    -- shrinks the scanned set dramatically.
+    local jobClauses, jobParams = {}, {}
+    if Config and Config.PoliceJobType then
+        jobClauses[#jobClauses + 1] = "JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.type')) = ?"
+        jobParams[#jobParams + 1] = tostring(Config.PoliceJobType)
+    end
+    if Config and Config.PoliceJobs and #Config.PoliceJobs > 0 then
+        local ph = {}
+        for _, job in ipairs(Config.PoliceJobs) do
+            ph[#ph + 1] = '?'
+            jobParams[#jobParams + 1] = tostring(job)
+        end
+        jobClauses[#jobClauses + 1] =
+            "JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.name')) IN (" .. table.concat(ph, ',') .. ")"
+    end
+    local jobFilter = #jobClauses > 0
+        and (' AND (' .. table.concat(jobClauses, ' OR ') .. ')')
+        or ''
+
+    local params = { likeQuery, likeQuery, likeQuery, likeQuery, likeQuery }
+    for _, p in ipairs(jobParams) do params[#params + 1] = p end
 
     local rows = MySQL.query.await([[
         SELECT
             p.citizenid,
             JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) as firstname,
             JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) as lastname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.name')) as jobname,
             JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.grade.name')) as jobgrade,
-            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.type')) as jobtype,
             mp.callsign as callsign
         FROM players p
-        LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = p.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN mdt_profiles mp ON mp.citizenid = p.citizenid
         WHERE (
-            p.citizenid LIKE ?
-            OR JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) LIKE ?
-            OR JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) LIKE ?
-            OR CONCAT(
+            LOWER(p.citizenid) LIKE ?
+            OR LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname'))) LIKE ?
+            OR LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))) LIKE ?
+            OR LOWER(CONCAT(
                 JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')),
                 ' ',
                 JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
-            ) LIKE ?
-            OR mp.callsign COLLATE utf8mb4_general_ci LIKE ?
-        )
+            )) LIKE ?
+            OR LOWER(mp.callsign) LIKE ?
+        )]] .. jobFilter .. [[
         LIMIT 50
-    ]], { likeQuery, likeQuery, likeQuery, likeQuery, likeQuery })
+    ]], params)
 
     local results = {}
     for _, row in ipairs(rows or {}) do
-        if IsPoliceJob(row.jobname, row.jobtype) then
-            local fullName = buildFullName(row.firstname, row.lastname, row.citizenid)
-            table.insert(results, {
-                id = row.citizenid,
-                citizenid = row.citizenid,
-                fullName = fullName,
-                badgeId = row.callsign or nil,
-                rank = row.jobgrade or nil
-            })
-        end
+        local fullName = buildFullName(row.firstname, row.lastname, row.citizenid)
+        table.insert(results, {
+            id = row.citizenid,
+            citizenid = row.citizenid,
+            fullName = fullName,
+            badgeId = row.callsign or nil,
+            rank = row.jobgrade or nil
+        })
     end
 
     return results
@@ -547,9 +562,9 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
     local src = source
     if not CheckAuth(src) then return {} end
 
-    if not query or query == '' then
-        return {}
-    end
+    -- Consistent, case/space-insensitive normalisation (see NormalizeSearch).
+    local _, likePat, plateLike = NormalizeSearch(query)
+    if not likePat then return {} end
 
     local vehicleShared = nil
     local ok, core = pcall(function() return exports['qb-core']:GetCoreObject() end)
@@ -557,9 +572,9 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
         vehicleShared = core.Shared.Vehicles
     end
 
-    local likeQuery = '%' .. query:upper() .. '%'
-    local likeQueryRaw = '%' .. query .. '%'
-
+    -- NOTE: no COLLATE cast on the join key — players.citizenid and
+    -- player_vehicles.citizenid share utf8mb4_general_ci, so casting only
+    -- defeated the PK index and forced a quadratic nested-loop (the 10s timeout).
     local rows = MySQL.query.await([[
         SELECT
             pv.plate,
@@ -577,20 +592,19 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
                 'Unknown'
             ) as owner_name
         FROM player_vehicles pv
-        LEFT JOIN players p ON p.citizenid COLLATE utf8mb4_general_ci = pv.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN players p ON p.citizenid = pv.citizenid
         WHERE (
-            UPPER(REPLACE(pv.plate, ' ', '')) LIKE REPLACE(?, ' ', '')
-            OR UPPER(pv.plate) LIKE ?
-            OR CONCAT(
+            REPLACE(LOWER(pv.plate), ' ', '') LIKE ?
+            OR LOWER(CONCAT(
                 COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')), ''),
                 ' ',
                 COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')), '')
-            ) LIKE ?
-            OR p.citizenid LIKE ?
+            )) LIKE ?
+            OR LOWER(pv.citizenid) LIKE ?
         )
         ORDER BY pv.plate ASC
         LIMIT 25
-    ]], { likeQuery, likeQuery, likeQueryRaw, likeQueryRaw })
+    ]], { plateLike, likePat, likePat })
 
     local results = {}
     for _, row in ipairs(rows or {}) do

@@ -213,7 +213,7 @@
 		{:else if activeComponent === "map"}
 			<Map {authService}/>
 		{:else if activeComponent === "vehicles"}
-			<Vehicles {tabService} />
+			<Vehicles {tabService} {authService} />
 		{:else if activeComponent === "weapons"}
 			<Weapons {tabService} {authService} />
 		{:else if activeComponent === "cases"}

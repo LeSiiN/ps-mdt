@@ -262,3 +262,18 @@ RegisterNUICallback('getDojDashboard', function(data, cb)
     local result = ps.callback(resourceName .. ':server:getDojDashboard')
     cb(result or {})
 end)
+-- Warrant hearings (DOJ schedules them after approval)
+RegisterNUICallback('getWarrantHearing', function(data, cb)
+    if not MDTOpen then cb({ success = false }) return end
+    cb(ps.callback(resourceName .. ':server:getWarrantHearing', data or {}) or { success = false })
+end)
+
+RegisterNUICallback('scheduleWarrantHearing', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    cb(ps.callback(resourceName .. ':server:scheduleWarrantHearing', data or {}) or { success = false })
+end)
+
+RegisterNUICallback('removeWarrantHearing', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    cb(ps.callback(resourceName .. ':server:removeWarrantHearing', data or {}) or { success = false })
+end)

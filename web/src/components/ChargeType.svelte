@@ -6,9 +6,10 @@
 		groupedCharges: Record<string, Charge[]>;
 		collapsed: boolean;
 		onToggle: () => void;
-		onUpdate: (charge: Charge, payload: Partial<Charge>) => Promise<boolean>;
+		onUpdate?: (charge: Charge, payload: Partial<Charge>) => Promise<boolean>;
+		onManage?: (charge: Charge) => void;
 		colorClass?: string;
-		isEditing?: boolean;
+		canManage?: boolean;
 	}
 
 	let {
@@ -16,68 +17,10 @@
 		groupedCharges,
 		collapsed,
 		onToggle,
-		onUpdate,
+		onManage,
 		colorClass = "",
-		isEditing = false,
+		canManage = false,
 	}: Props = $props();
-
-	// Track which row is being edited (by code)
-	let editingCode: string | null = $state(null);
-	let editValues = $state<{
-		code: string;
-		label: string;
-		description: string;
-		fine: number;
-		time: number;
-	}>({ code: "", label: "", description: "", fine: 0, time: 0 });
-	let isSaving = $state(false);
-
-	function startEdit(charge: Charge) {
-		editingCode = charge.code || null;
-		editValues = {
-			code: charge.code || "",
-			label: charge.label,
-			description: charge.description,
-			fine: getFineValue(charge),
-			time: getTimeValue(charge),
-		};
-	}
-
-	function cancelEdit() {
-		editingCode = null;
-	}
-
-	async function saveEdit(charge: Charge) {
-		if (isSaving) return;
-		isSaving = true;
-
-		const payload: Partial<Charge> = {};
-		if (editValues.label !== charge.label) payload.label = editValues.label;
-		if (editValues.description !== charge.description) payload.description = editValues.description;
-		if (editValues.fine !== getFineValue(charge)) payload.fine = editValues.fine;
-		if (editValues.time !== getTimeValue(charge)) payload.time = editValues.time;
-
-		// Nothing changed
-		if (Object.keys(payload).length === 0) {
-			editingCode = null;
-			isSaving = false;
-			return;
-		}
-
-		const success = await onUpdate(charge, payload);
-		if (success) {
-			editingCode = null;
-		}
-		isSaving = false;
-	}
-
-	function handleKeydown(event: KeyboardEvent, charge: Charge) {
-		if (event.key === "Enter") {
-			saveEdit(charge);
-		} else if (event.key === "Escape") {
-			cancelEdit();
-		}
-	}
 
 	function getNumericValue(
 		charge: Charge,
@@ -144,92 +87,37 @@
 					<span class="col-desc">Description</span>
 					<span class="col-fine">Fine</span>
 					<span class="col-time">Time</span>
-					{#if isEditing}
+					{#if canManage}
 						<span class="col-actions"></span>
 					{/if}
 				</div>
 				{#each chargeList as charge (charge.code || charge.label)}
-					{@const isRowEditing = isEditing && editingCode === charge.code}
-					{#if isRowEditing}
-						<div class="charge-row editing" onkeydown={(e) => handleKeydown(e, charge)}>
-							<span class="col-code">
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="charge-row"
+						class:clickable={canManage}
+						title={canManage ? "Click to edit this charge" : ""}
+						onclick={() => canManage && onManage?.(charge)}
+					>
+						<span class="col-code">
+							{#if charge.code}
 								<span class="code-tag">{charge.code}</span>
-							</span>
-							<span class="col-label">
-								<input
-									type="text"
-									class="edit-input"
-									bind:value={editValues.label}
-									placeholder="Charge name"
-								/>
-							</span>
-							<span class="col-desc">
-								<input
-									type="text"
-									class="edit-input"
-									bind:value={editValues.description}
-									placeholder="Description"
-								/>
-							</span>
-							<span class="col-fine">
-								<input
-									type="number"
-									class="edit-input edit-number"
-									bind:value={editValues.fine}
-									min="0"
-								/>
-							</span>
-							<span class="col-time">
-								<input
-									type="number"
-									class="edit-input edit-number"
-									bind:value={editValues.time}
-									min="0"
-								/>
-							</span>
-							<span class="col-actions">
-								<button
-									class="btn-save"
-									onclick={() => saveEdit(charge)}
-									disabled={isSaving}
-								>
-									{isSaving ? "..." : "Save"}
-								</button>
-								<button
-									class="btn-cancel"
-									onclick={cancelEdit}
-									disabled={isSaving}
-								>
-									Cancel
-								</button>
-							</span>
-						</div>
-					{:else}
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<div
-							class="charge-row"
-							class:clickable={isEditing}
-							onclick={() => isEditing && startEdit(charge)}
-						>
-							<span class="col-code">
-								{#if charge.code}
-									<span class="code-tag">{charge.code}</span>
-								{:else}
-									<span class="muted">-</span>
-								{/if}
-							</span>
-							<span class="col-label">{charge.label}</span>
-							<span class="col-desc">{charge.description}</span>
-							<span class="col-fine">{formatFine(getFineValue(charge))}</span>
-							<span class="col-time">{formatTime(getTimeValue(charge))}</span>
-							{#if isEditing}
-								<span class="col-actions">
-									<span class="material-icons edit-hint-icon">edit</span>
-								</span>
+							{:else}
+								<span class="muted">-</span>
 							{/if}
-						</div>
-					{/if}
+						</span>
+						<span class="col-label">{charge.label}</span>
+						<span class="col-desc">{charge.description}</span>
+						<span class="col-fine">{formatFine(getFineValue(charge))}</span>
+						<span class="col-time">{formatTime(getTimeValue(charge))}</span>
+						{#if canManage}
+							<span class="col-actions">
+								<span class="material-icons edit-hint-icon">tune</span>
+							</span>
+						{/if}
+					</div>
+				
 				{/each}
 			</div>
 		{/each}
@@ -362,20 +250,8 @@
 		background: rgba(var(--accent-rgb), 0.04);
 	}
 
-	.charge-row.editing {
-		background: rgba(var(--accent-rgb), 0.04);
-		border-bottom: 1px solid rgba(var(--accent-rgb), 0.08);
-		grid-template-columns: 80px 1.2fr 2fr 80px 60px auto;
-	}
-
 	.charge-row:last-child {
 		border-bottom: none;
-	}
-
-	/* When editing or actions column visible, adjust grid */
-	.table-header:has(+ .charge-row.editing),
-	:global(.category-group:has(.charge-row.editing)) .table-header {
-		grid-template-columns: 80px 1.2fr 2fr 80px 60px auto;
 	}
 
 	.col-label {
@@ -435,76 +311,4 @@
 		color: rgba(var(--accent-text-rgb), 0.5);
 	}
 
-	.edit-input {
-		width: 100%;
-		background: rgba(255, 255, 255, 0.04);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 3px;
-		padding: 3px 6px;
-		color: rgba(255, 255, 255, 0.8);
-		font-size: 11px;
-		outline: none;
-		transition: border-color 0.1s;
-	}
-
-	.edit-input:focus {
-		border-color: rgba(var(--accent-rgb), 0.4);
-	}
-
-	.edit-number {
-		width: 60px;
-		text-align: right;
-	}
-
-	/* Hide number input spinners */
-	.edit-number::-webkit-outer-spin-button,
-	.edit-number::-webkit-inner-spin-button {
-		-webkit-appearance: none;
-		margin: 0;
-	}
-
-	.btn-save {
-		background: rgba(16, 185, 129, 0.08);
-		border: 1px solid rgba(16, 185, 129, 0.15);
-		border-radius: 3px;
-		padding: 2px 8px;
-		color: rgba(110, 231, 183, 0.8);
-		font-size: 10px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.1s;
-		white-space: nowrap;
-	}
-
-	.btn-save:hover:not(:disabled) {
-		background: rgba(16, 185, 129, 0.15);
-	}
-
-	.btn-save:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-
-	.btn-cancel {
-		background: transparent;
-		border: 1px solid rgba(255, 255, 255, 0.06);
-		border-radius: 3px;
-		padding: 2px 8px;
-		color: rgba(255, 255, 255, 0.35);
-		font-size: 10px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.1s;
-		white-space: nowrap;
-	}
-
-	.btn-cancel:hover:not(:disabled) {
-		background: rgba(255, 255, 255, 0.03);
-		color: rgba(255, 255, 255, 0.6);
-	}
-
-	.btn-cancel:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
 </style>

@@ -8,12 +8,26 @@ local function _isDojJob(jobName)
     return false
 end
 
+-- Match the server's IsEmsJob: an EMS job is recognised by its TYPE
+-- (Config.MedicalJobType) OR its NAME (Config.MedicalJobs). The client used to
+-- check the type only, so on servers whose EMS job type isn't literally "ems"
+-- the NUI received jobType 'leo' for medics (breaking EMS-specific UI/text).
+local function _isEmsJob(jobName, jobType)
+    if jobType and Config.MedicalJobType and jobType == Config.MedicalJobType then return true end
+    if jobName and Config.MedicalJobs then
+        for _, name in ipairs(Config.MedicalJobs) do
+            if name == jobName then return true end
+        end
+    end
+    return false
+end
+
 RegisterNUICallback('checkAuth', function(_, cb)
     local jobType = ps.getJobType()
     local jobName = ps.getJob() and ps.getJob().name or ''
     local isDoj = _isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
-    local isAuthorized = jobType == Config.PoliceJobType or jobType == Config.MedicalJobType or isDoj
-    local mdtJobType = isDoj and 'doj' or (jobType == Config.MedicalJobType and 'ems' or 'leo')
+    local isAuthorized = jobType == Config.PoliceJobType or _isEmsJob(jobName, jobType) or isDoj
+    local mdtJobType = isDoj and 'doj' or (_isEmsJob(jobName, jobType) and 'ems' or 'leo')
     local onDuty = ps.getJobDuty() or false
     local playerData = ps.getPlayerData()
 
@@ -51,8 +65,8 @@ function NUIUpdateAuth()
     local jobType = ps.getJobType()
     local jobName = ps.getJob() and ps.getJob().name or ''
     local isDoj = _isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
-    local isAuthorized = jobType == Config.PoliceJobType or jobType == Config.MedicalJobType or isDoj
-    local mdtJobType = isDoj and 'doj' or (jobType == Config.MedicalJobType and 'ems' or 'leo')
+    local isAuthorized = jobType == Config.PoliceJobType or _isEmsJob(jobName, jobType) or isDoj
+    local mdtJobType = isDoj and 'doj' or (_isEmsJob(jobName, jobType) and 'ems' or 'leo')
     local playerData = ps.getPlayerData()
     SendNUI('updateAuth', {
         authorized = isAuthorized and (ps.getJobDuty() or false),
@@ -284,10 +298,58 @@ RegisterNUICallback('getRecentDispatches', function(_, cb)
     cb(dispatches or {})
 end)
 
--- Real-time dispatch listener (from ps-dispatch)
+-- ─── Provider-aware attach / detach ─────────────────────────────────────────
+-- ps, qs and cd each expose their own attach/detach path. Route to the right
+-- one based on Config.Dispatch.Provider so the MDT's assign flow is identical
+-- regardless of which dispatch resource the server runs. Detection is silent
+-- client-side; the server logs a one-time warning if none is found.
+local function dispatchProvider()
+    local p = (Config and Config.Dispatch and Config.Dispatch.Provider) or 'auto'
+    local resByProvider = { ps = 'ps-dispatch', qs = 'qs-dispatch', cd = 'cd_dispatch' }
+
+    if (p == 'ps' or p == 'qs' or p == 'cd') and GetResourceState(resByProvider[p]) == 'started' then
+        return p
+    end
+    if GetResourceState('ps-dispatch') == 'started' then return 'ps' end
+    if GetResourceState('qs-dispatch') == 'started' then return 'qs' end
+    if GetResourceState('cd_dispatch') == 'started' then return 'cd' end
+    return nil
+end
+
+local function providerAttach(dispatchId)
+    local p = dispatchProvider()
+    if p == 'qs' then
+        TriggerServerEvent('qs-dispatch:server:attachUnit', dispatchId)
+    elseif p == 'cd' then
+        TriggerServerEvent('cd_dispatch:server:attach', dispatchId)
+    elseif p == 'ps' then
+        TriggerServerEvent('ps-dispatch:server:attach', dispatchId, buildPlayerData())
+    end
+end
+
+local function providerDetach(dispatchId)
+    local p = dispatchProvider()
+    if p == 'qs' then
+        TriggerServerEvent('qs-dispatch:server:detachUnit', dispatchId)
+    elseif p == 'cd' then
+        TriggerServerEvent('cd_dispatch:server:detach', dispatchId)
+    elseif p == 'ps' then
+        TriggerServerEvent('ps-dispatch:server:detach', dispatchId, buildPlayerData())
+    end
+end
+
+-- Real-time dispatch listeners — one per supported provider. Whichever
+-- resource is running fires its event; the others simply never trigger.
 RegisterNetEvent('ps-dispatch:client:notify', function(data)
+    if not MDTOpen or not data then return end
+    SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
+end)
+RegisterNetEvent('qs-dispatch:client:notify', function()
     if not MDTOpen then return end
-    if not data then return end
+    SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
+end)
+RegisterNetEvent('cd_dispatch:client:notify', function()
+    if not MDTOpen then return end
     SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
 end)
 
@@ -303,19 +365,28 @@ end)
 
 RegisterNUICallback("attachToDispatch", function(data, cb)
     if not MDTOpen then cb({}) return end
-    local playerData = buildPlayerData()
-    TriggerServerEvent('ps-dispatch:server:attach', data, playerData)
+    -- data may be a bare id (provider calls) or { id, manual } for MDT calls.
+    local id = type(data) == 'table' and data.id or data
+    local isManual = type(data) == 'table' and data.manual or false
+    if isManual then
+        ps.callback(resourceName .. ':server:selfDispatchAttach', { dispatch_id = id, action = 'attach' })
+    else
+        providerAttach(id)
+    end
     cb(GetRecentDispatch())
-    -- ps.debug('Attached to Dispatch Call: ' .. json.encode(data))
 end)
 
 RegisterNUICallback("detachFromDispatch", function(data, cb)
     if not MDTOpen then cb({}) return end
-    local playerData = buildPlayerData()
-    TriggerServerEvent('ps-dispatch:server:detach', data, playerData)
-    Wait(100) -- wait to make sure non 1of1 servers have time to alter a server side table faster than the cb :kek:
+    local id = type(data) == 'table' and data.id or data
+    local isManual = type(data) == 'table' and data.manual or false
+    if isManual then
+        ps.callback(resourceName .. ':server:selfDispatchAttach', { dispatch_id = id, action = 'detach' })
+    else
+        providerDetach(id)
+        Wait(100) -- give non-1of1 servers time to update the server-side table before the cb
+    end
     cb(GetRecentDispatch())
-    -- ps.debug('Detached from Dispatch Call: ' .. json.encode(data))
 end)
 
 RegisterNUICallback("routeToDispatch", function(data, cb)
@@ -335,4 +406,105 @@ RegisterNUICallback("routeToDispatch", function(data, cb)
     SetNewWaypoint(x, y)
     cb('ok')
     ps.notify('Set Route to Dispatch Location', 'success')
+end)
+-- ---------------------------------------------------------------------------
+-- Dispatcher assignment (runs on the ASSIGNED player's client).
+-- Attaching through the target client mirrors the normal self-attach flow in
+-- ps-dispatch exactly, and lets us set their waypoint + notify locally.
+-- ---------------------------------------------------------------------------
+RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
+    data = data or {}
+    if not data.id then return end
+
+    if data.action == 'detach' then
+        if not data.manual then providerDetach(data.id) end
+        ps.notify('Dispatch has removed you from a call', 'inform')
+        return
+    end
+
+    if not data.manual then providerAttach(data.id) end
+
+    local c = data.coords
+    if c then
+        local x = tonumber(c.x) or tonumber(c[1])
+        local y = tonumber(c.y) or tonumber(c[2])
+        if x and y then SetNewWaypoint(x, y) end
+    end
+
+    local note = type(data.note) == 'string' and data.note ~= '' and data.note or nil
+    if note then
+        ps.notify('Dispatch assigned you to a call — waypoint set. Note: ' .. note, 'success')
+    else
+        ps.notify('Dispatch assigned you to a call — waypoint set. No note provided.', 'success')
+    end
+end)
+
+-- A note was added/edited/removed — refresh the MDT dispatch list so the note
+-- travels with the call everywhere it's shown.
+RegisterNetEvent(resourceName .. ':client:dispatchNoteChanged', function(_)
+    if not MDTOpen then return end
+    SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
+end)
+
+-- You're already on a call and dispatch changed its note.
+RegisterNetEvent(resourceName .. ':client:dispatchNoteNotify', function(data)
+    data = data or {}
+    local text = type(data.text) == 'string' and data.text or ''
+    ps.notify('Dispatch updated the note on your call: ' .. text, 'inform')
+end)
+
+-- Dispatcher-side NUI bridge: assign/detach a set of units to a call.
+RegisterNUICallback('assignToDispatch', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:assignToDispatch', data or {})
+    cb(result or { success = false })
+end)
+
+-- A dispatcher dismissed a call globally — refresh our MDT's dispatch list
+-- (the server already filters the dismissed id out of every response).
+RegisterNetEvent(resourceName .. ':client:dispatchDismissed', function(_)
+    if not MDTOpen then return end
+    SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
+end)
+
+RegisterNUICallback('dismissDispatch', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:dismissDispatch', data or {})
+    cb(result or { success = false })
+end)
+
+RegisterNUICallback('setDispatchNote', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:setDispatchNote', data or {})
+    cb(result or { success = false })
+end)
+
+RegisterNUICallback('deleteDispatchNote', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:deleteDispatchNote', data or {})
+    cb(result or { success = false })
+end)
+
+-- Create Call modal: return the configured 10-codes.
+RegisterNUICallback('getCallCodes', function(_, cb)
+    cb((Config and Config.DispatchCodes) or {})
+end)
+
+-- Create Call modal: resolve a picked map coordinate to "Street, Zone".
+RegisterNUICallback('resolveDispatchStreet', function(data, cb)
+    data = data or {}
+    local x, y, z = tonumber(data.x), tonumber(data.y), tonumber(data.z) or 0.0
+    if not x or not y then cb({ street = '' }) return end
+    local zone = GetLabelText(GetNameOfZone(x + 0.0, y + 0.0, z + 0.0))
+    local hash = GetStreetNameAtCoord(x + 0.0, y + 0.0, z + 0.0)
+    local street = GetStreetNameFromHashKey(hash)
+    local out = street or ''
+    if zone and zone ~= '' then out = (out ~= '' and (out .. ', ') or '') .. zone end
+    cb({ street = out })
+end)
+
+RegisterNUICallback('createManualDispatch', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:createManualDispatch', data or {})
+    cb(result or { success = false })
 end)

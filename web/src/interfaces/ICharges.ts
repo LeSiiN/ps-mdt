@@ -6,6 +6,7 @@ export interface Charge {
 	fine?: number;
 	type: "felony" | "misdemeanor" | "infraction";
 	category: string;
+	color?: string;
 }
 
 export interface GroupedCharges {
