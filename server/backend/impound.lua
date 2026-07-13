@@ -631,8 +631,13 @@ ps.registerCallback(resourceName .. ':server:inspectOnSiteVehicle', function(sou
     end
 
     local plate = cleanPlate(payload.plate)
-    local owned = plate and MySQL.single.await(
-        'SELECT id, plate, vehicle, state FROM player_vehicles WHERE plate = ? LIMIT 1', { plate }) or nil
+    local owned = plate and MySQL.single.await([[
+        SELECT pv.id, pv.plate, pv.vehicle, pv.state, pv.citizenid,
+               pv.mdt_vehicle_stolen     AS stolen,
+               pv.mdt_vehicle_boloactive AS boloactive
+        FROM player_vehicles pv
+        WHERE pv.plate = ? LIMIT 1
+    ]], { plate }) or nil
 
     if not owned then
         -- Unowned traffic: no owner, no garage, no fee to collect. It just goes.
@@ -648,11 +653,41 @@ ps.registerCallback(resourceName .. ':server:inspectOnSiteVehicle', function(sou
         return { success = false, message = 'That vehicle is already impounded' }
     end
 
+    -- Everything the officer standing next to the car ought to know before they
+    -- decide. The BOLO in particular: impounding silently resolves it, and until now
+    -- there was no way to tell it was even there.
+    local ownerName
+    if owned.citizenid then
+        local o = MySQL.single.await([[
+            SELECT CONCAT(
+                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')), ' ',
+                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
+            ) AS fullname
+            FROM players p WHERE p.citizenid = ? LIMIT 1
+        ]], { owned.citizenid })
+        ownerName = o and o.fullname or nil
+    end
+
+    -- The bolos table is the source of truth; the column on player_vehicles is a
+    -- cached flag, so either one counts.
+    local boloRow = MySQL.single.await([[
+        SELECT id FROM mdt_bolos
+        WHERE status = 'active' AND subject_id = ? LIMIT 1
+    ]], { plate })
+
+    local prior = MySQL.single.await(
+        'SELECT COUNT(*) AS n FROM mdt_impound WHERE plate = ?', { plate })
+
     return {
-        success = true,
-        owned   = true,
-        plate   = owned.plate,
-        model   = owned.vehicle,
+        success       = true,
+        owned         = true,
+        plate         = owned.plate,
+        model         = owned.vehicle,
+        owner         = ownerName,
+        -- isTruthy, not `== 1`: oxmysql hands TINYINT(1) back as a boolean.
+        stolen        = isTruthy(owned.stolen),
+        bolo          = (boloRow ~= nil) or isTruthy(owned.boloactive),
+        priorImpounds = (prior and tonumber(prior.n)) or 0,
     }
 end)
 

@@ -13,13 +13,14 @@
 
 	let { show = false, vehicle = null, onClose = () => {} }: {
 		show: boolean;
-		vehicle: { plate: string; model?: string; netId: number } | null;
+		vehicle: { plate: string; model?: string; netId: number; owner?: string; stolen?: boolean; bolo?: boolean; priorImpounds?: number } | null;
 		onClose: () => void;
 	} = $props();
 
 	let reasons = $state<ImpoundReason[]>([]);
 	let lots = $state<ImpoundLot[]>([]);
 	let durations = $state<ImpoundDuration[]>([]);
+	let storage = $state<{ perDay: number; maxDays: number }>({ perDay: 0, maxDays: 0 });
 	let maxFee = $state(50000);
 	let loaded = $state(false);
 	let defaultDuration = $state("");
@@ -62,14 +63,17 @@
 				const res = await fetchNui<{
 					reasons: ImpoundReason[]; lots: ImpoundLot[]; durations: ImpoundDuration[];
 					maxFee: number; defaultDuration: string;
+					storage: { perDay: number; maxDays: number };
 				}>("getImpoundFormConfig", {}, {
 					reasons: [], lots: [], durations: [], maxFee: 50000, defaultDuration: "immediate",
+					storage: { perDay: 0, maxDays: 0 },
 				});
 				reasons = res?.reasons ?? [];
 				lots = res?.lots ?? [];
 				durations = res?.durations ?? [];
 				if (typeof res?.maxFee === "number") maxFee = res.maxFee;
 				defaultDuration = res?.defaultDuration || durations[0]?.id || "";
+				storage = res?.storage ?? { perDay: 0, maxDays: 0 };
 				reason = reasons[0]?.label ?? "";
 				fee = reasons[0]?.fee ?? 0;
 				lot = lots[0]?.id ?? "";
@@ -140,15 +144,48 @@
 			</div>
 
 			<div class="modal-body form-body">
+				<!-- The officer is standing at the car with no way to look it up. If it's
+				     flagged, say so before they decide — impounding silently resolves a
+				     BOLO, so they should at least know one was open. -->
+				{#if vehicle.bolo || vehicle.stolen}
+					<div class="alert-banner form-full" class:alert-stolen={vehicle.stolen}>
+						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+							<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+						</svg>
+						<span>
+							{#if vehicle.stolen && vehicle.bolo}
+								Reported stolen and has an active BOLO — impounding will resolve the BOLO.
+							{:else if vehicle.stolen}
+								This vehicle is reported stolen.
+							{:else}
+								Active BOLO on this vehicle — impounding will resolve it.
+							{/if}
+						</span>
+					</div>
+				{/if}
+
 				{#if vehicle.model}
 					<div class="vehicle-strip form-full">
-						<span class="vs-model">{vehicle.model}</span>
-						<span class="vs-plate">{vehicle.plate}</span>
+						<div class="vs-head">
+							<span class="vs-model">{vehicle.model}</span>
+							<span class="vs-plate">{vehicle.plate}</span>
+						</div>
+						<div class="vs-meta">
+							{#if vehicle.owner}
+								<span class="vs-owner">{vehicle.owner}</span>
+							{/if}
+							{#if (vehicle.priorImpounds ?? 0) > 0}
+								<span class="vs-prior" class:vs-repeat={(vehicle.priorImpounds ?? 0) >= 3}>
+									{vehicle.priorImpounds} prior impound{vehicle.priorImpounds === 1 ? "" : "s"}
+								</span>
+							{/if}
+						</div>
 					</div>
 				{/if}
 
 				<ImpoundFormFields
-					{reasons} {lots} {durations} {defaultDuration} {maxFee}
+					{reasons} {lots} {durations} {defaultDuration} {storage} {maxFee}
 					bind:reason bind:fee bind:lot bind:duration bind:notes bind:photo
 				/>
 
@@ -230,14 +267,46 @@
 
 	.vehicle-strip {
 		display: flex;
-		align-items: baseline;
-		gap: 10px;
+		flex-direction: column;
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid rgba(255, 255, 255, 0.05);
 		border-radius: 4px;
 		padding: 7px 10px;
 	}
-	.vs-model { font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.85); text-transform: uppercase; }
+	.alert-banner {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 9px 12px;
+		border-radius: 4px;
+		background: rgba(251, 191, 36, 0.09);
+		border: 1px solid rgba(251, 191, 36, 0.25);
+		color: rgba(252, 211, 77, 0.95);
+		font-size: 12px;
+		font-weight: 500;
+	}
+	.alert-banner svg { flex-shrink: 0; }
+	.alert-banner.alert-stolen {
+		background: rgba(239, 68, 68, 0.09);
+		border-color: rgba(239, 68, 68, 0.28);
+		color: rgba(252, 165, 165, 0.95);
+	}
+
+	.vs-head { display: flex; align-items: baseline; gap: 10px; }
+	.vs-meta { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+	.vs-owner { font-size: 11px; color: rgba(255, 255, 255, 0.45); }
+	.vs-prior {
+		border-radius: 3px;
+		padding: 1px 6px;
+		background: rgba(255, 255, 255, 0.05);
+		font-size: 9px;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.4);
+	}
+	/* A car that keeps coming back is the case for a longer hold. */
+	.vs-repeat { background: rgba(251, 191, 36, 0.12); color: rgba(252, 211, 77, 0.9); }
+
+	.vs-model { font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.85); text-transform: uppercase; }
 	.vs-plate {
 		font-family: 'Courier New', monospace;
 		font-size: 11px;

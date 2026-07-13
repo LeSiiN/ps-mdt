@@ -81,6 +81,7 @@
 	let impoundReasons = $state<ImpoundReason[]>([]);
 	let impoundLots    = $state<ImpoundLot[]>([]);
 	let requireFeePaid = $state(true);
+	let impoundStorage = $state<{ perDay: number; maxDays: number }>({ perDay: 0, maxDays: 0 });
 	let impoundCfgLoaded = false;
 
 	// Impound modal
@@ -105,13 +106,14 @@
 	async function loadImpoundConfig() {
 		if (impoundCfgLoaded) return;
 		try {
-			const res = await fetchNui<{ reasons: ImpoundReason[]; lots: ImpoundLot[]; durations: ImpoundDuration[]; defaultFee: number; requireFeePaid: boolean; maxFee: number; defaultDuration: string }>(
+			const res = await fetchNui<{ reasons: ImpoundReason[]; lots: ImpoundLot[]; durations: ImpoundDuration[]; defaultFee: number; requireFeePaid: boolean; maxFee: number; defaultDuration: string; storage: { perDay: number; maxDays: number } }>(
 				NUI_EVENTS.IMPOUND.GET_IMPOUND_CONFIG, {},
-				{ reasons: [], lots: [], durations: [], defaultFee: 500, requireFeePaid: true, maxFee: 50000, defaultDuration: "immediate" });
+				{ reasons: [], lots: [], durations: [], defaultFee: 500, requireFeePaid: true, maxFee: 50000, defaultDuration: "immediate", storage: { perDay: 0, maxDays: 0 } });
 			impoundReasons = res?.reasons ?? [];
 			impoundLots = res?.lots ?? [];
 			impoundDurations = res?.durations ?? [];
 			defaultDuration = res?.defaultDuration || impoundDurations[0]?.id || "";
+			impoundStorage = res?.storage ?? { perDay: 0, maxDays: 0 };
 			requireFeePaid = res?.requireFeePaid ?? true;
 			if (typeof res?.maxFee === "number") maxFee = res.maxFee;
 			impoundCfgLoaded = true;
@@ -1103,6 +1105,7 @@
 							lots={impoundLots}
 							durations={impoundDurations}
 							{defaultDuration}
+							storage={impoundStorage}
 							{maxFee}
 							bind:reason={imReason}
 							bind:fee={imFee}

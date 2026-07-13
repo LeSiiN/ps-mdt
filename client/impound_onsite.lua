@@ -201,7 +201,15 @@ local function runImpound()
         pending = { veh = veh, netId = netId, plate = res.plate }
         SendNUIMessage({
             action = 'showImpoundForm',
-            data = { plate = res.plate, model = res.model, netId = netId },
+            data = {
+                plate         = res.plate,
+                model         = res.model,
+                netId         = netId,
+                owner         = res.owner,
+                stolen        = res.stolen,
+                bolo          = res.bolo,
+                priorImpounds = res.priorImpounds,
+            },
         })
         SetNuiFocus(true, true)
         busy = false

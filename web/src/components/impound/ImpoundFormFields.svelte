@@ -13,6 +13,7 @@
 		lots = [],
 		durations = [],
 		defaultDuration = "",
+		storage = { perDay: 0, maxDays: 0 },
 		maxFee = 50000,
 		reason = $bindable(""),
 		fee = $bindable(0),
@@ -25,6 +26,7 @@
 		lots?: ImpoundLot[];
 		durations?: ImpoundDuration[];
 		defaultDuration?: string;
+		storage?: { perDay: number; maxDays: number };
 		maxFee?: number;
 		reason?: string;
 		fee?: number;
@@ -77,6 +79,12 @@
 	});
 	let recommendedHoldLabel = $derived(durations.find((d) => d.id === recommendedHold)?.label ?? "");
 	let holdIsCustom = $derived(!!recommendedHold && duration !== recommendedHold);
+
+	// What this actually costs the owner. The release fee is only half of it: storage
+	// runs per day on top, and the form used to say "no fee will be charged" while
+	// quietly setting the owner up for a storage bill.
+	let maxStorage = $derived((storage?.perDay ?? 0) * (storage?.maxDays ?? 0));
+	let worstCase = $derived(fee + maxStorage);
 
 	let reasonDefaultFee = $derived(reasons.find((r) => r.label === reason)?.fee ?? 0);
 	let feeIsCustom = $derived(fee !== reasonDefaultFee);
@@ -177,6 +185,25 @@
 			{/each}
 		</div>
 	</div>
+
+	<!-- Waiving the release fee doesn't make the impound free: storage still runs.
+	     Spell out what the owner actually ends up paying. -->
+	{#if maxStorage > 0}
+		<div class="cost-breakdown">
+			<div class="cost-row">
+				<span>Release fee</span>
+				<span class="cost-val">{fee === 0 ? "waived" : money(fee)}</span>
+			</div>
+			<div class="cost-row">
+				<span>Storage · {money(storage.perDay)}/day, capped after {storage.maxDays} day{storage.maxDays === 1 ? "" : "s"}</span>
+				<span class="cost-val">up to {money(maxStorage)}</span>
+			</div>
+			<div class="cost-row cost-total">
+				<span>Owner pays at most</span>
+				<span class="cost-val">{money(worstCase)}</span>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <div class="form-group form-full">
@@ -384,6 +411,33 @@
 		cursor: pointer;
 	}
 	.hold-reset:hover { color: rgba(255, 255, 255, 0.8); }
+
+	.cost-breakdown {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		margin-top: 7px;
+		padding: 8px 10px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 4px;
+	}
+	.cost-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 12px;
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.35);
+	}
+	.cost-val { font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.55); }
+	.cost-total {
+		margin-top: 3px;
+		padding-top: 5px;
+		border-top: 1px solid rgba(255, 255, 255, 0.06);
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.6);
+	}
+	.cost-total .cost-val { color: rgba(252, 211, 77, 0.9); }
 
 	/* Fee editor: steppers + quick amounts, echoing the license-points editor. */
 	.fee-editor {

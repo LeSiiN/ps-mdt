@@ -194,6 +194,12 @@ local function getVehicleShared(model)
     return Core.Shared.Vehicles[model]
 end
 
+-- oxmysql hands TINYINT(1) back as a boolean, not the number 1, so `== 1` is false
+-- for a column that is actually set. That's why the Stolen flag never appeared.
+local function isTruthy(v)
+    return v == true or v == 1 or v == '1'
+end
+
 local function buildVehicleFlags(stolen, hasActiveBolo, status)
     local flags = {}
     if hasActiveBolo then
@@ -281,7 +287,7 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
         local vehicleData = getVehicleShared(v.vehicle)
         local plate = v.plate and string.upper(v.plate) or 'UNKNOWN'
         local reportCount = countSetItems(reportIdsByPlate[plate])
-        local hasActiveBolo = activeBoloByPlate[plate] == true or v.boloactive == 1
+        local hasActiveBolo = activeBoloByPlate[plate] == true or isTruthy(v.boloactive)
         -- Status/reason come from insurance (or default to 'valid' when disabled).
         local ins = insuranceByPlate[plate]
         local statusName = ins and ins.status or 'valid'
@@ -290,7 +296,7 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
         local reg = registrationByPlate[plate]
         local registered = reg == nil or reg.registered ~= false
         local registrationReason = reg and reg.reason or ''
-        local flags = buildVehicleFlags(v.stolen == 1, hasActiveBolo, statusName)
+        local flags = buildVehicleFlags(isTruthy(v.stolen), hasActiveBolo, statusName)
 
         table.insert(vehicles, {
             id = v.id,
@@ -460,7 +466,7 @@ ps.registerCallback(resourceName .. ':server:GetVehicle', function(source, plate
     local reportCount = countSetItems(reportIdSet)
     local statusName, statusReason = resolveInsurance(plateUpper)
     local registered, registrationReason = resolveRegistration(plateUpper)
-    local flags = buildVehicleFlags(row.stolen == 1, hasActiveBolo or row.boloactive == 1, statusName)
+    local flags = buildVehicleFlags(isTruthy(row.stolen), hasActiveBolo or isTruthy(row.boloactive), statusName)
 
     return {
         success = true,
@@ -487,8 +493,8 @@ ps.registerCallback(resourceName .. ':server:GetVehicle', function(source, plate
             registered = registered,
             registrationReason = registrationReason,
             core_state = tonumber(row.core_state) or 0,
-            stolen = row.stolen == 1,
-            boloactive = row.boloactive == 1,
+            stolen = isTruthy(row.stolen),
+            boloactive = isTruthy(row.boloactive),
             flags = flags,
             seenIn = reportCount,
             bolos = bolos,
