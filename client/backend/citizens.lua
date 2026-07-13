@@ -115,6 +115,20 @@ RegisterNUICallback('updateBoloStatus', function(data, cb)
     cb(result or { success = false })
 end)
 
+RegisterNUICallback('getCitizenTimeline', function(data, cb)
+    if not MDTOpen then
+        cb({ entries = {}, hasMore = false })
+        return
+    end
+
+    local result = ps.callback(resourceName .. ':server:getCitizenTimeline', data)
+
+    cb(result or {
+        entries = {},
+        hasMore = false
+    })
+end)
+
 RegisterNUICallback('viewBolo', function(data, cb)
     cb({})
     if data and data.boloId then

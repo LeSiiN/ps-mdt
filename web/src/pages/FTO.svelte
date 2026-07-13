@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate, formatDateTime } from "../utils/datetime";
 	import { isEnvBrowser } from "../utils/misc";
 	import { fetchNui } from "../utils/fetchNui";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -48,6 +49,8 @@
 	interface FTODor {
 		id: number;
 		shift_date: string;
+		phase_id?: number;
+		phase_name?: string;
 		ratings: { competency_id: number; competency_name: string; rating: number }[];
 		overall_rating: number;
 		notes?: string;
@@ -251,6 +254,7 @@
 				NUI_EVENTS.FTO.CREATE_FTO_DOR,
 				{
 					assignment_id: selectedDetail.assignment.id,
+					phase_id: currentPhaseId,
 					shift_date: dorShiftDate,
 					ratings: dorRatings,
 					overall_rating: dorOverallRating,
@@ -278,11 +282,18 @@
 	async function handleDeleteDor(dorId: number) {
 		if (!selectedDetail) return;
 		try {
-			await fetchNui(NUI_EVENTS.FTO.DELETE_FTO_DOR, {
-				assignment_id: selectedDetail.assignment.id,
+			const res = await fetchNui<{ success: boolean; error?: string }>(NUI_EVENTS.FTO.DELETE_FTO_DOR, {
+				id: dorId,
 				dor_id: dorId,
+				assignment_id: selectedDetail.assignment.id,
 			}, { success: true });
-			await selectAssignment(selectedDetail.assignment.id);
+			if (res?.success) {
+				globalNotifications.success("DOR deleted");
+				await selectAssignment(selectedDetail.assignment.id);
+				await loadAssignments();
+			} else {
+				globalNotifications.error(res?.error || "Failed to delete DOR");
+			}
 		} catch {
 			globalNotifications.error("Failed to delete DOR");
 		}
@@ -317,18 +328,11 @@
 	}
 
 	function formatDateValue(value: string | undefined): string {
-		if (!value) return "-";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return "-";
-		return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+		return formatDate(value, "-");
 	}
 
 	function formatDateTimeValue(value: string | undefined): string {
-		if (!value) return "-";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return "-";
-		return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })
-			+ " " + date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+		return formatDateTime(value, "-");
 	}
 
 	function getStatusPillClass(status: string): string {
@@ -353,6 +357,194 @@
 		const total = phases.length;
 		return { current, total, percent: Math.round((current / total) * 100) };
 	});
+
+	// ── Trainer-tool derived data ──────────────────────────────────────────────
+	// Recommended readiness before advancing a phase. This is a SOFT gate: the
+	// button warns and the confirm dialog flags it, but a trainer can still
+	// proceed (they keep final authority). Tune these to your program.
+	const ADVANCE_MIN_AVG = 3.0;   // required average score in the current phase
+	const ADVANCE_MIN_DORS = 2;    // minimum DORs logged in the current phase
+
+	let currentPhaseIndex = $derived.by(() => {
+		if (!selectedDetail || phases.length === 0) return -1;
+		const idx = phases.findIndex(p =>
+			p.id === selectedDetail!.assignment.current_phase_id ||
+			p.name === selectedDetail!.assignment.current_phase);
+		// A trainee with no phase set yet is implicitly in the first phase.
+		return idx >= 0 ? idx : 0;
+	});
+	let nextPhase = $derived(currentPhaseIndex >= 0 && currentPhaseIndex < phases.length - 1 ? phases[currentPhaseIndex + 1] : null);
+	let prevPhase = $derived(currentPhaseIndex > 0 ? phases[currentPhaseIndex - 1] : null);
+	// Resolved current phase id (falls back to the assignment field, then name match).
+	let currentPhaseId = $derived(
+		phases[currentPhaseIndex]?.id ?? selectedDetail?.assignment.current_phase_id ?? null
+	);
+	let isLastPhase = $derived(currentPhaseIndex === phases.length - 1 && phases.length > 0);
+	let isActive = $derived(selectedDetail?.assignment.status === "active");
+	let isCompleted = $derived(selectedDetail?.assignment.status === "completed");
+	let isFailed = $derived(selectedDetail?.assignment.status === "failed");
+	// Editing is only possible while the assignment is active.
+	let canEdit = $derived(canManage && isActive);
+
+	// Sidebar analytics
+	let overallAvgAll = $derived.by(() => {
+		const d = selectedDetail?.dors ?? [];
+		if (!d.length) return 0;
+		return d.reduce((s, x) => s + (Number(x.overall_rating) || 0), 0) / d.length;
+	});
+	let phaseBreakdown = $derived.by(() => {
+		if (!selectedDetail) return [] as { name: string; count: number; avg: number }[];
+		return phases.map(p => {
+			const ds = selectedDetail!.dors.filter(x => x.phase_id === p.id);
+			const avg = ds.length ? ds.reduce((s, x) => s + (Number(x.overall_rating) || 0), 0) / ds.length : 0;
+			return { name: p.name, count: ds.length, avg };
+		});
+	});
+
+	// DOR counts per phase id (strict — each DOR only counts for its own phase).
+	let phaseDorCounts = $derived.by(() => {
+		const m = new Map<number, number>();
+		if (!selectedDetail) return m;
+		for (const d of selectedDetail.dors) {
+			if (d.phase_id != null) m.set(d.phase_id, (m.get(d.phase_id) ?? 0) + 1);
+		}
+		return m;
+	});
+
+	// Only DORs written for the current phase. Advancing to a new phase therefore
+	// resets this to zero — the trainee must earn fresh DORs in each phase.
+	let currentPhaseDors = $derived.by(() => {
+		if (!selectedDetail || currentPhaseId == null) return [] as FTODor[];
+		return selectedDetail.dors.filter(d => d.phase_id === currentPhaseId);
+	});
+
+	// Average is per-phase only, so the rating must be re-earned each phase.
+	let avgOverall = $derived.by(() => {
+		if (!currentPhaseDors.length) return 0;
+		return currentPhaseDors.reduce((s, d) => s + (Number(d.overall_rating) || 0), 0) / currentPhaseDors.length;
+	});
+
+	// Whether the trainee meets the recommended criteria to move up a phase.
+	let phaseReady = $derived(currentPhaseDors.length >= ADVANCE_MIN_DORS && avgOverall >= ADVANCE_MIN_AVG);
+
+	// Program-wide progress: fully-cleared phases + how far through the current one.
+	let overallProgress = $derived.by(() => {
+		if (selectedDetail?.assignment.status === "completed") return 100;
+		const total = phases.length;
+		if (total === 0 || currentPhaseIndex < 0) return 0;
+		const completed = currentPhaseIndex; // phases before the current one are done
+		const frac = phaseReady ? 1 : Math.min(currentPhaseDors.length / ADVANCE_MIN_DORS, 1) * 0.85;
+		return Math.min(100, Math.round(((completed + frac) / total) * 100));
+	});
+
+	// Average rating per competency across all DORs (the proficiency picture)
+	let competencyAverages = $derived.by(() => {
+		if (!selectedDetail) return [] as { id: number; name: string; category?: string; avg: number; count: number }[];
+		const acc = new Map<number, { sum: number; count: number }>();
+		for (const d of selectedDetail.dors) {
+			for (const r of d.ratings || []) {
+				const e = acc.get(r.competency_id) ?? { sum: 0, count: 0 };
+				e.sum += Number(r.rating) || 0;
+				e.count += 1;
+				acc.set(r.competency_id, e);
+			}
+		}
+		return competencies
+			.map(c => {
+				const e = acc.get(c.id);
+				return { id: c.id, name: c.name, category: c.category, avg: e ? e.sum / e.count : 0, count: e?.count ?? 0 };
+			})
+			.filter(c => c.count > 0);
+	});
+
+	let daysInProgram = $derived.by(() => {
+		const sd = selectedDetail?.assignment.start_date;
+		if (!sd) return null;
+		const start = new Date(sd);
+		if (isNaN(start.getTime())) return null;
+		return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
+	});
+
+	let bestCompetency = $derived.by(() => [...competencyAverages].sort((a, b) => b.avg - a.avg)[0] ?? null);
+	let weakestCompetency = $derived.by(() => [...competencyAverages].sort((a, b) => a.avg - b.avg)[0] ?? null);
+
+	// Confirmation flow for consequential actions
+	let phaseAction = $state<null | { kind: "advance" | "complete" | "back" | "fail" | "suspend"; note: string }>(null);
+	let phaseActionBusy = $state(false);
+
+	function askPhaseAction(kind: "advance" | "complete" | "back" | "fail" | "suspend") {
+		phaseAction = { kind, note: "" };
+	}
+
+	async function confirmPhaseAction() {
+		if (!selectedDetail || !phaseAction || phaseActionBusy) return;
+		phaseActionBusy = true;
+		const id = selectedDetail.assignment.id;
+		const kind = phaseAction.kind;
+		try {
+			let res: { success: boolean; error?: string };
+			if (kind === "advance" || kind === "complete") {
+				res = await fetchNui(NUI_EVENTS.FTO.ADVANCE_FTO_PHASE, { assignment_id: id, direction: "next", note: phaseAction.note || undefined }, { success: true });
+			} else if (kind === "back") {
+				res = await fetchNui(NUI_EVENTS.FTO.ADVANCE_FTO_PHASE, { assignment_id: id, direction: "back" }, { success: true });
+			} else {
+				res = await fetchNui(NUI_EVENTS.FTO.SET_FTO_STATUS, { assignment_id: id, status: kind === "fail" ? "failed" : "suspended" }, { success: true });
+			}
+			if (res?.success) {
+				const labels: Record<string, string> = { advance: "Advanced to next phase", complete: "Training completed", back: "Moved back a phase", fail: "Marked as failed", suspend: "Training suspended" };
+				globalNotifications.success(labels[kind] || "Updated");
+				phaseAction = null;
+				await selectAssignment(id);
+				await loadAssignments();
+			} else {
+				globalNotifications.error(res?.error || "Action failed");
+			}
+		} catch {
+			globalNotifications.error("Action failed");
+		} finally {
+			phaseActionBusy = false;
+		}
+	}
+
+	async function reactivateAssignment() {
+		if (!selectedDetail) return;
+		const id = selectedDetail.assignment.id;
+		try {
+			const res = await fetchNui<{ success: boolean; error?: string }>(NUI_EVENTS.FTO.SET_FTO_STATUS, { assignment_id: id, status: "active" }, { success: true });
+			if (res?.success) {
+				globalNotifications.success("Training reactivated");
+				await selectAssignment(id);
+				await loadAssignments();
+			} else {
+				globalNotifications.error(res?.error || "Action failed");
+			}
+		} catch {
+			globalNotifications.error("Action failed");
+		}
+	}
+
+	function ratingColor(v: number): string {
+		if (v <= 0) return "rgba(255,255,255,0.15)";
+		if (v < 2) return "#ef4444";
+		if (v < 3) return "#f97316";
+		if (v < 4) return "#eab308";
+		return "#22c55e";
+	}
+
+	// ── 1–5 point rating scale (single source of truth, explained everywhere) ──
+	// 1 = worst, 5 = best. Descriptions keep trainers consistent and honest.
+	const RATING_SCALE = [
+		{ value: 1, label: "Poor", desc: "Unsatisfactory — could not perform, needed to be taken over" },
+		{ value: 2, label: "Needs Work", desc: "Below standard — frequent correction/prompting required" },
+		{ value: 3, label: "Competent", desc: "Meets standard — performs the task with minimal guidance" },
+		{ value: 4, label: "Proficient", desc: "Above standard — consistent, reliable, little to no help" },
+		{ value: 5, label: "Excellent", desc: "Exceptional — independent and exceeds expectations" },
+	] as const;
+
+	function ratingLabel(v: number): string {
+		const r = Math.round(v);
+		return RATING_SCALE.find(s => s.value === r)?.label ?? "—";
+	}
 
 	let allFilteredAssignments = $derived.by(() => {
 		let filtered = assignments;
@@ -396,6 +588,11 @@
 		</div>
 
 		<div class="detail-scroll">
+			{#if isCompleted}
+				<div class="status-watermark wm-complete">COMPLETE</div>
+			{:else if isFailed}
+				<div class="status-watermark wm-failed">FAILED</div>
+			{/if}
 			<div class="detail-layout">
 				<!-- Left Column: Main Content -->
 				<div class="detail-main">
@@ -440,23 +637,125 @@
 						{/if}
 					</div>
 
-					<!-- Phase Progress -->
+					<!-- Training Progress (trainer tool) -->
 					<div class="section">
-						<div class="section-title">Phase Progress</div>
-						<div class="phase-info">
-							<span class="phase-label">{selectedDetail.assignment.current_phase}</span>
-							<span class="phase-count">{phaseProgress.current} / {phaseProgress.total}</span>
+						<div class="section-title">Training Progress</div>
+
+						<!-- Overall program progress -->
+						<div class="overall-progress">
+							<div class="overall-progress-head">
+								<span class="overall-progress-phase">Phase {phaseProgress.current} of {phaseProgress.total}</span>
+								<span class="overall-progress-pct">{overallProgress}% complete</span>
+							</div>
+							<div class="overall-progress-track">
+								<div class="overall-progress-fill" style="width:{overallProgress}%"></div>
+							</div>
 						</div>
-						<div class="progress-bar-track">
-							<div class="progress-bar-fill" style="width: {phaseProgress.percent}%"></div>
+
+						<!-- Phase stepper -->
+						<div class="phase-stepper">
+							{#each phases as p, i}
+								<div class="phase-step {isCompleted || i < currentPhaseIndex ? 'done' : ''} {!isCompleted && i === currentPhaseIndex ? 'active' : ''}" title={p.description || p.name}>
+									<div class="phase-step-dot">
+										{#if isCompleted || i < currentPhaseIndex}
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+										{:else}
+											{i + 1}
+										{/if}
+									</div>
+									<div class="phase-step-body">
+										<span class="phase-step-name">{p.name}</span>
+										{#if (phaseDorCounts.get(p.id) ?? 0) > 0}
+											<span class="phase-step-dors">{phaseDorCounts.get(p.id)} DOR{phaseDorCounts.get(p.id) === 1 ? "" : "s"}</span>
+										{/if}
+									</div>
+								</div>
+							{/each}
 						</div>
+
+						<!-- Current phase stats -->
+						<div class="phase-stats">
+							<div class="phase-stat">
+								<span class="phase-stat-value">{phaseProgress.current}/{phaseProgress.total}</span>
+								<span class="phase-stat-label">Phase</span>
+							</div>
+							<div class="phase-stat">
+								<span class="phase-stat-value" style="color:{ratingColor(isCompleted ? overallAvgAll : avgOverall)}">{(isCompleted ? overallAvgAll : avgOverall) ? (isCompleted ? overallAvgAll : avgOverall).toFixed(1) : "—"}</span>
+								<span class="phase-stat-label">{isCompleted ? "Final avg" : "Avg rating"}</span>
+							</div>
+							<div class="phase-stat">
+								<span class="phase-stat-value">{isCompleted ? selectedDetail.dors.length : currentPhaseDors.length}</span>
+								<span class="phase-stat-label">{isCompleted ? "Total DORs" : "DORs this phase"}</span>
+							</div>
+							<div class="phase-stat">
+								<span class="phase-stat-value">{daysInProgram ?? "—"}</span>
+								<span class="phase-stat-label">Days in program</span>
+							</div>
+						</div>
+
+						<!-- Actions -->
+						{#if canManage}
+							{#if isActive}
+								<div class="phase-readiness">
+									{#if phaseReady}
+										<span class="readiness-badge readiness-ok">✓ Meets advancement criteria — avg {avgOverall.toFixed(1)}/5 over {currentPhaseDors.length} DOR{currentPhaseDors.length === 1 ? "" : "s"} this phase</span>
+									{:else}
+										<span class="readiness-badge readiness-warn">Not yet recommended — needs avg ≥ {ADVANCE_MIN_AVG.toFixed(1)}/5 over ≥ {ADVANCE_MIN_DORS} DORs (now {avgOverall ? avgOverall.toFixed(1) : "0.0"}/5 over {currentPhaseDors.length})</span>
+									{/if}
+								</div>
+								<div class="phase-actions">
+									{#if isLastPhase}
+										<button class="phase-btn {phaseReady ? 'phase-btn-complete' : 'phase-btn-warn'}" onclick={() => askPhaseAction("complete")}>
+											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+											Complete Training
+										</button>
+									{:else if nextPhase}
+										<button class="phase-btn {phaseReady ? 'phase-btn-advance' : 'phase-btn-warn'}" onclick={() => askPhaseAction("advance")}>
+											Advance to {nextPhase.name}
+											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+										</button>
+									{/if}
+									{#if prevPhase}
+										<button class="phase-btn phase-btn-ghost" onclick={() => askPhaseAction("back")} title="Move back one phase">
+											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+											Back
+										</button>
+									{/if}
+									<span class="phase-actions-spacer"></span>
+									<button class="phase-btn phase-btn-warn" onclick={() => askPhaseAction("suspend")}>Suspend</button>
+									<button class="phase-btn phase-btn-danger" onclick={() => askPhaseAction("fail")}>Fail</button>
+								</div>
+							{:else if selectedDetail.assignment.status === "suspended"}
+								<div class="phase-actions">
+									<button class="phase-btn phase-btn-advance" onclick={reactivateAssignment}>Reactivate training</button>
+								</div>
+							{/if}
+						{/if}
 					</div>
+
+					<!-- Competency proficiency -->
+					{#if competencyAverages.length > 0}
+						<div class="section">
+							<div class="section-title">Competency Proficiency</div>
+							<div class="comp-averages">
+								{#each competencyAverages as c}
+									<div class="comp-avg-row">
+										<span class="comp-avg-name">{c.name}{#if c.category}<span class="comp-avg-cat">{c.category}</span>{/if}</span>
+										<div class="comp-avg-track">
+											<div class="comp-avg-fill" style="width:{(c.avg / 5) * 100}%;background:{ratingColor(c.avg)}"></div>
+										</div>
+										<span class="comp-avg-value" style="color:{ratingColor(c.avg)}">{c.avg.toFixed(1)}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
 
 					<!-- DOR History -->
 					<div class="section">
 						<div class="section-header">
 							<div class="section-title" style="margin-bottom:0;">Daily Observation Reports ({selectedDetail.dors.length})</div>
-							{#if canManage && !showDorForm}
+							{#if canEdit && !showDorForm}
 								<button class="action-btn" onclick={initDorForm}>
 									<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 									New DOR
@@ -471,27 +770,43 @@
 									<input type="date" class="form-input" bind:value={dorShiftDate} />
 								</div>
 
+								<div class="rating-legend">
+									<span class="rating-legend-title">Score each competency from 1 to 5 — 1 = worst, 5 = best</span>
+									<div class="rating-legend-scale">
+										{#each RATING_SCALE as s}
+											<span class="rating-legend-item" title={s.desc}>
+												<span class="rating-legend-num" style="background:{ratingColor(s.value)}">{s.value}</span>
+												<span class="rating-legend-lab">{s.label}</span>
+											</span>
+										{/each}
+									</div>
+									<span class="rating-legend-hint">Hover a level for its meaning. Be honest — these scores drive phase advancement.</span>
+								</div>
+
 								<div class="dor-ratings-grid">
 									{#each competencies as comp, i}
 										<div class="dor-rating-row">
-											<span class="dor-comp-name">{comp.name}</span>
-											{#if comp.category}
-												<span class="dor-comp-cat">{comp.category}</span>
-											{/if}
-											<select class="form-select dor-rating-select" bind:value={dorRatings[i].rating}>
-												<option value={1}>1</option>
-												<option value={2}>2</option>
-												<option value={3}>3</option>
-												<option value={4}>4</option>
-												<option value={5}>5</option>
-											</select>
+											<span class="dor-comp-name">{comp.name}{#if comp.category}<span class="dor-comp-cat">{comp.category}</span>{/if}</span>
+											<div class="rating-pills">
+												{#each RATING_SCALE as s}
+													<button
+														type="button"
+														class="rating-pill"
+														class:selected={dorRatings[i].rating === s.value}
+														style={dorRatings[i].rating === s.value ? `background:${ratingColor(s.value)};border-color:${ratingColor(s.value)};color:#0c0c0c;` : ""}
+														title={`${s.value} — ${s.label}: ${s.desc}`}
+														onclick={() => (dorRatings[i].rating = s.value)}
+													>{s.value}</button>
+												{/each}
+											</div>
+											<span class="rating-row-label" style="color:{ratingColor(dorRatings[i].rating)}">{ratingLabel(dorRatings[i].rating)}</span>
 										</div>
 									{/each}
 								</div>
 
 								<div class="dor-overall">
-									<span class="field-label">Overall Rating (Auto)</span>
-									<span class="dor-overall-value">{dorOverallRating}</span>
+									<span class="field-label">Overall score (average)</span>
+									<span class="dor-overall-value" style="color:{ratingColor(dorOverallRating)}">{dorOverallRating || "—"} / 5 · {ratingLabel(dorOverallRating)}</span>
 								</div>
 
 								<div class="form-group">
@@ -512,11 +827,14 @@
 									<div class="dor-item">
 										<div class="dor-header">
 											<span class="dor-date">{formatDateValue(dor.shift_date)}</span>
-											<span class="dor-overall-badge">Rating: {dor.overall_rating}</span>
+											{#if dor.phase_name}
+												<span class="dor-phase-badge">{dor.phase_name}</span>
+											{/if}
+											<span class="dor-overall-badge" style="color:{ratingColor(dor.overall_rating)};border-color:{ratingColor(dor.overall_rating)}">{dor.overall_rating}/5 · {ratingLabel(dor.overall_rating)}</span>
 											{#if dor.author_name}
 												<span class="dor-author">{dor.author_name}</span>
 											{/if}
-											{#if canManage}
+											{#if canEdit}
 												<button class="chip-remove" onclick={() => handleDeleteDor(dor.id)}>
 													<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 												</button>
@@ -525,7 +843,7 @@
 										{#if dor.ratings && dor.ratings.length > 0}
 											<div class="dor-ratings-summary">
 												{#each dor.ratings as r}
-													<span class="dor-rating-chip">{r.competency_name}: {r.rating}</span>
+													<span class="dor-rating-chip" style="border-color:{ratingColor(r.rating)}"><span style="color:{ratingColor(r.rating)};font-weight:700">{r.rating}/5</span> {r.competency_name}</span>
 												{/each}
 											</div>
 										{/if}
@@ -543,24 +861,155 @@
 
 				<!-- Right Column: Sidebar -->
 				<div class="detail-side">
+					{#if isCompleted || isFailed}
+						<div class="section outcome-card {isCompleted ? 'outcome-complete' : 'outcome-failed'}">
+							<div class="outcome-icon">
+								{#if isCompleted}
+									<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+								{:else}
+									<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+								{/if}
+							</div>
+							<div class="outcome-title">{isCompleted ? "Training Completed" : "Training Failed"}</div>
+							<div class="outcome-sub">
+								{#if selectedDetail.assignment.end_date}Closed {formatDateValue(selectedDetail.assignment.end_date)}{/if}
+								{#if daysInProgram != null} · {daysInProgram} day{daysInProgram === 1 ? "" : "s"}{/if}
+							</div>
+						</div>
+					{/if}
+
 					<div class="section">
 						<div class="section-title">Summary</div>
 						<div class="field-group">
-							<span class="field-label">DOR Count</span>
-							<span class="field-value">{selectedDetail.assignment.dor_count}</span>
+							<span class="field-label">FTO Number</span>
+							<span class="field-value">{selectedDetail.assignment.fto_number || "—"}</span>
 						</div>
 						<div class="field-group">
-							<span class="field-label">Latest Rating</span>
-							<span class="field-value">{selectedDetail.assignment.latest_rating ?? '-'}</span>
+							<span class="field-label">Trainer</span>
+							<span class="field-value">{selectedDetail.assignment.trainer_name}</span>
 						</div>
 						<div class="field-group">
-							<span class="field-label">Created</span>
-							<span class="field-value">{formatDateTimeValue(selectedDetail.assignment.created_at)}</span>
+							<span class="field-label">Current Phase</span>
+							<span class="field-value">{selectedDetail.assignment.current_phase || "—"}</span>
+						</div>
+						<div class="field-group">
+							<span class="field-label">Start Date</span>
+							<span class="field-value">{formatDateValue(selectedDetail.assignment.start_date)}</span>
+						</div>
+						<div class="field-group">
+							<span class="field-label">Days in Program</span>
+							<span class="field-value">{daysInProgram ?? "—"}</span>
 						</div>
 					</div>
+
+					<div class="section">
+						<div class="section-title">Performance</div>
+						<div class="perf-grid">
+							<div class="perf-cell">
+								<span class="perf-value" style="color:{ratingColor(overallAvgAll)}">{overallAvgAll ? overallAvgAll.toFixed(1) : "—"}</span>
+								<span class="perf-label">Overall avg</span>
+							</div>
+							{#if isCompleted}
+								<div class="perf-cell">
+									<span class="perf-value" style="color:rgba(74,222,128,0.95)">{phaseProgress.total}/{phaseProgress.total}</span>
+									<span class="perf-label">Phases done</span>
+								</div>
+							{:else}
+								<div class="perf-cell">
+									<span class="perf-value" style="color:{ratingColor(avgOverall)}">{avgOverall ? avgOverall.toFixed(1) : "—"}</span>
+									<span class="perf-label">This phase</span>
+								</div>
+							{/if}
+							<div class="perf-cell">
+								<span class="perf-value">{selectedDetail.dors.length}</span>
+								<span class="perf-label">Total DORs</span>
+							</div>
+						</div>
+					</div>
+
+					{#if phaseBreakdown.some(p => p.count > 0)}
+						<div class="section">
+							<div class="section-title">By Phase</div>
+							<div class="pb-list">
+								{#each phaseBreakdown as pb}
+									<div class="pb-row">
+										<span class="pb-name">{pb.name}</span>
+										<span class="pb-count">{pb.count} DOR{pb.count === 1 ? "" : "s"}</span>
+										<span class="pb-avg" style="color:{ratingColor(pb.avg)}">{pb.avg ? pb.avg.toFixed(1) : "—"}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if bestCompetency || weakestCompetency}
+						<div class="section">
+							<div class="section-title">Highlights</div>
+							{#if bestCompetency}
+								<div class="hl-row">
+									<span class="hl-tag hl-good">Strongest</span>
+									<span class="hl-name">{bestCompetency.name}</span>
+									<span class="hl-val" style="color:{ratingColor(bestCompetency.avg)}">{bestCompetency.avg.toFixed(1)}</span>
+								</div>
+							{/if}
+							{#if weakestCompetency && weakestCompetency.id !== bestCompetency?.id}
+								<div class="hl-row">
+									<span class="hl-tag hl-bad">Needs work</span>
+									<span class="hl-name">{weakestCompetency.name}</span>
+									<span class="hl-val" style="color:{ratingColor(weakestCompetency.avg)}">{weakestCompetency.avg.toFixed(1)}</span>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>
+
+		{#if phaseAction}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="confirm-backdrop" onclick={(e) => { if (e.target === e.currentTarget) phaseAction = null; }}>
+				<div class="confirm-modal" role="dialog" aria-modal="true">
+					<div class="confirm-header">
+						<span class="confirm-title">
+							{#if phaseAction.kind === "advance"}Advance to {nextPhase?.name}?
+							{:else if phaseAction.kind === "complete"}Complete training?
+							{:else if phaseAction.kind === "back"}Move back to {prevPhase?.name}?
+							{:else if phaseAction.kind === "fail"}Mark training as failed?
+							{:else}Suspend training?{/if}
+						</span>
+						<button class="confirm-close" aria-label="Cancel" onclick={() => (phaseAction = null)}>
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+						</button>
+					</div>
+					<div class="confirm-body">
+						<p class="confirm-text">
+							{#if phaseAction.kind === "advance"}This moves {selectedDetail.assignment.trainee_name} from {selectedDetail.assignment.current_phase} to {nextPhase?.name}. DORs for the new phase start fresh.
+							{:else if phaseAction.kind === "complete"}This graduates {selectedDetail.assignment.trainee_name} and marks the assignment as completed.
+							{:else if phaseAction.kind === "back"}This steps {selectedDetail.assignment.trainee_name} back one phase.
+							{:else if phaseAction.kind === "fail"}This closes the assignment as failed. You can reactivate it later if needed.
+							{:else}This pauses the assignment. You can reactivate it later.{/if}
+						</p>
+						{#if (phaseAction.kind === "advance" || phaseAction.kind === "complete") && !phaseReady}
+							<p class="confirm-warn">⚠ {selectedDetail.assignment.trainee_name} hasn't met the recommended criteria yet (avg ≥ {ADVANCE_MIN_AVG.toFixed(1)}/5 over ≥ {ADVANCE_MIN_DORS} DORs this phase). Proceed only if you have grounds to.</p>
+						{/if}
+						{#if phaseAction.kind === "advance" || phaseAction.kind === "complete"}
+							<textarea class="confirm-note" rows="2" placeholder="Optional note for the record…" bind:value={phaseAction.note}></textarea>
+						{/if}
+					</div>
+					<div class="confirm-footer">
+						<button class="phase-btn phase-btn-ghost" disabled={phaseActionBusy} onclick={() => (phaseAction = null)}>Cancel</button>
+						<button
+							class="phase-btn {phaseAction.kind === 'fail' ? 'phase-btn-danger' : phaseAction.kind === 'suspend' ? 'phase-btn-warn' : 'phase-btn-advance'}"
+							disabled={phaseActionBusy}
+							onclick={confirmPhaseAction}
+						>
+							{phaseActionBusy ? "Working…" : phaseAction.kind === "advance" ? "Advance" : phaseAction.kind === "complete" ? "Complete" : phaseAction.kind === "back" ? "Move back" : phaseAction.kind === "fail" ? "Fail" : "Suspend"}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
 	{:else if showCreateForm}
 		<!-- ==================== CREATE FORM ==================== -->
 		<div class="topbar">
@@ -686,13 +1135,19 @@
 							<span class="row-case">{item.fto_number}</span>
 							<span>{item.trainee_name}</span>
 							<span>{item.trainer_name}</span>
-							<span>{item.current_phase}</span>
+							<span><span class="phase-tag">{item.current_phase || "—"}</span></span>
 							<span>
 								<span class="pill {getStatusPillClass(item.status)}">{formatLabel(item.status)}</span>
 							</span>
 							<span>{formatDateValue(item.start_date)}</span>
-							<span>{item.dor_count}</span>
-							<span>{item.latest_rating ?? '-'}</span>
+							<span><span class="dor-count-badge">{item.dor_count}</span></span>
+							<span>
+								{#if item.latest_rating}
+									<span class="rating-badge-sm" style="color:{ratingColor(item.latest_rating)};border-color:{ratingColor(item.latest_rating)};background:{ratingColor(item.latest_rating)}1a">{item.latest_rating}/5</span>
+								{:else}
+									<span class="muted-dash">—</span>
+								{/if}
+							</span>
 						</button>
 					{/each}
 				</div>
@@ -1041,7 +1496,78 @@
 		flex-direction: column;
 		gap: 0;
 		padding-bottom: 12px;
+		position: relative;
 	}
+
+	/* Completion / failure watermark across the page — readable underneath. */
+	.status-watermark {
+		position: absolute;
+		top: 42%;
+		left: 50%;
+		transform: translate(-50%, -50%) rotate(-18deg);
+		font-size: clamp(60px, 12vw, 150px);
+		font-weight: 900;
+		letter-spacing: 6px;
+		pointer-events: none;
+		user-select: none;
+		z-index: 5;
+		white-space: nowrap;
+	}
+	.wm-complete { color: rgba(34, 197, 94, 0.14); text-shadow: 0 0 30px rgba(34, 197, 94, 0.15); }
+	.wm-failed { color: rgba(239, 68, 68, 0.14); text-shadow: 0 0 30px rgba(239, 68, 68, 0.15); }
+
+	/* Outcome card in sidebar */
+	.outcome-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: 4px;
+		padding: 16px 12px;
+	}
+	.outcome-complete { border: 1px solid rgba(34, 197, 94, 0.3); background: rgba(34, 197, 94, 0.06); }
+	.outcome-failed { border: 1px solid rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.06); }
+	.outcome-complete .outcome-icon { color: rgba(74, 222, 128, 0.95); }
+	.outcome-failed .outcome-icon { color: rgba(248, 113, 113, 0.95); }
+	.outcome-title { font-size: 14px; font-weight: 700; color: rgba(255, 255, 255, 0.9); }
+	.outcome-sub { font-size: 10px; color: rgba(255, 255, 255, 0.45); }
+
+	/* Performance grid */
+	.perf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+	.perf-cell {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+		padding: 8px 4px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 5px;
+	}
+	.perf-value { font-size: 17px; font-weight: 700; color: rgba(255, 255, 255, 0.9); line-height: 1; }
+	.perf-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.3px; color: rgba(255, 255, 255, 0.4); }
+
+	/* Phase breakdown */
+	.pb-list { display: flex; flex-direction: column; gap: 4px; }
+	.pb-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 8px;
+		background: rgba(255, 255, 255, 0.02);
+		border-radius: 4px;
+	}
+	.pb-name { flex: 1; font-size: 11px; color: rgba(255, 255, 255, 0.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.pb-count { font-size: 9px; color: rgba(255, 255, 255, 0.4); }
+	.pb-avg { font-size: 12px; font-weight: 700; min-width: 26px; text-align: right; }
+
+	/* Highlights */
+	.hl-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+	.hl-tag { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; padding: 2px 6px; border-radius: 3px; }
+	.hl-good { color: rgba(74, 222, 128, 0.9); background: rgba(34, 197, 94, 0.1); }
+	.hl-bad { color: rgba(251, 146, 60, 0.9); background: rgba(249, 115, 22, 0.1); }
+	.hl-name { flex: 1; font-size: 11px; color: rgba(255, 255, 255, 0.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.hl-val { font-size: 12px; font-weight: 700; }
 
 	/* ===== SECTIONS ===== */
 	.section {
@@ -1157,6 +1683,319 @@
 		transition: width 0.3s ease;
 	}
 
+	/* ===== Overall progress bar ===== */
+	.overall-progress {
+		margin-bottom: 14px;
+	}
+	.overall-progress-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		margin-bottom: 5px;
+	}
+	.overall-progress-phase {
+		font-size: 11px;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.8);
+	}
+	.overall-progress-pct {
+		font-size: 10px;
+		font-weight: 600;
+		color: rgba(var(--accent-text-rgb), 0.8);
+	}
+	.overall-progress-track {
+		height: 8px;
+		background: rgba(255, 255, 255, 0.05);
+		border-radius: 4px;
+		overflow: hidden;
+	}
+	.overall-progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.5), rgba(var(--accent-rgb), 0.9));
+		border-radius: 4px;
+		transition: width 0.4s ease;
+	}
+
+	/* ===== Phase stepper ===== */
+	.phase-stepper {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 14px;
+		flex-wrap: wrap;
+	}
+	.phase-step {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		flex: 1 1 auto;
+		min-width: 120px;
+		padding: 8px 10px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 6px;
+		transition: all 0.15s;
+	}
+	.phase-step.active {
+		background: rgba(96, 165, 250, 0.08);
+		border-color: rgba(96, 165, 250, 0.4);
+	}
+	.phase-step.done {
+		border-color: rgba(34, 197, 94, 0.25);
+	}
+	.phase-step-dot {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		font-size: 11px;
+		font-weight: 700;
+		background: rgba(255, 255, 255, 0.06);
+		color: rgba(255, 255, 255, 0.5);
+	}
+	.phase-step.active .phase-step-dot {
+		background: rgba(96, 165, 250, 0.9);
+		color: #fff;
+	}
+	.phase-step.done .phase-step-dot {
+		background: rgba(34, 197, 94, 0.85);
+		color: #fff;
+	}
+	.phase-step-body {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		min-width: 0;
+	}
+	.phase-step-name {
+		font-size: 11px;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.8);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.phase-step-dors {
+		font-size: 9px;
+		color: rgba(255, 255, 255, 0.4);
+	}
+
+	/* ===== Phase stats ===== */
+	.phase-stats {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 8px;
+		margin-bottom: 14px;
+	}
+	.phase-stat {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+		padding: 10px 6px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 6px;
+	}
+	.phase-stat-value {
+		font-size: 18px;
+		font-weight: 700;
+		color: rgba(255, 255, 255, 0.9);
+		line-height: 1;
+	}
+	.phase-stat-label {
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		color: rgba(255, 255, 255, 0.4);
+	}
+
+	/* ===== Phase actions ===== */
+	.phase-actions {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+	.phase-actions-spacer { flex: 1; }
+
+	.phase-readiness { margin-bottom: 8px; }
+	.readiness-badge {
+		display: inline-block;
+		font-size: 10px;
+		font-weight: 600;
+		padding: 4px 9px;
+		border-radius: 3px;
+		border: 1px solid transparent;
+	}
+	.readiness-ok {
+		color: rgba(74, 222, 128, 0.9);
+		background: rgba(34, 197, 94, 0.08);
+		border-color: rgba(34, 197, 94, 0.2);
+	}
+	.readiness-warn {
+		color: rgba(234, 179, 8, 0.9);
+		background: rgba(234, 179, 8, 0.07);
+		border-color: rgba(234, 179, 8, 0.22);
+	}
+	.confirm-warn {
+		margin: 0;
+		font-size: 11px;
+		line-height: 1.5;
+		color: rgba(234, 179, 8, 0.9);
+		background: rgba(234, 179, 8, 0.08);
+		border: 1px solid rgba(234, 179, 8, 0.22);
+		border-radius: 5px;
+		padding: 8px 10px;
+	}
+	.phase-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 4px 10px;
+		border-radius: 3px;
+		font-size: 10px;
+		font-weight: 500;
+		cursor: pointer;
+		border: 1px solid transparent;
+		transition: all 0.1s;
+	}
+	.phase-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.phase-btn-advance {
+		background: rgba(var(--accent-rgb), 0.08);
+		border-color: rgba(var(--accent-rgb), 0.12);
+		color: rgba(var(--accent-text-rgb), 0.8);
+	}
+	.phase-btn-advance:hover:not(:disabled) { background: rgba(var(--accent-rgb), 0.14); color: rgba(var(--accent-text-rgb), 1); }
+	.phase-btn-complete {
+		background: rgba(34, 197, 94, 0.08);
+		border-color: rgba(34, 197, 94, 0.18);
+		color: rgba(74, 222, 128, 0.9);
+	}
+	.phase-btn-complete:hover:not(:disabled) { background: rgba(34, 197, 94, 0.16); }
+	.phase-btn-ghost {
+		background: rgba(255, 255, 255, 0.03);
+		border-color: rgba(255, 255, 255, 0.08);
+		color: rgba(255, 255, 255, 0.5);
+	}
+	.phase-btn-ghost:hover:not(:disabled) { color: rgba(255, 255, 255, 0.8); border-color: rgba(255, 255, 255, 0.15); }
+	.phase-btn-warn {
+		background: rgba(234, 179, 8, 0.06);
+		border-color: rgba(234, 179, 8, 0.25);
+		color: rgba(234, 179, 8, 0.85);
+	}
+	.phase-btn-warn:hover:not(:disabled) { background: rgba(234, 179, 8, 0.12); }
+	.phase-btn-danger {
+		background: rgba(239, 68, 68, 0.06);
+		border-color: rgba(239, 68, 68, 0.3);
+		color: rgba(248, 113, 113, 0.9);
+	}
+	.phase-btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.12); }
+
+	/* ===== Competency averages ===== */
+	.comp-averages { display: flex; flex-direction: column; gap: 8px; }
+	.comp-avg-row { display: flex; align-items: center; gap: 10px; }
+	.comp-avg-name {
+		flex: 0 0 34%;
+		font-size: 11px;
+		color: rgba(255, 255, 255, 0.75);
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+	.comp-avg-cat { font-size: 9px; color: rgba(255, 255, 255, 0.35); }
+	.comp-avg-track {
+		flex: 1;
+		height: 6px;
+		background: rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		overflow: hidden;
+	}
+	.comp-avg-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+	.comp-avg-value { flex: 0 0 28px; text-align: right; font-size: 12px; font-weight: 700; }
+
+	/* ===== Confirm modal ===== */
+	.confirm-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.65);
+		backdrop-filter: blur(3px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+	.confirm-modal {
+		width: min(440px, 92vw);
+		background: var(--card-dark-bg, #1a1d23);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 6px;
+		overflow: hidden;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+		display: flex;
+		flex-direction: column;
+	}
+	.confirm-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 10px 14px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	}
+	.confirm-title {
+		font-size: 12px;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.85);
+	}
+	.confirm-close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 3px;
+		color: rgba(255, 255, 255, 0.3);
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.confirm-close:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.12); }
+	.confirm-body {
+		padding: 14px;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+	.confirm-text {
+		margin: 0;
+		font-size: 11px;
+		line-height: 1.5;
+		color: rgba(255, 255, 255, 0.55);
+	}
+	.confirm-note {
+		width: 100%;
+		box-sizing: border-box;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 6px 8px;
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 11px;
+		font-family: inherit;
+		resize: vertical;
+		outline: none;
+	}
+	.confirm-note:focus { border-color: rgba(255, 255, 255, 0.12); }
+	.confirm-footer {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
+		padding: 10px 14px;
+		border-top: 1px solid rgba(255, 255, 255, 0.06);
+	}
+
 	/* ===== DOR ===== */
 	.dor-form {
 		display: flex;
@@ -1172,6 +2011,79 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+	}
+
+	/* Rating scale legend + 1–5 pill selector */
+	.rating-legend {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 10px;
+		margin-bottom: 10px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 6px;
+	}
+	.rating-legend-title {
+		font-size: 11px;
+		font-weight: 700;
+		color: rgba(255, 255, 255, 0.8);
+	}
+	.rating-legend-scale {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+	}
+	.rating-legend-item {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.6);
+		cursor: help;
+	}
+	.rating-legend-num {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		border-radius: 4px;
+		color: #0c0c0c;
+		font-size: 10px;
+		font-weight: 800;
+	}
+	.rating-legend-lab { font-weight: 600; }
+	.rating-legend-hint {
+		font-size: 9px;
+		color: rgba(255, 255, 255, 0.35);
+		font-style: italic;
+	}
+
+	.rating-pills {
+		display: flex;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+	.rating-pill {
+		width: 26px;
+		height: 26px;
+		border-radius: 5px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(255, 255, 255, 0.03);
+		color: rgba(255, 255, 255, 0.6);
+		font-size: 12px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.rating-pill:hover { border-color: rgba(255, 255, 255, 0.3); color: rgba(255, 255, 255, 0.9); }
+	.rating-pill.selected { color: #0c0c0c; }
+	.rating-row-label {
+		flex: 0 0 84px;
+		text-align: right;
+		font-size: 10px;
+		font-weight: 700;
 	}
 
 	.dor-rating-row {
@@ -1194,11 +2106,6 @@
 		background: rgba(255, 255, 255, 0.04);
 		padding: 1px 5px;
 		border-radius: 3px;
-	}
-
-	.dor-rating-select {
-		width: 60px;
-		flex-shrink: 0;
 	}
 
 	.dor-overall {
@@ -1247,8 +2154,52 @@
 		color: var(--accent-text, rgba(96, 165, 250, 0.8));
 		background: rgba(var(--accent-rgb), 0.08);
 		padding: 1px 6px;
+		border: 1px solid transparent;
 		border-radius: 3px;
 	}
+
+	.dor-phase-badge {
+		font-size: 9px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		color: rgba(255, 255, 255, 0.6);
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		padding: 1px 6px;
+		border-radius: 3px;
+	}
+
+	/* List: phase tag + colored DOR count + rating */
+	.phase-tag {
+		font-size: 10px;
+		font-weight: 500;
+		color: rgba(255, 255, 255, 0.7);
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		padding: 1px 7px;
+		border-radius: 3px;
+	}
+	.dor-count-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 20px;
+		padding: 1px 6px;
+		font-size: 10px;
+		font-weight: 700;
+		color: rgba(var(--accent-text-rgb), 0.85);
+		background: rgba(var(--accent-rgb), 0.1);
+		border-radius: 3px;
+	}
+	.rating-badge-sm {
+		font-size: 10px;
+		font-weight: 700;
+		padding: 1px 6px;
+		border: 1px solid transparent;
+		border-radius: 3px;
+	}
+	.muted-dash { color: rgba(255, 255, 255, 0.2); }
 
 	.dor-author {
 		font-size: 9px;

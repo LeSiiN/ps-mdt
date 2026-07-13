@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
 	import type { AuthService } from "../services/authService.svelte";
@@ -207,7 +208,7 @@
 								{#each profile.activeWarrants as warrant}
 									<div class="list-item">
 										<span class="item-id">Report #{warrant.reportid}</span>
-										<span class="item-name">Expires: {new Date(warrant.expirydate).toLocaleDateString()}</span>
+										<span class="item-name">Expires: {formatDate(warrant.expirydate)}</span>
 									</div>
 								{/each}
 							</div>

@@ -27,6 +27,14 @@ RegisterNUICallback('createHearing', function(data, cb)
     cb(result or { success = false, error = 'Failed to create hearing' })
 end)
 
+RegisterNUICallback('createHearingFromWarrant', function(data, cb)
+    if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
+    local result = ps.callback(resourceName .. ':server:createHearingFromWarrant', {
+        reportId = data and data.reportId,
+    })
+    cb(result or { success = false, error = 'Failed to create hearing' })
+end)
+
 RegisterNUICallback('updateHearing', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
     local result = ps.callback(resourceName .. ':server:updateHearing', {

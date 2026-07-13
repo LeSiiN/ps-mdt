@@ -1256,173 +1256,109 @@
 
 	/* Bench Warrant Modal */
 	:global(.bw-modal-overlay) {
-		position: fixed;
-		inset: 0;
-		background: none;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		position: fixed; inset: 0;
+		background: rgba(0, 0, 0, 0.7);
+		backdrop-filter: blur(4px);
+		display: flex; align-items: center; justify-content: center;
 		z-index: 9999;
 		animation: bwFadeIn 0.15s ease-out;
 	}
-
 	:global(.bw-modal) {
-		background: #1a1d23;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 12px;
-		width: 440px;
-		max-width: 90%;
-		max-height: 80vh;
-		display: flex;
-		flex-direction: column;
+		background: var(--card-dark-bg, #1a1d23);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 6px;
+		width: min(540px, 92vw);
+		max-height: 85vh;
+		display: flex; flex-direction: column;
 		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 		animation: bwSlideIn 0.15s ease-out;
 	}
-
 	:global(.bw-modal-header) {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 16px 20px;
+		display: flex; align-items: center; justify-content: space-between;
+		padding: 10px 16px;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 	}
-
 	:global(.bw-modal-title) {
-		font-size: 14px;
-		font-weight: 600;
-		color: rgba(252, 129, 129, 0.95);
+		font-size: 15px; font-weight: 600;
+		color: rgba(255, 255, 255, 0.85);
 	}
-
 	:global(.bw-modal-close) {
-		background: none;
-		border: none;
-		color: rgba(255, 255, 255, 0.4);
-		font-size: 20px;
-		cursor: pointer;
-		padding: 0 4px;
-		line-height: 1;
+		display: flex; align-items: center; justify-content: center;
+		background: transparent;
+		color: rgba(255, 255, 255, 0.3);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		font-size: 18px; line-height: 1;
+		padding: 2px 7px; border-radius: 3px;
+		cursor: pointer; transition: all 0.1s;
 	}
-
 	:global(.bw-modal-close:hover) {
-		color: rgba(255, 255, 255, 0.8);
+		color: rgba(255, 255, 255, 0.7);
+		border-color: rgba(255, 255, 255, 0.1);
 	}
-
 	:global(.bw-modal-body) {
-		padding: 16px 20px;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 14px;
+		padding: 14px 16px; overflow-y: auto;
+		display: flex; flex-direction: column; gap: 10px;
 	}
-
-	:global(.bw-field) {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
+	:global(.bw-field) { display: flex; flex-direction: column; gap: 3px; }
 	:global(.bw-label) {
-		font-size: 10px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
 		color: rgba(255, 255, 255, 0.4);
+		font-size: 12px; font-weight: 600;
+		text-transform: uppercase; letter-spacing: 0.6px;
 	}
-
-	:global(.bw-required) {
-		color: rgba(239, 68, 68, 0.8);
-	}
-
-	:global(.bw-value) {
-		font-size: 12px;
-		color: rgba(255, 255, 255, 0.75);
-	}
-
-	:global(.bw-charges) {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-	}
-
+	:global(.bw-required) { color: rgba(239, 68, 68, 0.8); }
+	:global(.bw-value) { font-size: 13px; color: rgba(255, 255, 255, 0.8); }
+	:global(.bw-charges) { display: flex; flex-wrap: wrap; gap: 4px; }
 	:global(.bw-charge-chip) {
 		padding: 2px 8px;
-		background: rgba(255, 255, 255, 0.06);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 4px;
-		font-size: 11px;
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px; font-size: 12px;
 		color: rgba(255, 255, 255, 0.65);
 	}
-
-	:global(.bw-no-charges) {
-		font-size: 11px;
-		color: rgba(255, 255, 255, 0.3);
-		font-style: italic;
-	}
-
+	:global(.bw-no-charges) { font-size: 12px; color: rgba(255, 255, 255, 0.3); font-style: italic; }
 	:global(.bw-textarea) {
-		width: 100%;
-		min-height: 80px;
-		padding: 10px 12px;
-		background: rgba(255, 255, 255, 0.04);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 6px;
-		color: rgba(255, 255, 255, 0.9);
-		font-size: 12px;
-		font-family: inherit;
-		resize: vertical;
-		outline: none;
-		transition: border-color 0.15s;
+		width: 100%; min-height: 70px;
+		padding: 5px 8px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 13px; font-family: inherit;
+		resize: vertical; outline: none;
+		transition: border-color 0.1s;
 	}
-
-	:global(.bw-textarea:focus) {
-		border-color: rgba(239, 68, 68, 0.4);
-	}
-
-	:global(.bw-textarea::placeholder) {
-		color: rgba(255, 255, 255, 0.2);
-	}
-
+	:global(.bw-textarea:focus) { border-color: rgba(255, 255, 255, 0.1); }
+	:global(.bw-textarea::placeholder) { color: rgba(255, 255, 255, 0.2); }
 	:global(.bw-modal-footer) {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-		padding: 12px 20px;
+		display: flex; justify-content: flex-end; gap: 6px;
+		padding: 10px 16px;
 		border-top: 1px solid rgba(255, 255, 255, 0.06);
 	}
-
 	:global(.bw-btn) {
-		padding: 8px 16px;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 500;
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: all 0.15s;
+		padding: 6px 16px; border-radius: 3px;
+		font-size: 12px; font-weight: 600;
+		cursor: pointer; border: 1px solid transparent;
+		transition: all 0.1s;
 	}
-
-	:global(.bw-btn:disabled) {
-		opacity: 0.4;
-		cursor: default;
-	}
-
+	:global(.bw-btn:disabled) { opacity: 0.5; cursor: not-allowed; }
 	:global(.bw-btn-cancel) {
-		background: rgba(255, 255, 255, 0.04);
-		border-color: rgba(255, 255, 255, 0.08);
-		color: rgba(255, 255, 255, 0.6);
+		background: transparent;
+		border-color: rgba(255, 255, 255, 0.06);
+		color: rgba(255, 255, 255, 0.4);
+		font-weight: 500;
 	}
-
 	:global(.bw-btn-cancel:hover:not(:disabled)) {
-		background: rgba(255, 255, 255, 0.08);
+		color: rgba(255, 255, 255, 0.7);
+		border-color: rgba(255, 255, 255, 0.1);
 	}
-
 	:global(.bw-btn-submit) {
-		background: rgba(239, 68, 68, 0.15);
-		border-color: rgba(239, 68, 68, 0.3);
-		color: rgba(252, 129, 129, 0.95);
+		background: rgba(16, 185, 129, 0.06);
+		border-color: rgba(16, 185, 129, 0.1);
+		color: rgba(52, 211, 153, 0.7);
 	}
-
 	:global(.bw-btn-submit:hover:not(:disabled)) {
-		background: rgba(239, 68, 68, 0.25);
+		background: rgba(16, 185, 129, 0.12);
+		color: rgba(110, 231, 183, 0.9);
 	}
 
 	@keyframes bwFadeIn {

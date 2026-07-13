@@ -205,12 +205,22 @@ local function deletePatrolFromDB(id)
 end
 
 local function saveOrder()
+    -- Coalesce all sort_order writes into one statement instead of N round-trips.
+    local cases, ids = {}, {}
     for i, id in ipairs(patrolOrder) do
         if patrols[id] then
             patrols[id].sortOrder = i
-            MySQL.execute("UPDATE mdt_patrols SET sort_order = ? WHERE id = ?", { i, id })
+            cases[#cases + 1] = ('WHEN %d THEN %d'):format(id, i)
+            ids[#ids + 1] = id
         end
     end
+    if #ids == 0 then return end
+    local ph = {}
+    for i = 1, #ids do ph[i] = '?' end
+    MySQL.execute(
+        ('UPDATE mdt_patrols SET sort_order = CASE id %s END WHERE id IN (%s)')
+            :format(table.concat(cases, ' '), table.concat(ph, ',')),
+        ids)
 end
 
 -- ─── Broadcast ──────────────────────────────────────────────────────────────
@@ -250,6 +260,29 @@ local function orderedPatrolsForDomain(domain)
         end
     end
     return ordered
+end
+
+-- ─── Tracking dirty push ─────────────────────────────────────────────────────
+-- Lightweight "something moved" signal. On receipt the NUI refetches the
+-- server-cached snapshot, so a burst of changes costs at most one cached fetch
+-- per client per window instead of waiting for the next blind poll. Coalesced
+-- per domain so rapid mutations fan out a single event, and the NUI keeps a
+-- slow interval as a fallback in case an event is ever missed.
+local DIRTY_COALESCE_MS = 750
+local dirtyScheduled = {}
+local function flushDirty(domain)
+    dirtyScheduled[domain] = nil
+    for _, src in ipairs(playersInDomain(domain)) do
+        TriggerClientEvent(resourceName .. ':client:trackingDirty', src)
+    end
+end
+
+-- Global so officer_status.lua (and any future producer) can nudge the map.
+function MarkTrackingDirty(domain)
+    domain = domain or 'police'
+    if dirtyScheduled[domain] then return end
+    dirtyScheduled[domain] = true
+    SetTimeout(DIRTY_COALESCE_MS, function() flushDirty(domain) end)
 end
 
 local function doBroadcast(action, citizenid)
@@ -473,6 +506,7 @@ RegisterNetEvent(resourceName .. ':server:cacheVehicle', function(plate, coords,
         heading = heading,
         _ts = GetGameTimer(),
     }
+    MarkTrackingDirty('police')
 end)
 
 RegisterNetEvent('baseevents:leftVehicle', function(vehicle, seat, model, netId)
@@ -493,7 +527,10 @@ AddEventHandler('entityRemoved', function(entity)
     local plate = GetVehicleNumberPlateText(entity)
     if not plate or plate == '' then return end
     plate = plate:gsub('%s+', '')
-    vehicleCache[plate] = nil
+    if vehicleCache[plate] then
+        vehicleCache[plate] = nil
+        MarkTrackingDirty('police')
+    end
 end)
 
 -- ─── Patrols ──────────────────────────────────────────────────────────────

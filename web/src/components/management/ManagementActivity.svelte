@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { fetchNui } from "../../utils/fetchNui";
+	import { formatDate, formatTime, formatDateTime, formatRelative, toDate } from "../../utils/datetime";
 	import { isEnvBrowser } from "../../utils/misc";
 	import { NUI_EVENTS } from "../../constants/nuiEvents";
 	import Pagination from "../Pagination.svelte";
@@ -59,6 +60,7 @@
 		vehicle_updated:    "Updated vehicle record",
 		vehicle_impounded:  "Impounded a vehicle",
 		vehicle_released:   "Released vehicle from impound",
+		vehicle_impound_fee_paid: "Collected an impound fee",
 		// Searches
 		search_citizens: "Searched citizens",
 		search_players:  "Searched players",
@@ -86,6 +88,14 @@
 		patrol_officer_assigned: "Assigned officer to patrol",
 		patrol_officer_removed:  "Removed officer from patrol",
 		patrols_reordered:       "Reordered patrols",
+		// ── Dispatch calls ───────────────────────────────────────────────────
+		dispatch_create:         "Created a call",
+		dispatch_dismiss:        "Dismissed a call",
+		dispatch_note_add:       "Added a call note",
+		dispatch_note_edit:      "Edited a call note",
+		dispatch_note_delete:    "Removed a call note",
+		dispatch_attach_units:   "Assigned units to a call",
+		dispatch_detach_units:   "Removed units from a call",
 	};
 
 	const ACTION_ICONS: Record<string, { icon: string; color: string }> = {
@@ -110,6 +120,7 @@
 		weapon_deleted: { icon: "no_encryption",  color: "#ef4444" },
 		vehicle_updated:   { icon: "directions_car", color: "#f59e0b" },
 		vehicle_impounded: { icon: "local_parking",  color: "#ef4444" },
+		vehicle_impound_fee_paid: { icon: "payments", color: "#10b981" },
 		vehicle_released:  { icon: "directions_car", color: "#10b981" },
 		fine_processed:  { icon: "payments",     color: "#f59e0b" },
 		charge_updated:  { icon: "gavel",        color: "#f59e0b" },
@@ -133,6 +144,13 @@
 		patrol_officer_assigned: { icon: "person_add",     color: "#10b981" },
 		patrol_officer_removed:  { icon: "person_remove",  color: "#ef4444" },
 		patrols_reordered:       { icon: "swap_vert",      color: "#6b7280" },
+		dispatch_create:         { icon: "add_alert",      color: "#10b981" },
+		dispatch_dismiss:        { icon: "notifications_off", color: "#ef4444" },
+		dispatch_note_add:       { icon: "note_add",       color: "#10b981" },
+		dispatch_note_edit:      { icon: "edit_note",      color: "#f59e0b" },
+		dispatch_note_delete:    { icon: "note_alt",       color: "#ef4444" },
+		dispatch_attach_units:   { icon: "person_add",     color: "#10b981" },
+		dispatch_detach_units:   { icon: "person_remove",  color: "#ef4444" },
 	};
 
 	let activities: AuditLog[] = $state([]);
@@ -219,29 +237,27 @@
 		if (log.entity_type === "mdt_patrol") {
 			return label;
 		}
+		// Dispatch calls: the readable action_label already names the call, so the
+		// raw call id ("mdt-…" / a provider number) would just be noise here.
+		if (log.entity_type === "dispatch") {
+			return "";
+		}
 		return label ? `${label} #${log.entity_id}` : `#${log.entity_id}`;
 	}
 
 	function formatTimestamp(value: string): string {
-		if (!value) return "Unknown";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return value;
-		const now  = new Date();
-		const diff = now.getTime() - date.getTime();
-		const mins = Math.floor(diff / 60000);
-		if (mins < 1)  return "Just now";
-		if (mins < 60) return `${mins}m ago`;
-		const hours = Math.floor(mins / 60);
-		if (hours < 24) return `${hours}h ago`;
-		const days = Math.floor(hours / 24);
-		if (days < 7)  return `${days}d ago`;
-		return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+		return formatRelative(value);
 	}
 
 	function formatFullTimestamp(value: string): string {
-		if (!value) return "";
-		const date = new Date(value);
-		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+		return formatDateTime(value, value);
+	}
+
+	// Compact absolute stamp shown next to the relative time, e.g. "10-07-2026 | 15:34".
+	function formatExactTimestamp(value: string): string {
+		const d = toDate(value);
+		if (!d) return "";
+		return `${formatDate(d)} | ${formatTime(d)}`;
 	}
 
 	async function loadActivity(page = 1) {
@@ -337,7 +353,9 @@
 					</div>
 					<div class="activity-meta">
 						<span class="activity-officer">{log.actor_name || "Unknown"}</span>
-						<span class="activity-time" title={formatFullTimestamp(log.created_at)}>{formatTimestamp(log.created_at)}</span>
+						<span class="activity-time" title={formatFullTimestamp(log.created_at)}>
+							{formatTimestamp(log.created_at)}<span class="time-sep">●</span><span class="time-exact">{formatExactTimestamp(log.created_at)}</span>
+						</span>
 					</div>
 				</div>
 			{:else}
@@ -475,8 +493,21 @@
 		white-space: nowrap;
 	}
 	.activity-time {
-		color: rgba(255, 255, 255, 0.2);
+		color: rgba(255, 255, 255, 0.4);
 		font-size: 10px;
+		white-space: nowrap;
+		display: inline-flex;
+		align-items: center;
+	}
+	.time-sep {
+		margin: 0 5px;
+		font-size: 6px;
+		color: rgba(255, 255, 255, 0.2);
+		vertical-align: middle;
+	}
+	.time-exact {
+		color: rgba(255, 255, 255, 0.25);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.empty-state {

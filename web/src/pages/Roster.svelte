@@ -35,6 +35,7 @@
 	}
 
 	import { onMount } from "svelte";
+	import { formatDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { debugData } from "../utils/debugData";
@@ -42,6 +43,7 @@
 	import { NUI_EVENTS } from "../constants/nuiEvents";
 	import { globalNotifications } from "../services/notificationService.svelte";
 	import type { AuthService } from "../services/authService.svelte";
+	import ActivityTimeline from "../components/ActivityTimeline.svelte";
 
 	let { authService, tabService }: { authService?: AuthService; tabService?: any } = $props();
 
@@ -52,6 +54,7 @@
 		lastName: string;
 		rank: string;
 		department?: string;
+		departmentLabel?: string;
 		status: "On Duty" | "Off Duty";
 		certifications: string[];
 		badgeNumber: string;
@@ -96,7 +99,7 @@
 
 	// Boss panel state
 	let showBossPanel = $state(false);
-	let bossPanelTab = $state<"rank" | "callsign" | "certs" | "ppr" | "fto" | "ia_history">("rank");
+	let bossPanelTab = $state<"rank" | "callsign" | "certs" | "ppr" | "fto" | "ia_history" | "activity">("rank");
 	let iaHistory = $state<Array<{ id: number; complaint_number: string; category: string; status: string; created_at: string }>>([]);
 	let iaHistoryLoading = $state(false);
 	let pprHistory = $state<Array<{ id: number; ppr_number: string; category: string; title: string; author_name: string; incident_date?: string; created_at: string }>>([]);
@@ -112,6 +115,21 @@
 	let canManageCerts = $derived(authService?.hasPermission("roster_manage_certifications") ?? false);
 	let canManageOfficers = $derived(authService?.hasPermission("roster_manage_officers") ?? false);
 	let canOpenPanel = $derived(canManageCerts || canManageOfficers);
+
+	// Phase 2: EMS-aware terminology. The roster is shared UI but the wording
+	// should match the caller's domain (police "Officer" vs EMS "Personnel").
+	let isEmsDomain = $derived((authService?.jobType ?? "leo") === "ems");
+	let term = $derived({
+		member: isEmsDomain ? "Personnel" : "Officer",
+		members: isEmsDomain ? "Personnel" : "Officers",
+		memberLower: isEmsDomain ? "member" : "officer",
+		membersLower: isEmsDomain ? "members" : "officers",
+		management: isEmsDomain ? "Personnel Management" : "Officer Management",
+		terminate: isEmsDomain ? "Terminate Member" : "Terminate Officer",
+		removeHint: isEmsDomain
+			? "Remove this person from the department. This sets their job to unemployed."
+			: "Remove this officer from the department. This sets their job to unemployed.",
+	});
 
 	let filteredOfficers = $derived.by(() => {
 		const query = searchQuery.trim().toLowerCase();
@@ -433,26 +451,29 @@
 		}
 	}
 
+	let deleteUserData = $state(false);
+
 	async function fireOfficer() {
 		if (!selectedOfficer?.citizenid) return;
 		isSavingBoss = true;
 		try {
 			const response = await fetchNui<{ success: boolean; message?: string }>(
 				NUI_EVENTS.ROSTER.FIRE_OFFICER,
-				{ citizenid: selectedOfficer.citizenid },
+				{ citizenid: selectedOfficer.citizenid, deleteData: deleteUserData },
 			);
 			if (response?.success) {
 				officers = officers.filter((o) => o.citizenid !== selectedOfficer!.citizenid);
-				globalNotifications.success(response.message || "Officer has been terminated");
+				globalNotifications.success(response.message || `${term.member} has been terminated`);
 				closeBossPanel();
 			} else {
-				globalNotifications.error(response?.message || "Failed to terminate officer");
+				globalNotifications.error(response?.message || `Failed to terminate ${term.memberLower}`);
 			}
 		} catch {
-			globalNotifications.error("Failed to terminate officer");
+			globalNotifications.error(`Failed to terminate ${term.memberLower}`);
 		} finally {
 			isSavingBoss = false;
 			showFireConfirm = false;
+			deleteUserData = false;
 		}
 	}
 
@@ -463,7 +484,7 @@
 			const officerName = `${selectedOfficer.firstName} ${selectedOfficer.lastName}`;
 			const result = await fetchNui<Array<{ id: number; complaint_number: string; category: string; status: string; created_at: string }>>(
 				NUI_EVENTS.IA.GET_IA_HISTORY_FOR_OFFICER,
-				{ officerName },
+				{ officerName, officerCid: selectedOfficer.citizenid },
 				[]
 			);
 			iaHistory = Array.isArray(result) ? result : [];
@@ -544,11 +565,7 @@
 	}
 
 	function formatDateShort(dateStr: string): string {
-		if (!dateStr) return '';
-		try {
-			const d = new Date(dateStr);
-			return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
-		} catch { return dateStr; }
+		return formatDate(dateStr, "");
 	}
 
 	async function saveCallsign() {
@@ -597,7 +614,7 @@
 			class="search-input"
 		/>
 		<div class="topbar-right">
-			<span class="result-count">{filteredOfficers.length} officer{filteredOfficers.length !== 1 ? "s" : ""}</span>
+			<span class="result-count">{filteredOfficers.length} {term.memberLower}{filteredOfficers.length !== 1 ? "s" : ""}</span>
 			<button class="btn-secondary" onclick={refreshData} disabled={isLoading}>
 				{isLoading ? "Loading..." : "Refresh"}
 			</button>
@@ -624,11 +641,11 @@
 					</div>
 				{:else if filteredOfficers.length === 0}
 					<div class="empty-state">
-						<p class="empty-title">No Officers Found</p>
+						<p class="empty-title">No {term.members} Found</p>
 						<p class="empty-sub">
 							{searchQuery
-								? "No officers match your search criteria."
-								: "No officers are currently in the roster."}
+								? `No ${term.membersLower} match your search criteria.`
+								: `No ${term.membersLower} are currently in the roster.`}
 						</p>
 					</div>
 				{:else}
@@ -653,7 +670,7 @@
 								{/if}
 							</span>
 							<span class="cell-rank">{officer.rank}</span>
-							<span class="cell-dept">{officer.department || "-"}</span>
+							<span class="cell-dept">{officer.departmentLabel || officer.department || "-"}</span>
 							<span class="cell-certs">
 								{#if officer.certifications.length > 0}
 									{#each officer.certifications as cert}
@@ -712,7 +729,7 @@
 					<div class="no-tags">
 						<span class="material-icons no-tags-icon">label_off</span>
 						<p>No certifications available.</p>
-						<p class="no-tags-hint">Create officer tags in Management &gt; Tags</p>
+						<p class="no-tags-hint">Create {term.memberLower} tags in Management &gt; Tags</p>
 					</div>
 				{:else}
 					<div class="cert-grid">
@@ -761,7 +778,7 @@
 		<div class="boss-panel" onclick={(e) => e.stopPropagation()}>
 			<div class="modal-header">
 				<div class="modal-title-area">
-					<span class="modal-title">Officer Management</span>
+					<span class="modal-title">{term.management}</span>
 					<span class="modal-subtitle">{selectedOfficer.firstName} {selectedOfficer.lastName} &bull; {selectedOfficer.callsign} &bull; {selectedOfficer.rank}</span>
 				</div>
 				<button class="modal-close" onclick={closeBossPanel}>
@@ -796,13 +813,17 @@
 					<span class="material-icons boss-tab-icon">shield</span>
 					IA History
 				</button>
+				<button class="boss-tab" class:active={bossPanelTab === "activity"} onclick={() => { bossPanelTab = "activity"; showFireConfirm = false; }}>
+					<span class="material-icons boss-tab-icon">history</span>
+					Activity
+				</button>
 			</div>
 
 			<div class="boss-body">
 				{#if bossPanelTab === "rank"}
 					<div class="boss-section">
 						<label class="boss-label">Change Rank</label>
-						<p class="boss-hint">Select a new rank for this officer. Officer must be online.</p>
+						<p class="boss-hint">Select a new rank for this {term.memberLower}. {term.member} must be online.</p>
 						<div class="grade-grid">
 							{#if jobGrades.length === 0}
 								<div class="no-tags">
@@ -834,16 +855,23 @@
 					<div class="boss-divider"></div>
 
 					<div class="boss-section">
-						<label class="boss-label boss-label-danger">Terminate Officer</label>
-						<p class="boss-hint">Remove this officer from the department. This sets their job to unemployed.</p>
+						<label class="boss-label boss-label-danger">{term.terminate}</label>
+						<p class="boss-hint">{term.removeHint}</p>
 						{#if !showFireConfirm}
 							<button class="btn-fire" onclick={() => showFireConfirm = true}>
 								<span class="material-icons">person_remove</span>
-								Terminate Officer
+								{term.terminate}
 							</button>
 						{:else}
 							<div class="fire-confirm">
 								<p class="fire-warning">Are you sure you want to terminate <strong>{selectedOfficer.firstName} {selectedOfficer.lastName}</strong>?</p>
+								<label class="fire-delete-toggle">
+									<input type="checkbox" bind:checked={deleteUserData} />
+									<span>Delete all user data from MDT</span>
+								</label>
+								{#if deleteUserData}
+									<p class="fire-delete-hint">Removes this person's logs, tags, status, FTO/PPR file, clock records and patrol membership. Reports, evidence, cases, warrants and arrests are kept.</p>
+								{/if}
 								<div class="fire-actions">
 									<button class="btn-cancel" onclick={() => showFireConfirm = false}>Cancel</button>
 									<button class="btn-fire-confirm" onclick={fireOfficer} disabled={isSavingBoss}>
@@ -857,7 +885,7 @@
 				{:else if bossPanelTab === "callsign"}
 					<div class="boss-section">
 						<label class="boss-label">Edit Callsign</label>
-						<p class="boss-hint">Update this officer's callsign/badge number. Officer must be online.</p>
+						<p class="boss-hint">Update this {term.memberLower}'s callsign/badge number. {term.member} must be online.</p>
 						<div class="callsign-input-row">
 							<input
 								type="text"
@@ -876,7 +904,7 @@
 							<div class="no-tags">
 								<span class="material-icons no-tags-icon">label_off</span>
 								<p>No certifications available.</p>
-								<p class="no-tags-hint">Create officer tags in Management &gt; Tags</p>
+								<p class="no-tags-hint">Create {term.memberLower} tags in Management &gt; Tags</p>
 							</div>
 						{:else}
 							<div class="cert-grid">
@@ -906,13 +934,13 @@
 				{:else if bossPanelTab === "ppr"}
 					<div class="boss-section">
 						<label class="boss-label">Performance Reviews</label>
-						<p class="boss-hint">Performance planning and review entries for this officer.</p>
+						<p class="boss-hint">Performance planning and review entries for this {term.memberLower}.</p>
 						{#if pprHistoryLoading}
 							<p class="boss-hint">Loading...</p>
 						{:else if pprHistory.length === 0}
 							<div class="no-tags">
 								<span class="material-icons no-tags-icon">rate_review</span>
-								<p>No PPR entries found for this officer.</p>
+								<p>No PPR entries found for this {term.memberLower}.</p>
 							</div>
 						{:else}
 							<div class="ia-history-list">
@@ -938,13 +966,13 @@
 				{:else if bossPanelTab === "fto"}
 					<div class="boss-section">
 						<label class="boss-label">Field Training History</label>
-						<p class="boss-hint">FTO training assignments for this officer.</p>
+						<p class="boss-hint">FTO training assignments for this {term.memberLower}.</p>
 						{#if ftoHistoryLoading}
 							<p class="boss-hint">Loading...</p>
 						{:else if ftoHistory.length === 0}
 							<div class="no-tags">
 								<span class="material-icons no-tags-icon">school</span>
-								<p>No FTO records found for this officer.</p>
+								<p>No FTO records found for this {term.memberLower}.</p>
 							</div>
 						{:else}
 							<div class="ia-history-list">
@@ -970,7 +998,7 @@
 											{#if record.latest_rating}
 												<span style="color: rgba(255,255,255,0.5); font-size: 9px;">Rating: {record.latest_rating}/5</span>
 											{/if}
-											<span class="ia-history-date">{record.start_date || formatDateShort(record.created_at)}</span>
+											<span class="ia-history-date">{formatDateShort(record.start_date || record.created_at)}</span>
 										</div>
 									</div>
 								{/each}
@@ -981,13 +1009,13 @@
 				{:else if bossPanelTab === "ia_history"}
 					<div class="boss-section">
 						<label class="boss-label">IA Complaint History</label>
-						<p class="boss-hint">Internal affairs complaints involving this officer.</p>
+						<p class="boss-hint">Internal affairs complaints involving this {term.memberLower}.</p>
 						{#if iaHistoryLoading}
 							<p class="boss-hint">Loading...</p>
 						{:else if iaHistory.length === 0}
 							<div class="no-tags">
 								<span class="material-icons no-tags-icon">verified_user</span>
-								<p>No IA complaints found for this officer.</p>
+								<p>No IA complaints found for this {term.memberLower}.</p>
 							</div>
 						{:else}
 							<div class="ia-history-list">
@@ -999,11 +1027,20 @@
 										</div>
 										<div class="ia-history-meta">
 											<span>{formatIAStatus(complaint.category)}</span>
-											<span class="ia-history-date">{complaint.created_at ? new Date(complaint.created_at).toLocaleDateString() : '-'}</span>
+											<span class="ia-history-date">{complaint.created_at ? formatDate(complaint.created_at) : '-'}</span>
 										</div>
 									</div>
 								{/each}
 							</div>
+						{/if}
+					</div>
+
+				{:else if bossPanelTab === "activity"}
+					<div class="boss-section">
+						<label class="boss-label">Activity Timeline</label>
+						<p class="boss-hint">Recorded changes involving this {term.memberLower} — rank, callsign, status and more.</p>
+						{#if selectedOfficer?.citizenid}
+							<ActivityTimeline citizenid={selectedOfficer.citizenid} />
 						{/if}
 					</div>
 				{/if}
@@ -1618,7 +1655,8 @@
 		background: var(--card-dark-bg);
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		border-radius: 6px;
-		width: 560px;
+		width: 600px;
+		max-width: 92vw;
 		max-height: 80vh;
 		display: flex;
 		flex-direction: column;
@@ -1627,6 +1665,7 @@
 
 	.boss-tabs {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 		padding: 0 16px;
@@ -1635,8 +1674,8 @@
 	.boss-tab {
 		display: flex;
 		align-items: center;
-		gap: 5px;
-		padding: 8px 12px;
+		gap: 4px;
+		padding: 8px 10px;
 		background: none;
 		border: none;
 		border-bottom: 2px solid transparent;
@@ -1840,6 +1879,29 @@
 
 	.fire-warning strong {
 		color: rgba(255, 255, 255, 0.85);
+	}
+
+	.fire-delete-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		color: rgba(255, 255, 255, 0.85);
+		cursor: pointer;
+		margin: 0 0 8px;
+		user-select: none;
+	}
+
+	.fire-delete-toggle input {
+		accent-color: #ef4444;
+		cursor: pointer;
+	}
+
+	.fire-delete-hint {
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.5);
+		margin: 0 0 10px;
+		line-height: 1.4;
 	}
 
 	.fire-actions {

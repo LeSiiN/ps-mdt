@@ -1,4 +1,5 @@
 import { fetchNui } from "../utils/fetchNui";
+import { formatDate as fmtDate, formatTime as fmtTime } from "../utils/datetime";
 import { NUI_EVENTS } from "../constants/nuiEvents";
 import type {
 	Report,
@@ -619,22 +620,14 @@ export function createReportService() {
 	 * Format a timestamp to date string
 	 */
 	function formatDate(timestamp: number): string {
-		return new Date(timestamp).toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		});
+		return fmtDate(timestamp);
 	}
 
 	/**
 	 * Format a timestamp to time string
 	 */
 	function formatTime(timestamp: number): string {
-		return new Date(timestamp).toLocaleTimeString("en-US", {
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
-		});
+		return fmtTime(timestamp);
 	}
 
 	return {

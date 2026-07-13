@@ -63,11 +63,17 @@ end)
 
 RegisterNUICallback('getIAHistoryForOfficer', function(data, cb)
     if not MDTOpen then cb({}) return end
-    if not data or not data.officerName or data.officerName == '' then
+    data = data or {}
+    -- Either identifier is enough: the citizenid is the reliable one, the name is
+    -- the fallback for complaints filed before officers were linked properly.
+    local hasName = data.officerName and data.officerName ~= ''
+    local hasCid  = data.officerCid and data.officerCid ~= ''
+    if not hasName and not hasCid then
         cb({})
         return
     end
-    local result = ps.callback(resourceName .. ':server:getIAHistoryForOfficer', data.officerName)
+    local result = ps.callback(resourceName .. ':server:getIAHistoryForOfficer',
+        data.officerName, data.officerCid)
     cb(result or {})
 end)
 

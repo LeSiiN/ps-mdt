@@ -158,6 +158,8 @@ local function broadcastStatus(citizenid, entry)
     for _, src in ipairs(playersInDomain(domain)) do
         TriggerClientEvent(resourceName .. ':client:syncOfficerStatus', src, payload)
     end
+    -- Refresh map markers (status colour) without waiting for the poll.
+    if MarkTrackingDirty then MarkTrackingDirty(domain) end
 end
 
 -- ─── Public accessor for tracking.lua ───────────────────────────────────────
@@ -178,7 +180,56 @@ function GetOfficerStatusSnapshot(domain)
     return out
 end
 
+-- Aggregate live status counts for a domain's CURRENTLY ONLINE officers.
+-- Officers who never set a status are tallied under the default. Pure in-memory
+-- (no DB hit), so it's cheap enough for the dashboard to poll. Feeds the
+-- dispatch breakdown widget.
+function GetOfficerStatusBreakdown(domain)
+    domain = (domain == 'ems') and 'ems' or 'police'
+    local counts, total = {}, 0
+    local function tally(citizenid)
+        total = total + 1
+        local entry = citizenid and officerStatus[citizenid]
+        local sid = (entry and entry.status) or defaultStatus
+        counts[sid] = (counts[sid] or 0) + 1
+    end
+
+    local QBCore = getQBCore()
+    if QBCore then
+        for _, player in pairs(QBCore.Functions.GetQBPlayers() or {}) do
+            local d = player.PlayerData
+            if d and d.job and GetDomainForJob(d.job.name, d.job.type) == domain then
+                tally(d.citizenid)
+            end
+        end
+    elseif ps and ps.getAllPlayers then
+        for _, pid in pairs(ps.getAllPlayers() or {}) do
+            local jobName = ps.getJobName and ps.getJobName(pid) or nil
+            local jobType = ps.getJobType and ps.getJobType(pid) or nil
+            if GetDomainForJob(jobName, jobType) == domain then
+                tally(ps.getIdentifier and ps.getIdentifier(pid) or nil)
+            end
+        end
+    end
+
+    -- Project onto the configured list so order/labels/colours stay stable and
+    -- a zero-count status still shows up in the legend.
+    local breakdown = {}
+    for _, s in ipairs(statusList) do
+        breakdown[#breakdown + 1] = {
+            id = s.id, label = s.label, color = s.color, count = counts[s.id] or 0,
+        }
+    end
+    return { total = total, statuses = breakdown }
+end
+
 -- ─── Callbacks ──────────────────────────────────────────────────────────────
+
+-- Live dispatch breakdown for the caller's domain (police vs ems).
+ps.registerCallback(resourceName .. ':server:getOfficerStatusBreakdown', function(source)
+    if not CheckAuth(source) then return { total = 0, statuses = {} } end
+    return GetOfficerStatusBreakdown(GetMdtDomain(source))
+end)
 
 -- Static status config (ids/labels/colors) — fetched once by the NUI on Map
 -- mount so the picker/legend/filter never hardcode status definitions
@@ -225,7 +276,7 @@ RegisterNetEvent(resourceName .. ':server:setOfficerStatus', function(statusId, 
     dbg(('%s set status to "%s"%s'):format(officer.name or officer.citizenid, statusId, cleanNote and (' (' .. cleanNote .. ')') or ''))
 
     if ps.auditLog then
-        ps.auditLog(src, 'officer_status_changed', officer.citizenid, {
+        ps.auditLog(src, 'officer_status_changed', 'officers', officer.citizenid, {
             officer_name    = officer.name,
             officer_callsign = officer.callsign,
             officer_id      = officer.citizenid,

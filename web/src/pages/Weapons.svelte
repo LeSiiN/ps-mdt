@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -475,7 +476,7 @@
 									{/if}
 								</div>
 								<div class="history-item-side">
-									<span class="history-date">{new Date(entry.created_at).toLocaleDateString()}</span>
+									<span class="history-date">{formatDate(entry.created_at)}</span>
 									{#if entry.reason}
 										<span class="history-reason">{entry.reason}</span>
 									{/if}

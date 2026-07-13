@@ -1,5 +1,15 @@
 local resourceName = tostring(GetCurrentResourceName())
 
+-- Phase 2: FTO assignments are domain-scoped so EMS sees its own trainees and
+-- police see theirs. Phases/competencies are already scoped by exact job name.
+-- Existing assignment rows default to 'police'; new ones take the creator's domain.
+CreateThread(function()
+    Wait(2500)
+    if EnsureColumn then
+        EnsureColumn('mdt_fto_assignments', 'job_type', "`job_type` varchar(10) NOT NULL DEFAULT 'police'")
+    end
+end)
+
 local function buildFTONumber(id)
     local year = os.date('%Y')
     return ('FTO-%s-%05d'):format(year, id)
@@ -73,6 +83,10 @@ ps.registerCallback(resourceName .. ':server:getFTOList', function(source, pageN
     local clauses = {}
     local values = {}
 
+    -- Domain scope: each side only sees its own FTO assignments.
+    clauses[#clauses + 1] = 'a.job_type = ?'
+    values[#values + 1] = GetMdtDomain(src)
+
     if not hasFTOView then
         clauses[#clauses + 1] = '(a.trainee_citizenid = ? OR a.trainer_citizenid = ?)'
         values[#values + 1] = citizenId
@@ -97,7 +111,7 @@ ps.registerCallback(resourceName .. ':server:getFTOList', function(source, pageN
     values[#values + 1] = offset
 
     local query = ([[
-        SELECT a.*, p.name AS phase_name,
+        SELECT a.*, p.name AS current_phase,
             (SELECT COUNT(*) FROM mdt_fto_dors d WHERE d.assignment_id = a.id) AS dor_count,
             (SELECT d2.overall_rating FROM mdt_fto_dors d2 WHERE d2.assignment_id = a.id ORDER BY d2.created_at DESC LIMIT 1) AS latest_rating
         FROM mdt_fto_assignments a
@@ -125,7 +139,7 @@ ps.registerCallback(resourceName .. ':server:getFTO', function(source, data)
     if not assignmentId then return { success = false, error = 'Invalid ID' } end
 
     local entry = MySQL.single.await([[
-        SELECT a.*, p.name AS phase_name
+        SELECT a.*, p.name AS current_phase
         FROM mdt_fto_assignments a
         LEFT JOIN mdt_fto_phases p ON a.current_phase_id = p.id
         WHERE a.id = ?
@@ -196,17 +210,38 @@ ps.registerCallback(resourceName .. ':server:createFTOAssignment', function(sour
         return { success = false, error = 'Trainer is required' }
     end
 
+    -- Only one open (active or suspended) assignment per trainee.
+    local existing = MySQL.single.await(
+        "SELECT id FROM mdt_fto_assignments WHERE trainee_citizenid = ? AND status IN ('active','suspended') LIMIT 1",
+        { data.trainee_citizenid })
+    if existing then
+        return { success = false, error = 'This trainee already has an active FTO assignment' }
+    end
+
+    -- Default a new trainee to the first phase of the program if none was chosen,
+    -- so they never sit "phase-less" (which breaks DOR/phase tallies).
+    local phaseId = tonumber(data.current_phase_id)
+    if not phaseId then
+        local job = ps.getJobName and ps.getJobName(src) or nil
+        if job then
+            local first = MySQL.single.await(
+                'SELECT id FROM mdt_fto_phases WHERE job = ? ORDER BY sort_order ASC, id ASC LIMIT 1', { job })
+            phaseId = first and first.id or nil
+        end
+    end
+
     local assignmentId = MySQL.insert.await([[
         INSERT INTO mdt_fto_assignments
         (fto_number, trainee_citizenid, trainee_name, trainer_citizenid, trainer_name,
-         current_phase_id, status, start_date, notes)
-        VALUES ('', ?, ?, ?, ?, ?, 'active', ?, ?)
+         current_phase_id, status, start_date, notes, job_type)
+        VALUES ('', ?, ?, ?, ?, ?, 'active', ?, ?, ?)
     ]], {
         data.trainee_citizenid, data.trainee_name or '',
         data.trainer_citizenid, data.trainer_name or '',
-        tonumber(data.current_phase_id) or nil,
-        data.start_date or os.date('%m/%d/%Y'),
+        phaseId,
+        data.start_date or os.date('%Y-%m-%d'),
         data.notes or nil,
+        GetMdtDomain(src),
     })
 
     if not assignmentId then return { success = false, error = 'Failed to create assignment' } end
@@ -245,6 +280,98 @@ ps.registerCallback(resourceName .. ':server:updateFTOAssignment', function(sour
     return { success = true }
 end)
 
+-- ---------------------------------------------------------------------------
+-- Phase progression — the core of the trainer tool. Advancing walks the job's
+-- ordered phases (by sort_order); advancing past the last phase graduates the
+-- trainee (status = completed). Moving back steps one phase down. This keeps the
+-- "which phase is next" logic on the server so the UI can't desync.
+-- ---------------------------------------------------------------------------
+ps.registerCallback(resourceName .. ':server:advanceFTOPhase', function(source, data)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+    if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
+
+    data = data or {}
+    local assignmentId = tonumber(data.assignment_id)
+    local direction = data.direction == 'back' and 'back' or 'next'
+    if not assignmentId then return { success = false, error = 'Invalid assignment' } end
+
+    local a = MySQL.single.await(
+        'SELECT id, current_phase_id, status, trainee_name FROM mdt_fto_assignments WHERE id = ?', { assignmentId })
+    if not a then return { success = false, error = 'Assignment not found' } end
+    if a.status ~= 'active' then return { success = false, error = 'Only active assignments can change phase' } end
+
+    -- Resolve which job's phase ladder applies: the current phase's job, else the caller's.
+    local job = nil
+    if a.current_phase_id then
+        local cp = MySQL.single.await('SELECT job FROM mdt_fto_phases WHERE id = ?', { a.current_phase_id })
+        job = cp and cp.job or nil
+    end
+    if not job then job = ps.getJobName and ps.getJobName(src) or nil end
+    if not job then return { success = false, error = 'Could not resolve the training program' } end
+
+    local phases = MySQL.query.await(
+        'SELECT id, name FROM mdt_fto_phases WHERE job = ? ORDER BY sort_order ASC, id ASC', { job }) or {}
+    if #phases == 0 then return { success = false, error = 'No phases configured for this program' } end
+
+    -- Locate the current phase in the ladder (0 = not yet placed → next is phase 1).
+    local idx = 0
+    for i, p in ipairs(phases) do
+        if a.current_phase_id and tonumber(p.id) == tonumber(a.current_phase_id) then idx = i break end
+    end
+
+    if direction == 'back' then
+        if idx <= 1 then return { success = false, error = 'Already at the first phase' } end
+        local target = phases[idx - 1]
+        MySQL.update.await('UPDATE mdt_fto_assignments SET current_phase_id = ? WHERE id = ?', { target.id, assignmentId })
+        if ps.auditLog then ps.auditLog(src, 'fto_phase_back', 'fto', assignmentId, { to = target.name }) end
+        return { success = true, completed = false, action = 'back', phase = target }
+    end
+
+    if idx < #phases then
+        local target = phases[idx + 1]
+        MySQL.update.await('UPDATE mdt_fto_assignments SET current_phase_id = ? WHERE id = ?', { target.id, assignmentId })
+        if ps.auditLog then ps.auditLog(src, 'fto_phase_advance', 'fto', assignmentId, { to = target.name, note = data.note }) end
+        return { success = true, completed = false, action = 'advance', phase = target }
+    end
+
+    -- Past the last phase → graduation.
+    local endDate = os.date('%Y-%m-%d')
+    MySQL.update.await("UPDATE mdt_fto_assignments SET status = 'completed', end_date = ? WHERE id = ?", { endDate, assignmentId })
+    if ps.auditLog then ps.auditLog(src, 'fto_completed', 'fto', assignmentId, { trainee = a.trainee_name, note = data.note }) end
+    return { success = true, completed = true, action = 'complete' }
+end)
+
+-- Set an assignment's status (fail / suspend / reactivate / complete) with the
+-- matching end_date bookkeeping in one place.
+ps.registerCallback(resourceName .. ':server:setFTOStatus', function(source, data)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+    if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
+
+    data = data or {}
+    local assignmentId = tonumber(data.assignment_id)
+    local status = tostring(data.status or '')
+    local valid = { active = true, completed = true, failed = true, suspended = true }
+    if not assignmentId or not valid[status] then return { success = false, error = 'Invalid request' } end
+
+    local a = MySQL.single.await('SELECT id, trainee_name FROM mdt_fto_assignments WHERE id = ?', { assignmentId })
+    if not a then return { success = false, error = 'Assignment not found' } end
+
+    if status == 'active' then
+        -- Reactivating clears the end date.
+        MySQL.update.await("UPDATE mdt_fto_assignments SET status = 'active', end_date = NULL WHERE id = ?", { assignmentId })
+    elseif status == 'completed' or status == 'failed' then
+        MySQL.update.await('UPDATE mdt_fto_assignments SET status = ?, end_date = ? WHERE id = ?',
+            { status, os.date('%Y-%m-%d'), assignmentId })
+    else -- suspended
+        MySQL.update.await('UPDATE mdt_fto_assignments SET status = ? WHERE id = ?', { status, assignmentId })
+    end
+
+    if ps.auditLog then ps.auditLog(src, 'fto_status_' .. status, 'fto', assignmentId, { trainee = a.trainee_name }) end
+    return { success = true }
+end)
+
 -- Delete FTO assignment
 ps.registerCallback(resourceName .. ':server:deleteFTOAssignment', function(source, assignmentId)
     local src = source
@@ -268,6 +395,14 @@ ps.registerCallback(resourceName .. ':server:createFTODor', function(source, dat
     local assignmentId = tonumber(data.assignment_id)
     if not assignmentId then return { success = false, error = 'Assignment is required' } end
 
+    -- Always tag a DOR with a phase. If the client didn't send one, fall back to
+    -- the assignment's current phase so it counts for the right phase.
+    local phaseId = tonumber(data.phase_id)
+    if not phaseId then
+        local a = MySQL.single.await('SELECT current_phase_id FROM mdt_fto_assignments WHERE id = ?', { assignmentId })
+        phaseId = a and a.current_phase_id or nil
+    end
+
     local citizenId = ps.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local authorName = profile and profile.fullname or 'Unknown'
@@ -277,9 +412,9 @@ ps.registerCallback(resourceName .. ':server:createFTODor', function(source, dat
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ]], {
         assignmentId,
-        tonumber(data.phase_id) or nil,
+        phaseId,
         citizenId, authorName,
-        data.shift_date or os.date('%m/%d/%Y'),
+        data.shift_date or os.date('%Y-%m-%d'),
         tonumber(data.overall_rating) or 3,
         data.notes or nil,
     })

@@ -2,6 +2,35 @@ function GetActiveUnits()
     return ps.getJobCount("police")
 end
 
+--- Normalise a free-text search query for consistent, predictable LIKE matching
+--- across every search callback. Trims, collapses internal whitespace to single
+--- spaces, lowercases, and escapes LIKE wildcards (% _ \) so user input is
+--- treated literally (no accidental "match everything" / expensive scans).
+---
+--- Returns three values:
+---   norm       - the cleaned, lowercased term (nil if the query is empty)
+---   likePat    - '%term%' ready to bind to a LIKE placeholder
+---   plateLike  - like likePat but with ALL spaces removed, so "AB 123",
+---                "ab123" and "a b123" all match the same plate
+---
+--- Columns in this schema use a *_ci collation, so LIKE is already
+--- case-insensitive; lowercasing keeps our own handling deterministic and lines
+--- up with any LOWER()-wrapped columns.
+---@param query any
+---@return string|nil norm, string|nil likePat, string|nil plateLike
+function NormalizeSearch(query)
+    if query == nil then return nil end
+    local s = tostring(query)
+    s = s:gsub('%s+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
+    if s == '' then return nil end
+    s = s:lower()
+    -- escape LIKE wildcards so they match literally
+    local escaped = s:gsub('([%%_\\])', '\\%1')
+    local likePat = '%' .. escaped .. '%'
+    local plateLike = '%' .. escaped:gsub(' ', '') .. '%'
+    return s, likePat, plateLike
+end
+
 --- Returns a callsign only if it is safe to write to mdt_profiles for this
 --- citizen. The callsign column has a UNIQUE index, so assigning a value that
 --- another profile already owns throws a "Duplicate entry" error and aborts
@@ -79,6 +108,26 @@ end
 --- The MDT domain for an online player source.
 ---@param src number
 ---@return "police"|"ems"
+--- Self-healing schema helper: add a column if it doesn't already exist.
+--- Lets backends introduce a new column (e.g. a domain marker) without shipping
+--- a manual migration. No-op if the column is already present.
+---@param tableName string
+---@param columnName string
+---@param definition string -- full column definition, e.g. "`job_type` varchar(10) NOT NULL DEFAULT 'police'"
+---@return boolean added
+function EnsureColumn(tableName, columnName, definition)
+    local exists = MySQL.single.await([[
+        SELECT 1 AS x FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+    ]], { tableName, columnName })
+    if exists then return false end
+    local ok = pcall(MySQL.query.await, ('ALTER TABLE `%s` ADD COLUMN %s'):format(tableName, definition))
+    if ok and Config and Config.Debug then
+        print(('[ps-mdt] added column %s.%s'):format(tableName, columnName))
+    end
+    return ok
+end
+
 function GetMdtDomain(src)
     local jobName = ps.getJobName and ps.getJobName(src) or nil
     local jobType = ps.getJobType and ps.getJobType(src) or nil
@@ -403,4 +452,74 @@ ps.registerCallback('ps-mdt:hasProfile', function(source)
     end
 
     return EnsureProfileExists(citizenId)
+end)
+-- ---------------------------------------------------------------------------
+-- Phone number resolution (config-based, export-driven)
+-- ---------------------------------------------------------------------------
+-- Resolve a citizen's phone number through the configured phone resource so the
+-- MDT shows the correct number even when it isn't stored in charinfo.phone
+-- (lb-phone, gksphone, yseries, …). `fallback` is the charinfo.phone value; it is
+-- returned when the phone resource yields nothing and Config.Phone.UseCharinfoFallback
+-- is not disabled. Returns nil only when neither source produces a number.
+function GetCitizenPhoneNumber(citizenid, fallback)
+    local cfg = (Config and Config.Phone) or {}
+
+    local function withFallback(num)
+        if num ~= nil and tostring(num) ~= '' then return tostring(num) end
+        if cfg.UseCharinfoFallback ~= false and fallback ~= nil and tostring(fallback) ~= '' then
+            return tostring(fallback)
+        end
+        return nil
+    end
+
+    if not citizenid or citizenid == '' then return withFallback(nil) end
+
+    local res = cfg.Resource
+    if not res or res == '' then return withFallback(nil) end
+    if GetResourceState(res) ~= 'started' then return withFallback(nil) end
+
+    local exportName = cfg.NumberExport
+    if not exportName or exportName == '' then exportName = 'GetEquippedPhoneNumber' end
+
+    local ok, num = pcall(function()
+        return exports[res][exportName](exports[res], citizenid)
+    end)
+    if ok then return withFallback(num) end
+    return withFallback(nil)
+end
+
+-- Convenience export so other resources can reuse the same resolution.
+--- Send an e-mail to a citizen through the configured phone resource.
+--- Mirrors the lb-phone flow court.lua already uses: resolve the citizen's number,
+--- ask the phone for the mail address behind it, then send.
+--- Silent no-op when no phone resource is configured or running, so nothing that
+--- calls this ever depends on a phone being installed.
+--- @return boolean sent
+function SendCitizenMail(citizenid, sender, subject, message)
+    if not citizenid then return false end
+
+    local cfg = (Config and Config.Phone) or {}
+    local res = cfg.Resource
+    if not res or res == '' then return false end
+    if GetResourceState(res) ~= 'started' then return false end
+
+    local number = GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid) or nil
+    if not number or tostring(number) == '' then return false end
+
+    local ok, email = pcall(function() return exports[res]:GetEmailAddress(number) end)
+    if not ok or not email or tostring(email) == '' then return false end
+
+    local sent = pcall(function()
+        exports[res]:SendMail({
+            to      = email,
+            sender  = sender or 'Los Santos Police Department',
+            subject = subject or '',
+            message = message or '',
+        })
+    end)
+    return sent and true or false
+end
+
+exports('GetCitizenPhoneNumber', function(citizenid, fallback)
+    return GetCitizenPhoneNumber(citizenid, fallback)
 end)

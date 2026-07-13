@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatDate, formatTime, formatDateTime } from "../utils/datetime";
 	import { isEnvBrowser } from "../utils/misc";
 	import { createCaseService } from "../services/caseService.svelte";
 	import { createSearchService } from "../services/searchService.svelte";
@@ -291,25 +292,11 @@
 	}
 
 	function formatDateValue(value: string | number | undefined): string {
-		if (!value) return "-";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return "-";
-		return date.toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		});
+		return formatDate(value, "-");
 	}
 
 	function formatTimeValue(value: string | number | undefined): string {
-		if (!value) return "-";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return "-";
-		return date.toLocaleTimeString("en-US", {
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
-		});
+		return formatTime(value, "-");
 	}
 
 	async function handleOfficerSearch(query: string) {
@@ -804,7 +791,7 @@
 								<div class="note-item">
 									<div class="note-header">
 										<span class="note-author">{note.author_name || "Unknown"}</span>
-										<span class="note-date">{note.created_at ? new Date(note.created_at).toLocaleString() : ""}</span>
+										<span class="note-date">{note.created_at ? formatDateTime(note.created_at) : ""}</span>
 										<button class="remove-btn" onclick={() => handleDeleteNote(note.id)}>
 											<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 										</button>

@@ -66,12 +66,12 @@ ps.registerCallback(resourceName .. ':server:getCourtCases', function(source, pa
         values[#values + 1] = case_type
     end
 
-    if search and search ~= '' then
-        clauses[#clauses + 1] = '(title LIKE ? OR case_number LIKE ? OR defendant_name LIKE ?)'
-        local term = '%' .. search .. '%'
-        values[#values + 1] = term
-        values[#values + 1] = term
-        values[#values + 1] = term
+    local _, searchLike = NormalizeSearch(search)
+    if searchLike then
+        clauses[#clauses + 1] = '(LOWER(title) LIKE ? OR LOWER(case_number) LIKE ? OR LOWER(defendant_name) LIKE ?)'
+        values[#values + 1] = searchLike
+        values[#values + 1] = searchLike
+        values[#values + 1] = searchLike
     end
 
     local whereClause = ''
@@ -360,8 +360,9 @@ ps.registerCallback(resourceName .. ':server:reviewWarrantRequest', function(sou
                 local defaultDays = (Config and Config.Warrants and Config.Warrants.DefaultExpiryDays) or 7
                 local expiryDate = os.date('%Y-%m-%d %H:%M:%S', os.time() + (defaultDays * 24 * 60 * 60))
                 MySQL.insert.await([[
-                    INSERT IGNORE INTO mdt_reports_warrants (reportid, citizenid, expirydate)
+                    INSERT INTO mdt_reports_warrants (reportid, citizenid, expirydate)
                     VALUES (?, ?, ?)
+                    ON DUPLICATE KEY UPDATE expirydate = VALUES(expirydate)
                 ]], { reportId, request.citizenid, expiryDate })
                 if BroadcastActiveWarrants then BroadcastActiveWarrants() end
             end
@@ -377,6 +378,62 @@ ps.registerCallback(resourceName .. ':server:reviewWarrantRequest', function(sou
     end
 
     return { success = true }
+end)
+
+-- ── Warrant hearings (scheduled by the DOJ AFTER approval) ──────────────────
+-- Look up the hearing currently linked to a report's warrant (if any).
+ps.registerCallback(resourceName .. ':server:getWarrantHearing', function(source, payload)
+    if not CheckAuth(source) then return { success = false } end
+    local reportId = tonumber(type(payload) == 'table' and payload.reportId or payload)
+    if not reportId then return { success = false } end
+    local h = MySQL.single.await([[
+        SELECT id, scheduled_at, hearing_type, status
+        FROM mdt_court_hearings
+        WHERE warrant_reportid = ?
+        ORDER BY scheduled_at ASC
+        LIMIT 1
+    ]], { reportId })
+    return { success = true, hearing = h or nil }
+end)
+
+-- Schedule a hearing for an already-approved warrant.
+ps.registerCallback(resourceName .. ':server:scheduleWarrantHearing', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+    if not CreateWarrantHearingForReport then return { success = false, error = 'Court module unavailable' } end
+
+    payload = payload or {}
+    local reportId = tonumber(payload.reportId)
+    if not reportId then return { success = false, error = 'Missing report id' } end
+
+    -- One hearing per warrant — don't stack duplicates.
+    local existing = MySQL.single.await('SELECT id FROM mdt_court_hearings WHERE warrant_reportid = ? LIMIT 1', { reportId })
+    if existing then return { success = false, error = 'A hearing already exists for this warrant' } end
+
+    local hearingId, scheduledAt = CreateWarrantHearingForReport(src, reportId, {
+        scheduled_at = payload.scheduled_at,
+        hearing_type = payload.hearing_type,
+    })
+    if not hearingId then return { success = false, error = scheduledAt or 'Failed to schedule hearing' } end
+    return { success = true, scheduled_at = scheduledAt }
+end)
+
+-- Remove the hearing tied to a warrant's report (manual DOJ action).
+ps.registerCallback(resourceName .. ':server:removeWarrantHearing', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+    if not CheckPermission(src, 'court_delete') then return { success = false, error = 'No permission' } end
+    if not RemoveWarrantHearingsForReport then return { success = false, error = 'Court module unavailable' } end
+
+    payload = payload or {}
+    local reportId = tonumber(payload.reportId)
+    if not reportId then return { success = false, error = 'Missing report id' } end
+
+    local removed = RemoveWarrantHearingsForReport(reportId)
+    if ps.auditLog then
+        ps.auditLog(src, 'warrant_hearing_removed', 'court_hearing', reportId, { removed = removed })
+    end
+    return { success = true, removed = removed }
 end)
 
 ps.registerCallback(resourceName .. ':server:closeWarrantRequest', function(source, request_id)
@@ -407,6 +464,11 @@ ps.registerCallback(resourceName .. ':server:closeWarrantRequest', function(sour
             WHERE reportid = ? AND citizenid = ?
         ]], { request.linked_report_id, request.citizenid })
         if BroadcastActiveWarrants then BroadcastActiveWarrants() end
+
+        -- Closing the warrant also pulls any hearing it put on the court calendar.
+        if RemoveWarrantHearingsForReport then
+            RemoveWarrantHearingsForReport(request.linked_report_id)
+        end
     end
 
     if ps.auditLog then

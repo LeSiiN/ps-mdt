@@ -15,7 +15,6 @@ Config.CivilianAccess = {
 
 -- Time and Date Settings
 Config.DateTime = {
-    GameTime = true, -- If set to true, the game time will be used instead of the server time (boolean)
     TimeFormat = '24', -- Format for displaying time ('24' or '12')
     DateFormat = "DD-MM-YYYY" -- Format for displaying date (string: "MM-DD-YYYY", "DD-MM-YYYY", or "YYYY-MM-DD")
 }
@@ -86,8 +85,27 @@ Config.Commands = {
 
 -- Dispatch Settings
 Config.Dispatch = {
-    Resource = 'ps-dispatch',
+    -- Which dispatch resource feeds the MDT. Supported providers:
+    --   'ps' → ps-dispatch   'qs' → qs-dispatch   'cd' → cd_dispatch
+    -- 'auto' picks whichever of those three is currently running.
+    Provider = 'auto',
     FilterByJob = true,
+}
+
+-- 10-codes offered in the "Create Call" modal. `code` shows in the dropdown,
+-- `label` is the human name (also used as the call title if none is typed).
+Config.DispatchCodes = {
+    { code = '10-13', label = 'Officer Needs Assistance' },
+    { code = '10-71', label = 'Shooting' },
+    { code = '10-90', label = 'Robbery' },
+    { code = '10-80', label = 'Pursuit' },
+    { code = '10-15', label = 'Civil Disturbance' },
+    { code = '10-52', label = 'Ambulance Needed' },
+    { code = '10-53', label = 'Vehicle Accident' },
+    { code = '10-66', label = 'Suspicious Activity' },
+    { code = '10-11', label = 'Traffic Stop' },
+    { code = '10-62', label = 'Meet Complainant' },
+    { code = '911',   label = 'General 911 Call' },
 }
 
 -- Wolfknight Plate Reader Settings
@@ -107,6 +125,33 @@ Config.FingerprintScan = {
 
 -- Fuel Resource Name
 Config.Fuel = 'LegacyFuel' -- Fuel resource name for vehicle fuel management
+
+-- Phone integration (single source of truth) ---------------------------------
+-- One place for everything phone-related: resolving a citizen's number for the
+-- MDT profile AND sending court reminder SMS / invite e-mails. Point this at your
+-- phone resource once and both features use it, so they can never drift apart.
+-- Leave Resource = '' to use charinfo.phone for display and disable court SMS/mail.
+Config.Phone = {
+    Resource     = 'lb-phone',                    -- phone script resource name ('' = charinfo.phone only, no SMS/mail)
+    NumberExport = 'GetEquippedPhoneNumber',      -- export returning a citizen's number for a citizenid
+    UseCharinfoFallback = true,                   -- if the export returns nothing, fall back to charinfo.phone
+
+    -- Court messaging (uses the same Resource above)
+    SmsSenderNumber = 'SA-COURT',                 -- "from" number shown on reminder SMS (any string lb-phone accepts)
+    MailSender      = 'San Andreas Judicial System', -- sender shown in the recipient's inbox
+}
+
+
+-- Internal Affairs
+Config.IA = {
+    -- Anti-spam: how long a citizen must wait between filing complaints.
+    CooldownMs = 300000, -- 5 minutes
+
+    -- E-mail the complainant when their complaint changes status. Uses the phone
+    -- resource from Config.Phone; silently skipped if none is running.
+    NotifyComplainant = true,
+    MailSender = 'Internal Affairs',
+}
 
 
 -- Housing / Properties Integration
@@ -291,13 +336,105 @@ Config.VehicleRegistration = {
 }
 
 -- Weapon Registration
-Config.RegisterWeaponsAutomatically = true -- Auto-register weapons on purchase (ox_inventory and qb-inventory/qb-weapons)
+Config.RegisterWeaponsAutomatically = false -- Auto-register weapons on purchase (ox_inventory and qb-inventory/qb-weapons)
 Config.RegisterCreatedWeapons = false -- Also auto-register weapons on item creation (ox_inventory only)
 
--- Impound Locations (vector4: x, y, z, heading)
-Config.ImpoundLocations = {
-    [1] = vector4(409.09, -1623.37, 29.29, 232.07), -- LSPD Impound
-    [2] = vector4(-436.42, 5982.29, 31.34, 136.0),  -- Paleto Impound
+-- Weapon Image Path 
+Config.WeaponImagePath = 'nui://ox_inventory/web/images/'
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Impound
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Releasing a vehicle puts it straight back into the owner's garage — they
+-- retrieve it there like any other car. Lots are purely a record of WHERE the
+-- vehicle is being held while impounded.
+Config.Impound = {
+    Lots = {
+        { id = 'lspd',   label = 'LSPD Impound' },
+        { id = 'paleto', label = 'Paleto Impound' },
+    },
+
+    -- Impound reasons offered in the MDT, each with a default fee (the officer
+    -- can still edit the fee when impounding).
+    -- `hold` is the duration id (see Durations below) that gets pre-selected when an
+    -- officer picks this reason. It's a recommendation, not a rule: the officer can
+    -- always change it before filing. Omit it and the reason falls back to
+    -- DefaultDuration.
+    Reasons = {
+        { label = 'Evidence / Investigation', fee = 0,    hold = 'hold' },
+        { label = 'Reckless Driving',         fee = 750,  hold = '1d' },
+        { label = 'Illegal Parking',          fee = 250,  hold = 'immediate' },
+        { label = 'Unregistered Vehicle',     fee = 500,  hold = 'immediate' },
+        { label = 'Stolen Vehicle Recovery',  fee = 0,    hold = 'immediate' },
+        { label = 'DUI',                      fee = 1500, hold = '3d' },
+        { label = 'Illegal Modifications',    fee = 1000, hold = '1d' },
+        { label = 'Abandoned Vehicle',        fee = 300,  hold = 'immediate' },
+    },
+
+    DefaultFee = 500,
+    MaxFee     = 50000,
+    -- Account the release fee is taken from ('bank' or 'cash').
+    FeeAccount = 'bank',
+    -- Require the fee to be paid before a vehicle can be released.
+    RequireFeePaid = true,
+
+    -- How long the vehicle is held before it may be released at all.
+    --   days = 0    → releasable straight away
+    --   days = n    → held for n days
+    --   days = nil  → held until an officer decides otherwise
+    -- The fee still has to be paid on top; the hold is about time, not money.
+    Durations = {
+        { id = 'immediate', label = 'Releasable immediately', days = 0 },
+        { id = '1d',        label = '1 day',                  days = 1 },
+        { id = '3d',        label = '3 days',                 days = 3 },
+        { id = '7d',        label = '7 days',                 days = 7 },
+        { id = 'hold',      label = 'Until an officer releases it' },
+    },
+    DefaultDuration = 'hold',
+
+    -- E-mail the owner when their vehicle is impounded, charged, or released.
+    -- The owner is usually nowhere near the vehicle when it happens, so an on-screen
+    -- notification they never see is worse than useless. Uses Config.Phone.
+    NotifyOwner = true,
+    MailSender  = 'Vehicle Impound Unit',
+
+    -- Storage fee: grows for every day the vehicle sits in the lot, capped so it
+    -- can never run away. Computed from the impound date, never accumulated by a
+    -- timer, so it survives restarts and can't drift.
+    Storage = {
+        PerDay  = 500,
+        MaxDays = 7,    -- after this many days the storage fee stops growing
+    },
+
+    -- On-site impound: /impound takes the vehicle the officer is in, or the
+    -- nearest one. Vehicles that nobody owns (NPC traffic) are simply removed and
+    -- the officer gets a small payout for keeping the streets clear.
+    OnSite = {
+        Command   = 'mdtimpound',
+        -- How far the officer may stand from the vehicle.
+        MaxDistance = 6.0,
+
+        -- The officer documents the vehicle, then radios it in. Both steps are
+        -- cancellable: walking away aborts the impound and nothing is written.
+        Sequence = {
+            NotepadMs = 4500,   -- writing it up on the clipboard
+            RadioMs   = 6000,   -- calling the tow truck in
+        },
+
+        -- Once the paperwork is done the vehicle fades out and is removed.
+        FadeMs = 1500,
+
+        Cleanup = {
+            -- Payout for removing an unowned vehicle, randomised in this range.
+            RewardMin   = 100,
+            RewardMax   = 200,
+            Account     = 'cash',
+            -- Anti-abuse: seconds between payouts, and how many an officer can
+            -- earn per shift (resets when they go off duty / the server restarts).
+            -- everything is logged
+            Cooldown    = 120,
+            MaxPerShift = 20,
+        },
+    },
 }
 
 -- Job Settings
@@ -342,7 +479,7 @@ Config.Pagination = {
     Citizens = 20, -- Citizens per page
     CitizenSearch = 20, -- Max citizen search results
     Cases = 20, -- Cases per page
-    CitizenCharges = 2, -- Charges per page in the Citizen profile's Charges section
+    CitizenCharges = 5, -- Charges per page in the Citizen profile's Charges section
 }
 
 -- Fine Processing
@@ -354,6 +491,46 @@ Config.Fines = {
 -- Warrant Defaults
 Config.Warrants = {
     DefaultExpiryDays = 7, -- Default warrant expiry when no date is provided
+}
+
+-- ---------------------------------------------------------------------------
+-- Personnel data cleanup (Phase 1 core)
+-- ---------------------------------------------------------------------------
+-- When an officer is terminated, the boss panel can optionally wipe that
+-- person's PERSONAL MDT footprint. The guiding rule: remove only data that
+-- belongs to the individual (their own file/footprint) and that cannot harm
+-- ongoing investigations or other officers' records.
+--
+-- DELETED (their own data): profile tags, sessions, identifiers, clock records,
+--   gallery, officer status, SOP acknowledgements, their FTO trainee file,
+--   PPRs written ABOUT them, messages they sent, patrol membership, and audit
+--   log entries about them.
+--
+-- ALWAYS KEPT (investigative / shared / other officers): reports, charges,
+--   evidence, BOLOs, cases, warrants, arrests, weapons, court records,
+--   licenses, the core mdt_profiles identity row (kept so FK-cascaded
+--   investigative rows like warrants are never removed), award/penal/SOP
+--   definitions, and any record the person authored in SOMEONE ELSE'S file
+--   (e.g. DORs they wrote as a trainer, PPRs they authored about others).
+--
+-- The cleanup engine schema-checks every table/column at runtime, so missing
+-- or renamed tables are skipped instead of erroring. Toggle the optional parts:
+Config.PersonnelCleanup = {
+    -- Master switch: even if the boss ticks the box, cleanup only runs when this
+    -- is true. Lets server owners disable the destructive path entirely.
+    Enabled = true,
+
+    -- Remove audit-log rows whose subject (entity_id) is the fired person.
+    -- Their actions-as-actor logs are left intact for accountability unless you
+    -- also enable DeleteActorAuditLogs below.
+    DeleteSubjectAuditLogs = true,
+
+    -- Also remove audit-log rows where the fired person was the ACTOR. Off by
+    -- default because it erases "who did what" history other staff may rely on.
+    DeleteActorAuditLogs = false,
+
+    -- Remove messages the fired person sent.
+    DeleteSentMessages = true,
 }
 
 -- Dashboard Cache TTLs (seconds)
@@ -469,6 +646,13 @@ Config.ManagementPermissions = {
     "map_patrols_edit",
     'dispatch_attach',
     'dispatch_route',
+    'dispatch_assign',
+    'dispatch_notes',
+
+    -- Impound
+    'vehicle_impound',
+    'vehicle_impound_release',
+    'vehicle_impound_override',
     -- Cameras & Bodycams
     'cameras_view',
     'bodycams_view',
@@ -640,12 +824,13 @@ Config.Court = {
     -- How many minutes before a hearing the reminder SMS goes out.
     ReminderLeadMinutes = 15,
 
-    -- ---- lb-phone integration -------------------------------------------
-    Phone = {
-        Resource = 'lb-phone',                       -- set '' to disable all phone messaging
-        SmsSenderNumber = 'SA-COURT',                -- "from" number shown on reminder SMS (any string lb-phone accepts)
-        MailSender = 'San Andreas Judicial System',  -- sender shown in the recipient's inbox
-    },
+    -- When a hearing created from a warrant is completed, auto-resolve the
+    -- linked BOLO (matched on the warrant's reportId). Set false to opt out.
+    ResolveBolosOnComplete = true,
+
+    -- Default lead time (days) for hearings scheduled straight from a warrant
+    -- via the "Schedule hearing" button in the warrants list.
+    WarrantHearingLeadDays = 2,
 
     -- ---- Reminder SMS (replaces the old MDT notify) ----------------------
     Sms = {

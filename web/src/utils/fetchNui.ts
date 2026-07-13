@@ -54,7 +54,9 @@ export async function fetchNui<T = any>(
 				`[ps-mdt] fetchNui timed out after ${timeout}ms:`,
 				eventName,
 			);
-			return {} as T;
+			// Return the caller's fallback (e.g. []) rather than {}, so a timed-out
+			// search doesn't fail an Array.isArray() check and blank the results.
+			return mockData !== undefined ? mockData : ({} as T);
 		}
 		throw err;
 	}

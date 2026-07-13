@@ -26,6 +26,13 @@ export function createManagementService() {
 	let isSaving = $state(false);
 	let statusMessage = $state<{ text: string; type: "success" | "error" } | null>(null);
 
+	// Snapshot of the last loaded/saved role permissions, used to surface an
+	// "Unsaved changes" hint in the UI.
+	let savedSnapshot = $state("");
+	function rolesSnapshot(): string {
+		return JSON.stringify(roles.map(r => ({ k: r.key, p: [...(r.permissions || [])].sort() })));
+	}
+
 	function showStatus(text: string, type: "success" | "error" = "success") {
 		statusMessage = { text, type };
 		setTimeout(() => { statusMessage = null; }, 3000);
@@ -46,6 +53,7 @@ export function createManagementService() {
 				{ key: "3", label: "Grade 3", permissions: commandPerms, isBoss: false },
 				{ key: "4", label: "Grade 4", permissions: [...ALL_PERMISSION_KEYS], isBoss: true },
 			];
+			savedSnapshot = rolesSnapshot();
 			return;
 		}
 
@@ -59,6 +67,7 @@ export function createManagementService() {
 				jobLabel = response.label || jobLabel;
 				jobName = response.job || jobName;
 				permissions = response.permissions || permissions;
+				savedSnapshot = rolesSnapshot();
 			}
 		} catch {
 			roles = [];
@@ -141,6 +150,7 @@ export function createManagementService() {
 					permissions: role.permissions || [],
 				});
 			}
+			savedSnapshot = rolesSnapshot();
 			showStatus("All permissions saved");
 		} catch {
 			showStatus("Failed to save permissions", "error");
@@ -165,6 +175,7 @@ export function createManagementService() {
 		get isLoading() { return isLoading; },
 		get isSaving() { return isSaving; },
 		get statusMessage() { return statusMessage; },
+		get isDirty() { return savedSnapshot !== "" && rolesSnapshot() !== savedSnapshot; },
 	};
 }
 

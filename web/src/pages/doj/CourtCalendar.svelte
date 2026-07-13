@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { formatTime } from "../../utils/datetime";
 	import { useNuiEvent } from "../../utils/useNuiEvent";
 	import { fetchNui } from "../../utils/fetchNui";
 	import { NUI_EVENTS } from "../../constants/nuiEvents";
@@ -231,7 +232,10 @@
 	function selectDay(d: Date) { selectedDayKey = dayKey(d); }
 
 	function timeLabel(scheduledAt: string): string {
-		return (scheduledAt || "").slice(11, 16) || "--:--";
+		const hm = (scheduledAt || "").slice(11, 16);
+		if (!hm) return "--:--";
+		// Reuse the central formatter for 12/24h; scheduledAt is "YYYY-MM-DD HH:MM:SS".
+		return formatTime(scheduledAt, hm);
 	}
 
 	// ── Create / edit modal ─────────────────────────────────────────────────

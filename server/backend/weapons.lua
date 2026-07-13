@@ -1,4 +1,3 @@
-
 local resourceName = tostring(GetCurrentResourceName())
 
 local class = {
@@ -156,14 +155,14 @@ ps.registerCallback('ps-mdt:server:getWeapons', function(source)
             weaponClass = v.weaponClass,
             weaponModel = v.weaponModel,
             name = (QBCore and QBCore.Shared and QBCore.Shared.Weapons and QBCore.Shared.Weapons[GetHashKey(v.weaponModel)] and QBCore.Shared.Weapons[GetHashKey(v.weaponModel)].label) or v.weaponModel,
-            image = 'https://docs.fivem.net/weapons/' .. v.weaponModel:upper() .. '.png',
+            image = Config.WeaponImagePath .. v.weaponModel:upper() .. '.png',
             type = class[modelLower] and class[modelLower].type or 'unknown',
             flags = v.flags and json.decode(v.flags) or {},
         }
         table.insert(newData, weaponInfo)
     end
 
-    local weaponBolos = MySQL.query.await('SELECT * FROM mdt_bolos WHERE type = ? AND status = ?', {'weapon', 'active'})
+    local weaponBolos = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE type = ? AND status = ?', {'weapon', 'active'})
     for k, v in pairs(weaponBolos) do
         table.insert(weaponBolo, {
             id = v.id,

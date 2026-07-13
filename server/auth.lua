@@ -8,7 +8,7 @@ local function isDojJob(jobName)
     return false
 end
 
-function CheckAuth(source, silent)
+function CheckAuth(source)
     -- Never feed an invalid/offline source into the framework bridge: some
     -- bridges index the player object without a nil-check and raise a non-string
     -- error ("attempt to index a nil value (local player)"). If that happens
@@ -29,9 +29,6 @@ function CheckAuth(source, silent)
     local dojCheck = isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
     if jobType ~= Config.PoliceJobType and jobType ~= Config.MedicalJobType and not dojCheck then
         ps.debug('Access Denied for ID: ' .. tostring(source) .. ', not an authorized job type')
-        if not silent then
-            ps.notify(source, 'Access Denied: Authorized Personnel Only', 'error')
-        end
         return false
     end
     ps.debug('Access Granted for ID: ' .. tostring(source) .. ', job type: ' .. tostring(jobType))
@@ -210,7 +207,7 @@ end)
 
 ps.registerCallback(tostring(GetCurrentResourceName())..':server:checkAuth', function(source)
     local civAccess = Config.CivilianAccess and Config.CivilianAccess.enabled
-    local isAuthed = CheckAuth(source, civAccess)
+    local isAuthed = CheckAuth(source)
     if isAuthed then
         return isAuthed
     end
@@ -226,7 +223,7 @@ end)
 -- Get the current player's permissions based on their job + grade
 ps.registerCallback(tostring(GetCurrentResourceName())..':server:getMyPermissions', function(source)
     local src = source
-    if not CheckAuth(src, true) then return { permissions = {} } end
+    if not CheckAuth(src) then return { permissions = {} } end
 
     local jobName = ps.getJobName(src) or 'police'
     local jobData = ps.getJobData and ps.getJobData(src) or nil

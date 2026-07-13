@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { fetchNui } from "../utils/fetchNui";
+	import { formatDate } from "../utils/datetime";
 	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -46,14 +47,7 @@
 	});
 
 	function formatExpiry(value: string): string {
-		if (!value) return "Unknown";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return value;
-		return date.toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		});
+		return formatDate(value, "Unknown");
 	}
 
 	type ExpiryLevel = "expired" | "critical" | "soon" | "normal" | "unknown";
