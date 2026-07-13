@@ -494,6 +494,10 @@ Config.Impound = {
     },
     DefaultDuration = 'hold',
 
+    -- How many vehicles the lot view lists before the "Load more" button. A busy lot
+    -- otherwise renders every held vehicle at once and the modal scrolls forever.
+    LotPageSize = 10,
+
     -- E-mail the owner when their vehicle is impounded, charged, or released.
     -- The owner is usually nowhere near the vehicle when it happens, so an on-screen
     -- notification they never see is worse than useless. Uses Config.Phone.

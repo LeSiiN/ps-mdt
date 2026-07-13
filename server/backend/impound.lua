@@ -902,6 +902,7 @@ ps.registerCallback(resourceName .. ':server:getImpoundConfig', function(source)
         defaultFee     = cfg.DefaultFee or 0,
         maxFee         = cfg.MaxFee or 50000,
         requireFeePaid = cfg.RequireFeePaid == true,
+        lotPageSize    = tonumber(cfg.LotPageSize) or 10,
         storage        = {
             perDay  = (cfg.Storage or {}).PerDay or 0,
             maxDays = (cfg.Storage or {}).MaxDays or 0,
