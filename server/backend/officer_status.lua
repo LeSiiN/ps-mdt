@@ -16,17 +16,14 @@
 --    file, the client, and the UI all read that list, so nothing else needs
 --    to change. Never remove/rename an existing id; officers who saved an
 --    old id before it was removed would fall back to Config.OfficerStatus.Default.
---
---  Set MDT_DEBUG = true for verbose console logging while developing.
 -- ============================================================================
 
 local resourceName = tostring(GetCurrentResourceName())
 
 -- ─── Tunables ───────────────────────────────────────────────────────────────
-local MDT_DEBUG = false -- verbose dev logging; KEEP FALSE on production
 
 local function dbg(...)
-    if MDT_DEBUG then print('[MDT:status]', ...) end
+    if Config.Debug then print('[MDT:status]', ...) end
 end
 
 -- ─── Config-derived lookups ─────────────────────────────────────────────────

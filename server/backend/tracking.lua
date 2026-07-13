@@ -22,14 +22,11 @@
 --    * broadcastPatrols coalesces plain broadcasts to one per frame. Action
 --      broadcasts (assigned/removed) bypass coalescing because the NUI needs
 --      the flash hint immediately.
---
---  Set MDT_DEBUG = true for verbose console logging while developing.
 -- ============================================================================
 
 local resourceName = tostring(GetCurrentResourceName())
 
 -- ─── Tunables ───────────────────────────────────────────────────────────────
-local MDT_DEBUG           = false   -- verbose dev logging; KEEP FALSE on production (log spam)
 local TRACKING_CACHE_TTL  = 2000    -- ms — shared tracking snapshot lifetime
 local VEHICLE_CACHE_TTL   = 600000  -- ms — parked-vehicle cache entry lifetime (10 min)
 local SAVE_DEBOUNCE_MS    = 1000    -- ms — coalesce window for debounced patrol saves
@@ -46,9 +43,9 @@ local trackingCache = {
 
 -- ─── Tiny helpers ─────────────────────────────────────────────────────────
 
--- Gated dev logger. No-op unless MDT_DEBUG is on, so it's free in production.
+-- Gated dev logger. No-op unless Config.Debug is on, so it's free in production.
 local function dbg(...)
-    if MDT_DEBUG then print('[MDT]', ...) end
+    if Config.Debug then print('[MDT]', ...) end
 end
 
 -- Cache the QBCore object once instead of crossing the export boundary on

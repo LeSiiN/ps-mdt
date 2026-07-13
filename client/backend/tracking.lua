@@ -14,17 +14,14 @@
 --      recreates every PolyZone on every client.
 --    * Patrol names shown in zone notifications are read live from
 --      zonePatrolNames, so a rename never forces a zone rebuild.
---
---  Set MDT_DEBUG = true for verbose console logging while developing.
 -- ============================================================================
 
 local resourceName = tostring(GetCurrentResourceName())
 
 -- ─── Tunables ───────────────────────────────────────────────────────────────
-local MDT_DEBUG = false -- verbose dev logging; KEEP FALSE on production
 
 local function dbg(...)
-    if MDT_DEBUG then print('[MDT]', ...) end
+    if Config.Debug then print('[MDT]', ...) end
 end
 
 -- UI state held in Lua client (survives MDT open/close)
