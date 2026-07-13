@@ -108,7 +108,6 @@
 	let ftoHistoryLoading = $state(false);
 	let jobGrades = $state<JobGrade[]>([]);
 	let selectedGrade = $state<number | null>(null);
-	let editCallsign = $state("");
 	let isSavingBoss = $state(false);
 	let showFireConfirm = $state(false);
 
@@ -347,7 +346,6 @@
 
 		selectedOfficer = officer;
 		selectedCerts = [...(officer.certifications || [])];
-		editCallsign = officer.callsign || "";
 		selectedGrade = null;
 		showFireConfirm = false;
 
@@ -371,7 +369,6 @@
 		showFireConfirm = false;
 		selectedOfficer = null;
 		selectedCerts = [];
-		editCallsign = "";
 		selectedGrade = null;
 		jobGrades = [];
 	}
@@ -568,29 +565,157 @@
 		return formatDate(dateStr, "");
 	}
 
-	async function saveCallsign() {
-		if (!selectedOfficer?.citizenid || !editCallsign.trim()) return;
+	// ── Callsign picker ──
+	// Callsigns used to be a free-text box, which meant you had to already know what
+	// was free. It's a grid now: every box shows whether it's taken, reserved or open.
+	interface CallsignAvailability {
+		success: boolean;
+		/** Set when the job has no callsign range configured — a server-side mistake. */
+		error?: string;
+		/** Which config block the range came from, e.g. 'job type "leo"'. */
+		source?: string;
+		/** Whether this supervisor may hand out reserved callsigns. */
+		canAssignReserved?: boolean;
+		min: number;
+		max: number;
+		pad: number;
+		prefix: string;
+		pageSize: number;
+		taken: Record<string, { citizenid: string; name?: string }>;
+		reserved: Record<string, string>;
+	}
+
+	let csData = $state<CallsignAvailability | null>(null);
+	let csError = $state("");
+	let csLoading = $state(false);
+	let csSearch = $state("");
+	let csShown = $state(0);
+	let csPending = $state<string | null>(null);
+
+	// The number on its own. Repeating the prefix across a hundred boxes is noise —
+	// it's the same on every one of them, so it's shown once instead.
+	function csNumber(n: number): string {
+		if (!csData) return String(n);
+		return csData.pad > 0 ? String(n).padStart(csData.pad, "0") : String(n);
+	}
+
+	function formatCs(n: number): string {
+		if (!csData) return String(n);
+		return `${csData.prefix ?? ""}${csNumber(n)}`;
+	}
+
+	type CsState = "free" | "taken" | "reserved" | "self";
+
+	interface CsBox {
+		n: number;
+		/** Just the padded number ("07") — what the box shows. */
+		num: string;
+		/** The whole thing ("PD-07") — what actually gets assigned. */
+		label: string;
+		state: CsState;
+		holder?: string;
+		why?: string;
+	}
+
+	let allBoxes = $derived.by<CsBox[]>(() => {
+		if (!csData) return [];
+		const out: CsBox[] = [];
+		for (let n = csData.min; n <= csData.max; n++) {
+			const label = formatCs(n);
+			const why = csData.reserved[label];
+			const held = csData.taken[label];
+			let state: CsState = "free";
+			if (why) state = "reserved";
+			else if (held) state = held.citizenid === selectedOfficer?.citizenid ? "self" : "taken";
+			out.push({ n, num: csNumber(n), label, state, holder: held?.name, why });
+		}
+		return out;
+	});
+
+	// Typing a number jumps straight to that box instead of scrolling for it.
+	let matchedBoxes = $derived.by<CsBox[]>(() => {
+		const q = csSearch.trim();
+		if (!q) return allBoxes;
+		const lower = q.toLowerCase();
+		return allBoxes.filter(
+			(b) => b.num.includes(q) || b.label.toLowerCase().includes(lower),
+		);
+	});
+
+	// Searching shows every hit; otherwise boxes come in pages.
+	let visibleBoxes = $derived(csSearch.trim() ? matchedBoxes : matchedBoxes.slice(0, csShown));
+	let hasMoreBoxes = $derived(!csSearch.trim() && csShown < matchedBoxes.length);
+
+	let canAssignReserved = $derived(csData?.canAssignReserved === true);
+	let freeCount = $derived(allBoxes.filter((b) => b.state === "free").length);
+	let armedBox = $derived(allBoxes.find((b) => b.label === csPending) ?? null);
+
+	async function loadCallsigns() {
+		csLoading = true;
+		csPending = null;
+		csSearch = "";
+		csError = "";
+		try {
+			const res = await fetchNui<CallsignAvailability>(
+				NUI_EVENTS.ROSTER.GET_CALLSIGN_AVAILABILITY,
+				{},
+				{ success: true, min: 1, max: 100, pad: 2, prefix: "", pageSize: 20, taken: {}, reserved: {} },
+			);
+			if (res?.success) {
+				csData = res;
+				csShown = res.pageSize ?? 20;
+			} else {
+				csData = null;
+				csError = res?.error || "Couldn't load the callsign list.";
+			}
+		} catch {
+			csData = null;
+			csError = "Couldn't load the callsign list.";
+		} finally {
+			csLoading = false;
+		}
+	}
+
+	function loadMoreBoxes() {
+		csShown = Math.min(csShown + (csData?.pageSize ?? 20), allBoxes.length);
+	}
+
+	// Selecting and committing are separate: a stray click in a grid of a hundred
+	// boxes shouldn't reassign somebody's callsign. Clicking a box only selects it —
+	// the Assign button in the bar above is what actually commits.
+	function pickBox(box: CsBox) {
+		if (box.state === "taken") return;
+		// Reserved isn't off-limits to everyone — only to anyone without the permission.
+		if (box.state === "reserved" && !canAssignReserved) return;
+		csPending = csPending === box.label ? null : box.label;
+	}
+
+	async function assignCallsign(label: string) {
+		if (!selectedOfficer?.citizenid || isSavingBoss) return;
 		isSavingBoss = true;
 		try {
 			const response = await fetchNui<{ success: boolean; message?: string }>(
 				NUI_EVENTS.ROSTER.UPDATE_CALLSIGN,
-				{
-					citizenid: selectedOfficer.citizenid,
-					callsign: editCallsign.trim(),
-				},
+				{ citizenid: selectedOfficer.citizenid, callsign: label },
 			);
 			if (response?.success) {
 				const idx = officers.findIndex((o) => o.citizenid === selectedOfficer!.citizenid);
 				if (idx !== -1) {
-					officers[idx].callsign = editCallsign.trim();
-					officers[idx].badgeNumber = editCallsign.trim();
+					officers[idx].callsign = label;
+					officers[idx].badgeNumber = label;
 				}
-				globalNotifications.success(response.message || `Callsign updated to ${editCallsign.trim()}`);
+				selectedOfficer = { ...selectedOfficer, callsign: label };
+				globalNotifications.success(response.message || `Callsign set to ${label}`);
+				csPending = null;
+				// The roster list and the Active Units panel both carry the callsign, so
+				// reload them too — otherwise they keep showing the old one until somebody
+				// hits refresh.
+				await Promise.all([loadCallsigns(), loadRoster()]);
 			} else {
-				globalNotifications.error(response?.message || "Failed to update callsign");
+				globalNotifications.error(response?.message || "Failed to set callsign");
 			}
 		} catch {
-			globalNotifications.error("Failed to update callsign");
+			globalNotifications.error("Failed to set callsign");
 		} finally {
 			isSavingBoss = false;
 		}
@@ -791,7 +916,7 @@
 					<span class="material-icons boss-tab-icon">military_tech</span>
 					Rank
 				</button>
-				<button class="boss-tab" class:active={bossPanelTab === "callsign"} onclick={() => { bossPanelTab = "callsign"; showFireConfirm = false; }}>
+				<button class="boss-tab" class:active={bossPanelTab === "callsign"} onclick={() => { bossPanelTab = "callsign"; showFireConfirm = false; loadCallsigns(); }}>
 					<span class="material-icons boss-tab-icon">badge</span>
 					Callsign
 				</button>
@@ -884,17 +1009,125 @@
 
 				{:else if bossPanelTab === "callsign"}
 					<div class="boss-section">
-						<label class="boss-label">Edit Callsign</label>
-						<p class="boss-hint">Update this {term.memberLower}'s callsign/badge number. {term.member} must be online.</p>
-						<div class="callsign-input-row">
-							<input
-								type="text"
-								class="callsign-input"
-								bind:value={editCallsign}
-								placeholder="Enter callsign..."
-								maxlength="10"
-							/>
-						</div>
+						<label class="boss-label">Assign Callsign</label>
+						<p class="boss-hint">
+							Pick a callsign for this {term.memberLower}. {term.member} must be online.
+							{#if selectedOfficer?.callsign}
+								<span class="cs-current">Currently <strong>{selectedOfficer.callsign}</strong></span>
+							{/if}
+							{#if csData}<span class="cs-free-count">{freeCount} free</span>{/if}
+							{#if csData?.source}
+								<span class="cs-source" title="Which Config.Callsigns block this range comes from">
+									{csData.min}–{csData.max} from {csData.source}
+								</span>
+							{/if}
+						</p>
+
+						{#if csLoading}
+							<div class="cs-loading"><div class="cs-spinner"></div><span>Loading callsigns…</span></div>
+						{:else if !csData}
+							<!-- No range configured for this job. That's a config mistake, not
+							     something the supervisor can fix from here — so say exactly what
+							     it is rather than showing an empty grid. -->
+							<div class="cs-config-error">
+								<span class="material-icons">settings_alert</span>
+								<div>
+									<strong>No callsign range configured</strong>
+									<p>{csError}</p>
+								</div>
+							</div>
+						{:else}
+							<div class="cs-toolbar">
+								<div class="cs-search">
+									<span class="material-icons cs-search-icon">search</span>
+									<input
+										type="text"
+										placeholder="Jump to a number…"
+										bind:value={csSearch}
+										onkeydown={(e) => { if (e.key === "Escape") csSearch = ""; }}
+									/>
+									{#if csSearch}
+										<button class="cs-search-clear" aria-label="Clear" onclick={() => (csSearch = "")}>
+											<span class="material-icons">close</span>
+										</button>
+									{/if}
+								</div>
+								{#if csData.prefix}
+									<span class="cs-prefix-chip" title="Every callsign in this range carries this prefix">
+										{csData.prefix}<span class="cs-prefix-slot">{"#".repeat(csData.pad || 2)}</span>
+									</span>
+								{/if}
+								<div class="cs-legend">
+									<span class="cs-key cs-key-free"></span>Free
+									<span class="cs-key cs-key-taken"></span>Taken
+									<span class="cs-key cs-key-reserved"></span>Reserved{#if canAssignReserved} (you may assign){/if}
+								</div>
+							</div>
+
+							{#if armedBox}
+								<div class="cs-armed-bar" class:cs-armed-reserved={armedBox.state === "reserved"}>
+									<span class="cs-armed-full">{armedBox.label}</span>
+									<span class="cs-armed-text">
+										Assign to {selectedOfficer?.firstName} {selectedOfficer?.lastName}?
+										{#if armedBox.state === "reserved"}
+											<span class="cs-armed-warn">
+												This callsign is reserved for {armedBox.why} — assigning it is logged.
+											</span>
+										{/if}
+									</span>
+									<button class="cs-armed-cancel" disabled={isSavingBoss}
+										onclick={() => (csPending = null)}>Cancel</button>
+									<button class="cs-armed-assign" disabled={isSavingBoss}
+										onclick={() => assignCallsign(armedBox.label)}>
+										{isSavingBoss ? "Assigning…" : "Assign"}
+									</button>
+								</div>
+							{/if}
+
+							{#if visibleBoxes.length === 0}
+								<p class="boss-hint">No callsign matches that.</p>
+							{:else}
+								<div class="cs-grid">
+									{#each visibleBoxes as box (box.n)}
+										<button
+											class="cs-box cs-{box.state}"
+											class:cs-unlocked={box.state === "reserved" && canAssignReserved}
+											class:cs-armed={csPending === box.label}
+											disabled={box.state === "taken" ||
+												(box.state === "reserved" && !canAssignReserved) ||
+												isSavingBoss}
+											title={box.state === "taken"
+												? `Held by ${box.holder ?? "another officer"}`
+												: box.state === "reserved"
+													? canAssignReserved
+														? `Reserved — ${box.why}. You may assign this.`
+														: `Reserved — ${box.why}`
+													: box.state === "self"
+														? "Current callsign"
+														: "Click to select"}
+											onclick={() => pickBox(box)}
+										>
+											<span class="cs-num">{box.num}</span>
+											{#if csPending === box.label}
+												<span class="cs-confirm">Selected</span>
+											{:else if box.state === "taken"}
+												<span class="cs-holder">{box.holder ?? "Taken"}</span>
+											{:else if box.state === "reserved"}
+												<span class="cs-holder">{box.why}</span>
+											{:else if box.state === "self"}
+												<span class="cs-holder">Current</span>
+											{/if}
+										</button>
+									{/each}
+								</div>
+
+								{#if hasMoreBoxes}
+									<button class="cs-more" onclick={loadMoreBoxes}>
+										Load more ({matchedBoxes.length - csShown} left)
+									</button>
+								{/if}
+							{/if}
+						{/if}
 					</div>
 
 				{:else if bossPanelTab === "certs"}
@@ -1055,14 +1288,6 @@
 						disabled={isSavingBoss}
 					>
 						{isSavingBoss ? "Saving..." : "Update Rank"}
-					</button>
-				{:else if bossPanelTab === "callsign"}
-					<button
-						class="btn-save"
-						onclick={saveCallsign}
-						disabled={isSavingBoss || editCallsign.length === 0}
-					>
-						{isSavingBoss ? "Saving..." : "Save Callsign"}
 					</button>
 				{:else if bossPanelTab === "certs"}
 					<button
@@ -1724,6 +1949,346 @@
 		color: rgba(239, 68, 68, 0.8);
 	}
 
+	/* ── Callsign picker ── */
+	.cs-config-error {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 12px 14px;
+		border-radius: 5px;
+		background: rgba(239, 68, 68, 0.07);
+		border: 1px solid rgba(239, 68, 68, 0.22);
+		color: rgba(252, 165, 165, 0.95);
+	}
+	.cs-config-error .material-icons { font-size: 18px; flex-shrink: 0; }
+	.cs-config-error strong { font-size: 12px; font-weight: 600; }
+	.cs-config-error p {
+		margin: 3px 0 0;
+		font-size: 11px;
+		line-height: 1.5;
+		color: rgba(255, 255, 255, 0.5);
+	}
+
+	.cs-source {
+		margin-left: 6px;
+		font-size: 9px;
+		color: rgba(255, 255, 255, 0.28);
+		font-style: italic;
+	}
+
+	/* The officer's callsign as it actually reads, prefix and all. */
+	.cs-current {
+		margin-left: 6px;
+		padding: 1px 6px;
+		border-radius: 3px;
+		background: rgba(255, 255, 255, 0.05);
+		color: rgba(255, 255, 255, 0.5);
+		font-size: 9px;
+	}
+	.cs-current strong {
+		font-family: monospace;
+		font-weight: 700;
+		letter-spacing: 0.5px;
+		color: var(--accent-70);
+	}
+
+	.cs-free-count {
+		margin-left: 6px;
+		padding: 1px 6px;
+		border-radius: 3px;
+		background: rgba(16, 185, 129, 0.1);
+		color: rgba(52, 211, 153, 0.85);
+		font-size: 9px;
+		font-weight: 600;
+	}
+
+	.cs-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 8px;
+	}
+	.cs-search {
+		position: relative;
+		display: flex;
+		align-items: center;
+		flex: 1;
+	}
+	.cs-search-icon {
+		position: absolute;
+		left: 7px;
+		font-size: 14px;
+		color: rgba(255, 255, 255, 0.25);
+		pointer-events: none;
+	}
+	.cs-search input {
+		width: 100%;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 5px 26px;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 11px;
+		font-family: inherit;
+		box-sizing: border-box;
+	}
+	.cs-search input:focus { outline: none; border-color: rgba(255, 255, 255, 0.12); }
+	.cs-search-clear {
+		position: absolute;
+		right: 5px;
+		display: flex;
+		background: none;
+		border: none;
+		padding: 2px;
+		color: rgba(255, 255, 255, 0.3);
+		cursor: pointer;
+	}
+	.cs-search-clear:hover { color: rgba(255, 255, 255, 0.85); }
+	.cs-search-clear .material-icons { font-size: 13px; }
+
+	/* The prefix is identical on every box, so it's stated once here rather than
+	   repeated a hundred times. The boxes carry the only part that differs. */
+	.cs-prefix-chip {
+		display: inline-flex;
+		align-items: center;
+		padding: 3px 8px;
+		border-radius: 3px;
+		background: var(--accent-10);
+		border: 1px solid var(--accent-30);
+		color: var(--accent-70);
+		font-family: monospace;
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+	}
+	.cs-prefix-slot { color: rgba(255, 255, 255, 0.25); }
+
+	/* Armed: the one place the whole callsign matters, because it's what you're about
+	   to hand somebody. */
+	.cs-armed-bar {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 8px;
+		padding: 8px 10px;
+		border-radius: 4px;
+		background: rgba(251, 191, 36, 0.08);
+		border: 1px solid rgba(251, 191, 36, 0.3);
+	}
+	.cs-armed-full {
+		flex-shrink: 0;
+		padding: 3px 9px;
+		border-radius: 3px;
+		background: rgba(251, 191, 36, 0.16);
+		color: rgba(253, 224, 71, 0.98);
+		font-family: monospace;
+		font-size: 15px;
+		font-weight: 700;
+		letter-spacing: 1px;
+	}
+	.cs-armed-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		flex: 1;
+		font-size: 11px;
+		line-height: 1.4;
+		color: rgba(255, 255, 255, 0.6);
+	}
+	.cs-armed-warn { font-size: 10px; color: rgba(252, 165, 165, 0.9); }
+
+	/* Handing out a reserved number shouldn't feel like handing out a spare one. */
+	.cs-armed-reserved {
+		background: rgba(239, 68, 68, 0.08);
+		border-color: rgba(239, 68, 68, 0.32);
+	}
+	.cs-armed-reserved .cs-armed-full {
+		background: rgba(239, 68, 68, 0.18);
+		color: rgba(252, 165, 165, 0.98);
+	}
+	.cs-armed-cancel {
+		flex-shrink: 0;
+		background: none;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 3px;
+		padding: 3px 9px;
+		color: rgba(255, 255, 255, 0.45);
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.cs-armed-cancel:hover:not(:disabled) { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.22); }
+
+	.cs-armed-assign {
+		flex-shrink: 0;
+		background: rgba(16, 185, 129, 0.12);
+		border: 1px solid rgba(16, 185, 129, 0.35);
+		border-radius: 3px;
+		padding: 3px 12px;
+		color: rgba(52, 211, 153, 0.95);
+		font-size: 10px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.cs-armed-assign:hover:not(:disabled) {
+		background: rgba(16, 185, 129, 0.22);
+		border-color: rgba(16, 185, 129, 0.55);
+		color: rgba(167, 243, 208, 1);
+	}
+	.cs-armed-assign:disabled, .cs-armed-cancel:disabled { opacity: 0.45; cursor: not-allowed; }
+
+	.cs-legend {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 9px;
+		color: rgba(255, 255, 255, 0.3);
+	}
+	.cs-key {
+		width: 8px;
+		height: 8px;
+		border-radius: 2px;
+		margin-left: 4px;
+	}
+	.cs-key-free { background: rgba(16, 185, 129, 0.4); }
+	.cs-key-taken { background: rgba(255, 255, 255, 0.16); }
+	.cs-key-reserved { background: rgba(239, 68, 68, 0.4); }
+
+	/* Load more used to just keep stacking rows until the panel ran off the screen.
+	   The grid gets its own frame and scrolls inside it instead. */
+	.cs-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+		gap: 4px;
+		max-height: 244px;
+		overflow-y: auto;
+		padding-right: 3px;
+	}
+	.cs-grid::-webkit-scrollbar { width: 5px; }
+	.cs-grid::-webkit-scrollbar-thumb {
+		background: rgba(255, 255, 255, 0.08);
+		border-radius: 3px;
+	}
+	.cs-box {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1px;
+		min-height: 38px;
+		padding: 4px 3px;
+		border-radius: 4px;
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		background: rgba(255, 255, 255, 0.02);
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.cs-num {
+		font-family: monospace;
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.5px;
+		color: rgba(255, 255, 255, 0.85);
+	}
+	.cs-holder {
+		max-width: 100%;
+		font-size: 8px;
+		color: rgba(255, 255, 255, 0.3);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.cs-free {
+		border-color: rgba(16, 185, 129, 0.2);
+		background: rgba(16, 185, 129, 0.05);
+	}
+	.cs-free:hover:not(:disabled) {
+		background: rgba(16, 185, 129, 0.14);
+		border-color: rgba(16, 185, 129, 0.45);
+	}
+	.cs-free .cs-num { color: rgba(52, 211, 153, 0.9); }
+
+	/* Taken and reserved are not choices, so they don't look like buttons. */
+	.cs-taken, .cs-reserved { cursor: not-allowed; }
+	.cs-taken .cs-num { color: rgba(255, 255, 255, 0.3); }
+	.cs-reserved {
+		border-color: rgba(239, 68, 68, 0.18);
+		background: rgba(239, 68, 68, 0.04);
+	}
+	.cs-reserved .cs-num { color: rgba(248, 113, 113, 0.5); }
+
+	/* Reserved, but you hold the permission for it: still marked as special, no longer
+	   dead. It should never look like an ordinary free box. */
+	.cs-unlocked {
+		cursor: pointer;
+		border-color: rgba(239, 68, 68, 0.35);
+		background: rgba(239, 68, 68, 0.07);
+	}
+	.cs-unlocked:hover:not(:disabled) {
+		background: rgba(239, 68, 68, 0.16);
+		border-color: rgba(239, 68, 68, 0.6);
+	}
+	.cs-unlocked .cs-num { color: rgba(248, 113, 113, 0.95); }
+
+	/* The officer's own callsign — not free, but not somebody else's either. */
+	.cs-self {
+		border-color: var(--accent-30);
+		background: var(--accent-10);
+	}
+	.cs-self .cs-num { color: var(--accent-70); }
+
+	/* Armed: one more click commits. A stray click in a hundred-box grid shouldn't
+	   quietly reassign a callsign. */
+	.cs-armed {
+		background: rgba(251, 191, 36, 0.15);
+		border-color: rgba(251, 191, 36, 0.5);
+	}
+	.cs-armed .cs-num { color: rgba(252, 211, 77, 0.95); }
+	.cs-confirm {
+		font-size: 8px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		color: rgba(252, 211, 77, 0.9);
+	}
+
+	.cs-more {
+		width: 100%;
+		margin-top: 8px;
+		padding: 6px;
+		border-radius: 3px;
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		background: rgba(255, 255, 255, 0.02);
+		color: rgba(255, 255, 255, 0.5);
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.cs-more:hover { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.16); }
+
+	.cs-loading {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 16px 0;
+		font-size: 11px;
+		color: rgba(255, 255, 255, 0.35);
+	}
+	.cs-spinner {
+		width: 14px;
+		height: 14px;
+		border: 2px solid rgba(255, 255, 255, 0.08);
+		border-top-color: var(--accent-70);
+		border-radius: 50%;
+		animation: cs-spin 0.7s linear infinite;
+	}
+	@keyframes cs-spin { to { transform: rotate(360deg); } }
+
 	.boss-hint {
 		font-size: 10px;
 		color: rgba(255, 255, 255, 0.25);
@@ -1811,30 +2376,9 @@
 	}
 
 	/* Callsign Input */
-	.callsign-input-row {
-		display: flex;
-		gap: 8px;
-	}
 
-	.callsign-input {
-		flex: 1;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 3px;
-		padding: 7px 10px;
-		color: rgba(255, 255, 255, 0.85);
-		font-size: 12px;
-		font-family: monospace;
-	}
 
-	.callsign-input:focus {
-		outline: none;
-		border-color: rgba(var(--accent-rgb), 0.3);
-	}
 
-	.callsign-input::placeholder {
-		color: rgba(255, 255, 255, 0.15);
-	}
 
 	/* Fire Button */
 	.btn-fire {

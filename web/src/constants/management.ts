@@ -108,7 +108,8 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		icon: "group",
 		permissions: [
 			{ key: "roster_manage_certifications", label: "Manage Certifications", description: "Add or remove officer certifications" },
-			{ key: "roster_manage_officers", label: "Manage Officers", description: "Promote, demote, fire officers and edit callsigns" },
+			{ key: "roster_manage_officers", label: "Manage Officers", description: "Promote, demote, fire officers and assign callsigns" },
+			{ key: "roster_callsign_reserved", label: "Assign Reserved Callsigns", description: "Hand out callsigns marked reserved in the config, such as command numbers. Needs Manage Officers as well" },
 		],
 	},
 	{

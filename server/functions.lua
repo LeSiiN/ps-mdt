@@ -489,6 +489,112 @@ function GetCitizenPhoneNumber(citizenid, fallback)
 end
 
 -- Convenience export so other resources can reuse the same resolution.
+-- ── Callsigns ────────────────────────────────────────────────────────────────
+-- The range an officer may pick from comes from their job, falling back to their job
+-- type. There is no global default on purpose: an unconfigured job is a mistake, and
+-- silently issuing numbers from some arbitrary range would hide it. Every path below
+-- returns an explanation instead.
+
+--- Resolve the callsign block for a job.
+--- @return table|nil cfg, string|nil problem
+function CallsignConfigFor(jobName, jobType)
+    local root = (Config and Config.Callsigns) or {}
+
+    -- A job block replaces the job-type block outright; it is not merged into it.
+    local cfg = jobName and (root.Jobs or {})[jobName] or nil
+    local source = cfg and ('job "' .. tostring(jobName) .. '"') or nil
+
+    if not cfg then
+        cfg = jobType and (root.JobTypes or {})[jobType] or nil
+        source = cfg and ('job type "' .. tostring(jobType) .. '"') or nil
+    end
+
+    if not cfg then
+        return nil, ('No callsign range is configured for job "%s" (type "%s"). Add it to Config.Callsigns.')
+            :format(tostring(jobName or '?'), tostring(jobType or '?'))
+    end
+
+    local minN, maxN = tonumber(cfg.Min), tonumber(cfg.Max)
+    if not minN or not maxN then
+        return nil, ('The callsign block for %s is missing Min or Max.'):format(source)
+    end
+    if maxN < minN then
+        return nil, ('The callsign block for %s has Max below Min.'):format(source)
+    end
+
+    return {
+        Min      = minN,
+        Max      = maxN,
+        Pad      = tonumber(cfg.Pad) or 0,
+        Prefix   = cfg.Prefix or '',
+        PageSize = tonumber(cfg.PageSize) or 20,
+        Reserved = cfg.Reserved or {},
+        Source   = source,
+    }, nil
+end
+
+--- The block that applies to a connected player.
+--- @return table|nil cfg, string|nil problem
+function CallsignConfigForPlayer(src)
+    local jobName = ps.getJobName and ps.getJobName(src) or nil
+    local jobType = ps.getJobType and ps.getJobType(src) or nil
+    return CallsignConfigFor(jobName, jobType)
+end
+
+--- Render a number the way its block says it should look: 7 → "L-007".
+function FormatCallsign(n, cfg)
+    if not cfg then return tostring(n) end
+    local pad = tonumber(cfg.Pad) or 0
+    local body = pad > 0 and ('%0' .. pad .. 'd'):format(n) or tostring(n)
+    return (cfg.Prefix or '') .. body
+end
+
+--- May this officer hand out callsigns marked reserved?
+--- Separate from roster_manage_officers on purpose: an FTO can be trusted to give a
+--- recruit a number without also being able to hand out the Chief's.
+function CanAssignReservedCallsign(src)
+    return CheckPermission(src, 'roster_callsign_reserved') == true
+end
+
+--- Is this a callsign the given citizen is allowed to take?
+--- The picker only offers valid boxes, but a client can send anything.
+--- @return boolean ok, string|nil message, string|nil reservedReason
+function ValidateCallsignPick(src, callsign, citizenid)
+    callsign = tostring(callsign or '')
+    if callsign == '' then return false, 'Missing callsign' end
+
+    local cfg, problem = CallsignConfigForPlayer(src)
+    if not cfg then return false, problem end
+
+    local matched
+    for n = cfg.Min, cfg.Max do
+        if FormatCallsign(n, cfg) == callsign then matched = n break end
+    end
+    if not matched then
+        return false, ('%s is outside the range configured for %s'):format(callsign, cfg.Source)
+    end
+
+    -- Reserved callsigns are not off-limits to everyone — they're off-limits to anyone
+    -- without the permission for them.
+    local why = (cfg.Reserved or {})[matched]
+    if why and not CanAssignReservedCallsign(src) then
+        return false, ('%s is reserved (%s) and you are not authorised to assign it')
+            :format(callsign, tostring(why))
+    end
+
+    -- Held by somebody else? The column is UNIQUE, so without this the insert simply
+    -- errors out instead of telling anyone why.
+    local taken = MySQL.scalar.await(
+        'SELECT 1 FROM mdt_profiles WHERE callsign = ? AND citizenid != ? LIMIT 1',
+        { callsign, citizenid }
+    )
+    if taken then
+        return false, ('%s is already in use'):format(callsign)
+    end
+
+    return true, nil, why
+end
+
 --- Send an e-mail to a citizen through the configured phone resource.
 --- Mirrors the lb-phone flow court.lua already uses: resolve the citizen's number,
 --- ask the phone for the mail address behind it, then send.

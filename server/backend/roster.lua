@@ -451,7 +451,14 @@ ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payl
         return { success = false, message = 'Missing citizen ID or callsign' }
     end
 
-    -- Use the existing setCallsign callback logic
+    -- This path had no checks at all: it wrote straight to a UNIQUE column, so a
+    -- duplicate callsign failed as a raw SQL error rather than a message anyone could
+    -- act on. Same validator the picker and setCallsign use.
+    local valid, why, reservedReason = ValidateCallsignPick(src, newCallsign, citizenid)
+    if not valid then
+        return { success = false, message = why }
+    end
+
     local ok, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
     if not ok or not QBCore then
         return { success = false, message = 'Core framework not available' }
@@ -470,7 +477,15 @@ ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payl
     MySQL.update.await('UPDATE mdt_profiles SET callsign = ? WHERE citizenid = ?', { newCallsign, citizenid })
 
     if ps.auditLog then
-        ps.auditLog(src, 'callsign_changed', 'officers', citizenid, { callsign = newCallsign })
+        -- Handing out a reserved number is a different act from handing out a spare
+        -- one, so it doesn't get filed as the same thing.
+        ps.auditLog(src, 'callsign_changed', 'officers', citizenid, {
+            callsign     = newCallsign,
+            reserved     = reservedReason,
+            action_label = reservedReason
+                and ('Assigned the RESERVED callsign %s (%s)'):format(newCallsign, reservedReason)
+                or ('Assigned callsign %s'):format(newCallsign),
+        })
     end
 
     return { success = true, message = 'Callsign updated to ' .. newCallsign }

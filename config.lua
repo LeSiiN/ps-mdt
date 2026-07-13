@@ -142,6 +142,75 @@ Config.Phone = {
 }
 
 
+-- Callsigns
+-- Officers pick a callsign from a grid rather than typing one, so the range has to be
+-- defined somewhere. There is deliberately NO global fallback: a job with no range
+-- configured is a configuration mistake, and the MDT says so instead of quietly
+-- handing out numbers from a range nobody chose.
+--
+-- Lookup order for an officer:
+--   1. Callsigns.Jobs[<job name>]      — e.g. 'lspd'
+--   2. Callsigns.JobTypes[<job type>]  — e.g. 'leo'
+--   3. nothing → the picker refuses and tells you which job is unconfigured
+--
+-- A Jobs entry replaces the JobTypes entry completely; it is not merged into it. If
+-- one department needs its own block of numbers, spell that block out in full.
+--
+-- Per block:
+--   Min, Max   (required) the pickable range
+--   Pad        digits to pad to: 2 → 01..99, 3 → 001..999. 0 or omitted = no padding
+--   Prefix     e.g. 'L-' gives L-01. Omitted = bare numbers
+--   PageSize   boxes shown before "Load more" (default 20)
+--   Reserved   [number] = 'why' — nobody may take these, and the reason is shown
+Config.Callsigns = {
+    JobTypes = {
+        leo = {
+            Min = 1,
+            Max = 999,
+            Pad = 3,
+            Prefix = 'PD-',
+            PageSize = 24,
+            Reserved = {
+                [1]  = 'Chief of Police',
+                [99] = 'Dispatch',
+            },
+        },
+
+        ems = {
+            Min = 1,
+            Max = 60,
+            Pad = 2,
+            Prefix = 'M-',
+            PageSize = 24,
+            Reserved = {
+                [1] = 'Chief of Medicine',
+            },
+        },
+
+        doj = {
+            Min = 1,
+            Max = 30,
+            Pad = 2,
+            Prefix = 'DOJ-',
+            PageSize = 30,
+            Reserved = {},
+        },
+    },
+
+    -- Optional. Anything in here overrides the job type block entirely for that one job.
+    Jobs = {
+        -- bcso = {
+        --     Min = 200,
+        --     Max = 299,
+        --     Pad = 3,
+        --     Prefix = 'S-',
+        --     PageSize = 20,
+        --     Reserved = { [200] = 'Sheriff' },
+        -- },
+    },
+}
+
+
 -- Internal Affairs
 Config.IA = {
     -- Anti-spam: how long a citizen must wait between filing complaints.
@@ -662,6 +731,7 @@ Config.ManagementPermissions = {
     -- Roster
     'roster_manage_certifications',
     'roster_manage_officers',
+    'roster_callsign_reserved',
     -- PPR
     'ppr_view',
     'ppr_manage',

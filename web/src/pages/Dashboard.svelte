@@ -108,88 +108,11 @@
 	let pagedWarrants = $derived((dashboardService.activeWarrants ?? []).slice(warrantPage * PAGE_SIZE, (warrantPage + 1) * PAGE_SIZE));
 	let pagedBolos = $derived((dashboardService.activeBolos || []).slice(boloPage * PAGE_SIZE, (boloPage + 1) * PAGE_SIZE));
 
-	// ── Callsign ──
-	const EMPTY_CALLSIGN_VALUES = new Set(['', 'NIL', 'NO CALLSIGN', 'NONE', 'NULL']);
-
-	function isValidCallsign(cs: unknown): boolean {
-		if (cs == null || cs === '') return false;
-		const upper = String(cs).trim().toUpperCase();
-		if (EMPTY_CALLSIGN_VALUES.has(upper)) return false;
-		if (!upper.startsWith('PD-')) return false;
-		return upper.length > 3;
-	}
-
-	let callsignModalOpen = $state(false);
-	let callsignInput = $state("");
-	let callsignSaving = $state(false);
-	let callsignLoading = $state(true);
-	let localCallsign = $state("");
-
-	async function fetchCallsign() {
-		callsignLoading = true;
-		const result = await fetchNui<{ callsign?: string }>(
-			NUI_EVENTS.DASHBOARD.GET_CALLSIGN,
-			{ citizenid: playerData?.citizenid },
-			{ callsign: '' }
-		);
-		const cs = result?.callsign != null ? String(result.callsign).trim() : "";
-		if (isValidCallsign(cs)) {
-			localCallsign = cs;
-		}
-		callsignLoading = false;
-	}
-
-	let hasCallsign = $derived(isValidCallsign(localCallsign));
-
-	function openCallsignModal() {
-		callsignInput = hasCallsign ? localCallsign : "PD-";
-		callsignModalOpen = true;
-	}
-
-	function closeCallsignModal() {
-		callsignModalOpen = false;
-		callsignInput = "";
-	}
-
-	function handleCallsignInput(e: Event) {
-		let val = (e.target as HTMLInputElement).value
-			.toUpperCase()
-			.replace(/[^A-Z0-9\-]/g, "");
-
-		if (!val.startsWith('PD-')) {
-			if (val.startsWith('PD')) {
-				val = 'PD-' + val.slice(2);
-			} else if (val.startsWith('P')) {
-				val = 'PD-' + val.slice(1).replace(/^D-?/, '');
-			} else {
-				val = 'PD-' + val.replace(/^[PD\-]+/, '');
-			}
-		}
-
-		callsignInput = val.slice(0, 6);
-		(e.target as HTMLInputElement).value = callsignInput;
-	}
-
-	async function saveCallsign() {
-		const cs = callsignInput.trim();
-		if (!isValidCallsign(cs) || callsignSaving) return;
-		callsignSaving = true;
-		try {
-			await fetchNui(NUI_EVENTS.DASHBOARD.SET_CALLSIGN, { callsign: cs, citizenid: playerData?.citizenid });
-			localCallsign = cs;
-			closeCallsignModal();
-		} catch {
-			/* silent */
-		} finally {
-			callsignSaving = false;
-		}
-	}
 
 	onMount(async () => {
 		dashboardService.initialize();
 		dashboardService.startCarouselTimer();
 		loadDojDashboard();
-		await fetchCallsign();
 	});
 
 	onDestroy(() => {
@@ -355,27 +278,6 @@
 			</div>
 			<div class="stat-divider"></div>
 
-			<!-- Callsign -->
-			{#if !callsignLoading}
-				{#if hasCallsign}
-					<button class="callsign-display" onclick={openCallsignModal} title="Change callsign">
-						<div class="stat-icon callsign-icon">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M14 9h4M14 12h4M14 15h2"/></svg>
-						</div>
-						<div class="stat-content">
-							<span class="stat-value callsign-value">{localCallsign}</span>
-							<span class="stat-label">Callsign</span>
-						</div>
-					</button>
-				{:else}
-					<div class="callsign-warn">
-						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cs-warn-icon"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-						<span class="cs-warn-text">No callsign set</span>
-						<button class="cs-warn-btn" onclick={openCallsignModal}>Set Callsign</button>
-					</div>
-				{/if}
-				<div class="stat-divider"></div>
-			{/if}
 
 			<!-- Quick Actions -->
 			<div class="quick-actions">
@@ -607,42 +509,6 @@
 		</div>
 	</div>
 
-	<!-- Callsign Modal -->
-	{#if callsignModalOpen}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="cs-modal-overlay" onclick={(e) => { if (e.target === e.currentTarget) closeCallsignModal(); }}>
-			<div class="cs-modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
-				<div class="cs-modal-header">
-					<span class="cs-modal-title">{hasCallsign ? 'Change Callsign' : 'Set Callsign'}</span>
-					<button class="cs-modal-close" onclick={closeCallsignModal} aria-label="Close">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-					</button>
-				</div>
-				<div class="cs-modal-body">
-					<span class="cs-input-label">Callsign</span>
-					<input
-						class="cs-input"
-						type="text"
-						placeholder="PD-01"
-						value={callsignInput}
-						oninput={handleCallsignInput}
-						onkeydown={(e) => { if (e.key === 'Enter') saveCallsign(); if (e.key === 'Escape') closeCallsignModal(); }}
-						maxlength={6}
-						spellcheck={false}
-						autofocus
-					/>
-					<span class="cs-hint">{callsignInput.length}/6 · format: PD-XX</span>
-				</div>
-				<div class="cs-modal-footer">
-					<button class="cs-btn-cancel" onclick={closeCallsignModal} disabled={callsignSaving}>Cancel</button>
-					<button class="cs-btn-confirm" onclick={saveCallsign} disabled={callsignSaving || !isValidCallsign(callsignInput)}>
-						{callsignSaving ? "Saving..." : "Save"}
-					</button>
-				</div>
-			</div>
-		</div>
-	{/if}
 </div>
 
 <style>
@@ -670,13 +536,11 @@
 		font-variant-numeric: tabular-nums;
 	}
 	.bulletin-icon { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
-	.callsign-icon { background: rgba(var(--accent-rgb), 0.12); color: #60a5fa; }
 
 	.stat-content { display: flex; flex-direction: column; min-width: 0; }
 	.bulletin-content { flex: 1; min-width: 0; }
 
 	.stat-value { color: rgba(255, 255, 255, 0.9); font-size: 13px; font-weight: 600; line-height: 1.2; display: flex; align-items: center; gap: 6px; }
-	.callsign-value { font-family: monospace; letter-spacing: 1px; color: #60a5fa; }
 	.stat-label { color: rgba(255, 255, 255, 0.35); font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
 	.stat-change { font-size: 11px; font-weight: 600; }
 	.stat-change.positive { color: #34d399; }
@@ -713,16 +577,7 @@
 
 	.bulletin-item:hover .bulletin-tooltip { display: block; }
 
-	/* Callsign display */
-	.callsign-display { display: flex; align-items: center; gap: 10px; padding: 0 16px; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; font: inherit; height: 100%; transition: background 0.12s; }
-	.callsign-display:hover { background: rgba(255, 255, 255, 0.04); }
 
-	/* Callsign warning */
-	.callsign-warn { display: flex; align-items: center; gap: 6px; padding: 4px 10px; margin: 0 8px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.15); border-radius: 5px; flex-shrink: 0; }
-	.cs-warn-icon { color: rgba(251, 191, 36, 0.7); flex-shrink: 0; }
-	.cs-warn-text { color: rgba(251, 191, 36, 0.75); font-size: 11px; font-weight: 500; white-space: nowrap; }
-	.cs-warn-btn { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 3px; border: 1px solid rgba(251, 191, 36, 0.25); background: rgba(251, 191, 36, 0.1); color: rgba(251, 191, 36, 0.9); font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.12s ease; margin-left: 2px; }
-	.cs-warn-btn:hover { background: rgba(251, 191, 36, 0.2); border-color: rgba(251, 191, 36, 0.4); }
 
 	/* Quick Actions */
 	.quick-actions { display: flex; gap: 6px; padding-left: 16px; flex-shrink: 0; }
@@ -823,24 +678,4 @@
 	.list-item-btn { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 12px; background: none; border: none; border-bottom: 1px solid rgba(255, 255, 255, 0.04); cursor: pointer; text-align: left; color: inherit; }
 	.list-item-btn:hover { background: rgba(255, 255, 255, 0.04); }
 
-	/* Callsign Modal */
-	.cs-modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; }
-	.cs-modal { background: var(--card-dark-bg); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; width: min(320px, 92vw); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
-	.cs-modal-header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); flex-shrink: 0; }
-	.cs-modal-title { font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
-	.cs-modal-close { display: flex; align-items: center; justify-content: center; background: transparent; color: rgba(255, 255, 255, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); padding: 4px; border-radius: 3px; cursor: pointer; transition: all 0.1s; margin-left: auto; }
-	.cs-modal-close:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
-	.cs-modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 3px; }
-	.cs-input-label { color: rgba(255, 255, 255, 0.35); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
-	.cs-input { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 3px; padding: 5px 8px; color: rgba(255, 255, 255, 0.8); font-size: 13px; font-weight: 600; letter-spacing: 1.5px; font-family: inherit; text-transform: uppercase; width: 100%; box-sizing: border-box; transition: border-color 0.1s; }
-	.cs-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.1); }
-	.cs-input::placeholder { color: rgba(255, 255, 255, 0.15); letter-spacing: 1.5px; font-weight: 400; }
-	.cs-hint { color: rgba(255, 255, 255, 0.2); font-size: 9px; margin-top: 1px; }
-	.cs-modal-footer { display: flex; justify-content: flex-end; gap: 6px; padding: 10px 16px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
-	.cs-btn-cancel { background: transparent; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 3px; padding: 4px 10px; color: rgba(255, 255, 255, 0.4); font-size: 10px; font-weight: 500; cursor: pointer; transition: all 0.1s; }
-	.cs-btn-cancel:hover:not(:disabled) { color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.1); }
-	.cs-btn-cancel:disabled { opacity: 0.4; cursor: not-allowed; }
-	.cs-btn-confirm { background: rgba(16, 185, 129, 0.06); color: rgba(52, 211, 153, 0.7); border: 1px solid rgba(16, 185, 129, 0.1); border-radius: 3px; padding: 4px 12px; font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.1s; }
-	.cs-btn-confirm:hover:not(:disabled) { background: rgba(16, 185, 129, 0.12); color: rgba(110, 231, 183, 0.9); }
-	.cs-btn-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>

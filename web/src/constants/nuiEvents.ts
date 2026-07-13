@@ -29,7 +29,9 @@ export const NUI_EVENTS = {
 		UPDATE_RECENT_DISPATCHES: "updateRecentDispatches",
 		UPDATE_USAGE_METRICS: "updateUsageMetrics",
 		SET_CALLSIGN: "setCallsign",
-		GET_CALLSIGN: "getCallsign"
+		GET_CALLSIGN: "getCallsign",
+		// Pushed from Lua when somebody changes this officer's callsign.
+		CALLSIGN_UPDATED: "callsignUpdated"
 	},
 	COURT: {
 		GET_HEARINGS: "getHearings",
@@ -179,6 +181,7 @@ export const NUI_EVENTS = {
 		PROMOTE_OFFICER: "promoteOfficer",
 		FIRE_OFFICER: "fireOfficer",
 		UPDATE_CALLSIGN: "updateOfficerCallsign",
+		GET_CALLSIGN_AVAILABILITY: "getCallsignAvailability",
 	},
 	PPR: {
 		GET_PPR_LIST: "getPPRList",

@@ -26,13 +26,11 @@ ps.registerCallback(resourceName .. ':server:setCallsign', function(source, payl
     end
     if not QBCore then return { success = false, message = 'Core framework not available' } end
 
-    -- Reject a callsign already owned by a different profile (UNIQUE index).
-    local taken = MySQL.scalar.await(
-        'SELECT 1 FROM mdt_profiles WHERE callsign = ? AND citizenid != ? LIMIT 1',
-        { newCallsign, cid }
-    )
-    if taken then
-        return { success = false, message = 'Callsign "' .. tostring(newCallsign) .. '" is already in use' }
+    newCallsign = tostring(newCallsign)
+
+    local valid, why = ValidateCallsignPick(src, newCallsign, cid)
+    if not valid then
+        return { success = false, message = why }
     end
 
     local Player = QBCore.Functions.GetPlayerByCitizenId(cid)
@@ -51,9 +49,62 @@ ps.registerCallback(resourceName .. ':server:setCallsign', function(source, payl
     return { success = false, message = 'Player must be online to update callsign' }
 end)
  
+--- Everything the callsign picker needs, in one round-trip: the range, who holds
+--- what, and what is reserved. The taken list is one query rather than one per box.
+ps.registerCallback(resourceName .. ':server:getCallsignAvailability', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false } end
+
+    local cfg, problem = CallsignConfigForPlayer(src)
+    if not cfg then
+        -- An unconfigured job is a server-owner mistake, not an officer's. Say what's
+        -- wrong rather than showing an empty grid nobody can explain.
+        ps.warn('[callsigns] ' .. tostring(problem))
+        return { success = false, error = problem }
+    end
+
+    -- Who currently holds a callsign. Names come along so the picker can show whose
+    -- box it is instead of just "taken".
+    local rows = MySQL.query.await([[
+        SELECT citizenid, callsign, fullname
+        FROM mdt_profiles
+        WHERE callsign IS NOT NULL AND callsign <> ''
+    ]], {}) or {}
+
+    local taken = {}
+    for _, r in ipairs(rows) do
+        taken[tostring(r.callsign)] = { citizenid = r.citizenid, name = r.fullname }
+    end
+
+    -- Reserved is keyed by number in the config; hand it over keyed by the rendered
+    -- callsign so the UI never has to know about padding or prefixes.
+    local reserved = {}
+    for n, why in pairs(cfg.Reserved or {}) do
+        reserved[FormatCallsign(n, cfg)] = tostring(why)
+    end
+
+    return {
+        success  = true,
+        -- The picker greys reserved boxes out for everyone else; whoever has this can
+        -- click them.
+        canAssignReserved = CanAssignReservedCallsign(src),
+        min      = cfg.Min,
+        max      = cfg.Max,
+        pad      = cfg.Pad,
+        prefix   = cfg.Prefix,
+        pageSize = cfg.PageSize,
+        source   = cfg.Source,
+        taken    = taken,
+        reserved = reserved,
+    }
+end)
+
 ps.registerCallback(resourceName .. ':server:getCallsign', function(source, payload)
     if not CheckAuth(source) then return { callsign = '' } end
-    local cid = payload.citizenid
+
+    -- No citizenid means "mine". The top bar asks about the officer holding the MDT,
+    -- and without this it silently got an empty string back every time.
+    local cid = payload.citizenid or (ps.getIdentifier and ps.getIdentifier(source))
     if not cid then return { callsign = '' } end
  
     if not QBCore then return { success = false, message = 'Core framework not available' } end

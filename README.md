@@ -67,7 +67,7 @@ lawyer = {
 
 ### 2. Import the database
 
-Run `sql/qbcore.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
+Run `sql/qbcore.sql` or `sql/qbx.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
 
 ### 3. Set your FiveManage API keys
 
@@ -243,6 +243,76 @@ Config.Impound = {
 
 Storage fees are worked out from the impound date rather than counted up by a timer, so they survive restarts and can't drift.
 
+**Hold periods.** How long the vehicle stays put, regardless of the fee — paying up doesn't shorten a hold, and a hold expiring doesn't waive the fee:
+
+```lua
+Config.Impound.Durations = {
+    { id = 'immediate', label = 'Releasable immediately', days = 0 },
+    { id = '1d',        label = '1 day',                  days = 1 },
+    { id = '3d',        label = '3 days',                 days = 3 },
+    { id = '7d',        label = '7 days',                 days = 7 },
+    { id = 'hold',      label = 'Until an officer releases it' },  -- no `days`
+}
+Config.Impound.DefaultDuration = 'immediate'
+```
+
+Each entry in `Config.Impound.Reasons` can carry a `hold` naming one of these ids. Picking that reason pre-selects it — a recommendation, not a rule, so the officer can still change it.
+
+Cutting a hold short needs the separate `vehicle_impound_override` permission and a written reason, and is logged under its own audit category.
+
+### Callsigns
+
+Callsigns are picked from a grid rather than typed, so you can see what's taken, reserved and free.
+
+Ranges are defined per job type, and optionally per job. There is **no global fallback**: a job with no range configured is a configuration mistake, and the MDT says so rather than quietly handing out numbers from a range nobody chose.
+
+```lua
+Config.Callsigns = {
+    JobTypes = {
+        leo = {
+            Min = 1,          -- required
+            Max = 100,        -- required
+            Pad = 2,          -- 2 → 01..99, 3 → 001..999, 0 or omitted → no padding
+            Prefix = '',      -- 'L-' gives L-01
+            PageSize = 20,    -- boxes shown before "Load more"
+            Reserved = {      -- nobody may take these; the reason shows in the picker
+                [1]  = 'Chief of Police',
+                [99] = 'Dispatch',
+            },
+        },
+        ems = { Min = 1, Max = 60, Pad = 2, Prefix = 'M-', Reserved = { [1] = 'Chief of Medicine' } },
+        doj = { Min = 1, Max = 30, Pad = 2, Prefix = 'DOJ-', Reserved = {} },
+    },
+
+    -- Optional. A job entry replaces the job type entry completely — it isn't merged
+    -- into it — so spell the block out in full.
+    Jobs = {
+        -- bcso = {
+        --     Min = 200, Max = 299, Pad = 3, Prefix = 'S-',
+        --     Reserved = { [200] = 'Sheriff' },
+        -- },
+    },
+}
+```
+
+An officer's range is looked up by job name first, then by job type. Assigning is done from Roster → the officer → Callsign, and needs `roster_manage_officers`.
+
+Reserved callsigns are a separate permission: `roster_callsign_reserved`. Without it, reserved boxes are visible but locked; with it they can be handed out, and doing so is logged as a reserved assignment rather than an ordinary one. That's the split between an FTO who can give a recruit a spare number and a supervisor who can hand out the Chief's.
+
+The range, the reserved list, the reserved permission and uniqueness are all enforced server-side, not just hidden in the UI.
+
+### Internal Affairs
+
+```lua
+Config.IA = {
+    CooldownMs = 300000,        -- how long a citizen must wait between complaints
+    NotifyComplainant = true,   -- e-mail them when their complaint changes status
+    MailSender = 'Internal Affairs',
+}
+```
+
+Complaints are matched to a real officer by badge, then by name if it points at exactly one person. If it's ambiguous the complaint is left unassigned for IA to sort out, rather than being attached to the wrong officer.
+
 ### Other stuff worth changing
 
 | Setting | Default | What it does |
@@ -298,6 +368,10 @@ Impound a vehicle from the MDT (only while it's sitting in a garage) or on the s
 
 Every impound records the reason, officer, lot, fee, notes, and an optional photo link. Releasing doesn't wipe the record, so each vehicle keeps a full impound history. The fee grows with a daily storage charge that stops at a configurable cap, and a lot view lists everything currently held with its outstanding fees. Impounding a vehicle with an active BOLO resolves that BOLO automatically.
 
+A vehicle can also be held for a set period — a fixed number of days, or until an officer says otherwise. Releasing it early is a separate permission, needs a reason, and is logged as an override. The on-site form warns the officer if the car is flagged stolen or has an open BOLO, shows the owner and how many times it's been impounded before, and spells out what the owner will actually end up paying once storage is counted.
+
+The owner is e-mailed when their vehicle is impounded, when the fee is paid, and when it's released — they're rarely standing there when it happens, and often offline.
+
 Vehicles nobody owns are a separate case: they're simply hauled away and the officer earns a small payout for keeping the streets clear, rate-limited by a cooldown and a per-shift cap.
 
 ### Weapons
@@ -343,7 +417,7 @@ Stats overview: reports this week vs last week, active units, job info.
 View and respond to dispatch calls. Hooks into ps-dispatch.
 
 ### Roster
-All officers with duty status, callsign, and department.
+All officers with duty status, callsign, and department. Supervisors assign callsigns from a grid that shows what's taken, reserved and free, rather than typing one and hoping.
 
 ### Leaderboard
 Rankings by arrests, reports, and activity.
@@ -355,13 +429,13 @@ Manage penal codes and charge definitions. Create, edit, and categorize charges 
 Recognize officers with department awards. Track commendations and achievements on officer profiles.
 
 ### Internal Affairs (IA)
-File and manage internal affairs complaints against officers. Track complaint status through investigation stages (Open, Under Investigation, Investigated, Sustained, Exonerated, Unfounded, Closed). Includes a standalone complaint form accessible via `/complaint` command or export for civilian-facing resources. IA complaints appear in officer profiles under the IA History tab.
+File and manage internal affairs complaints against officers. Complaints are linked to the officer they name, so they actually reach that officer's profile, and the complainant is e-mailed whenever the status changes. Track complaint status through investigation stages (Open, Under Investigation, Investigated, Sustained, Exonerated, Unfounded, Closed). Includes a standalone complaint form accessible via `/complaint` command or export for civilian-facing resources. IA complaints appear in officer profiles under the IA History tab.
 
 ### PPR (Performance Planning & Review)
 Create performance reviews for officers covering coachable moments, commendations, and developmental feedback. Supervisors can document incidents from cases, traffic stops, or any notable officer conduct. PPR records are tied to officer profiles and accessible from both the Personnel sidebar and the officer's profile PPR tab.
 
 ### Management
-Admin panel for the department. Set permissions per rank, post bulletins, view audit logs, manage tags. There are 62 permissions you can assign per role, covering citizens, reports, cases, evidence, BOLOs, warrants, vehicles and impounds, weapons, charges, dispatch, cameras, bodycams, dashcams, patrols, the bulletin board, SOPs, FTO, the court calendar, and management access.
+Admin panel for the department. Set permissions per rank, post bulletins, view audit logs, manage tags. There are 64 permissions you can assign per role, covering citizens, reports, cases, evidence, BOLOs, warrants, vehicles and impounds, weapons, charges, dispatch, cameras, bodycams, dashcams, patrols, the bulletin board, SOPs, FTO, the court calendar, and management access.
 
 ### Audit Trail
 Every action gets logged. Who did what, when. Covers: logins, reports, cases, evidence, warrants, vehicles, weapons, charges, searches, dispatch, officers, sentencing, arrests, ICU. Each category toggles on/off from the settings page.
