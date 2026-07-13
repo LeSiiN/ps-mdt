@@ -164,10 +164,11 @@ local function clearVehicleBolo(plate)
     return closed
 end
 
+-- Plates can legitimately contain a space ("LS 12345"). This used to strip every
+-- space, which turned that into "LS12345" and matched no row in player_vehicles —
+-- every impound of such a vehicle failed with "Vehicle not found".
 local function cleanPlate(plate)
-    if type(plate) ~= 'string' then return nil end
-    plate = plate:gsub('%s+', ''):upper()
-    return plate ~= '' and plate or nil
+    return NormalizePlate(plate)
 end
 
 local function officerInfo(src)
@@ -670,9 +671,14 @@ ps.registerCallback(resourceName .. ':server:inspectOnSiteVehicle', function(sou
 
     -- The bolos table is the source of truth; the column on player_vehicles is a
     -- cached flag, so either one counts.
+    -- Must match clearVehicleBolo exactly: subject_id holds a citizenid, plate or
+    -- serial depending on `type`, so without the type filter a BOLO on a citizen or
+    -- weapon could be reported here as a vehicle BOLO — and the banner would promise
+    -- to resolve something the impound never touches.
     local boloRow = MySQL.single.await([[
         SELECT id FROM mdt_bolos
-        WHERE status = 'active' AND subject_id = ? LIMIT 1
+        WHERE type = 'vehicle' AND subject_id = ? AND status = 'active'
+        LIMIT 1
     ]], { plate })
 
     local prior = MySQL.single.await(

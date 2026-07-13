@@ -610,7 +610,7 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
     for _, row in ipairs(rows or {}) do
         local vehicleData = vehicleShared and vehicleShared[row.vehicle] or nil
         table.insert(results, {
-            plate = row.plate and string.upper(row.plate):gsub('%s+', '') or 'UNKNOWN',
+            plate = row.plate and (string.upper(row.plate):gsub('^%s+', ''):gsub('%s+$', '')) or 'UNKNOWN',
             vehicle_label = vehicleData and vehicleData.name or row.vehicle or 'Unknown',
             owner_name = row.owner_name or 'Unknown',
             owner_citizenid = row.citizenid or nil,

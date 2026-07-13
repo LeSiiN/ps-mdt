@@ -298,6 +298,8 @@
 		registered?: boolean;
 		registrationReason?: string;
 		core_state?: number;
+		/** Sitting in an impound lot right now. */
+		impounded?: boolean;
 	}
 
 	interface VehicleDetails extends Vehicle {
@@ -476,7 +478,7 @@
 			} else if (statusFilter === "garaged") {
 				list = list.filter(v => v.core_state === 1);
 			} else if (statusFilter === "impounded") {
-				list = list.filter(v => v.core_state === 2 || v.status === "impounded");
+				list = list.filter(v => v.impounded || v.core_state === 2 || v.status === "impounded");
 			} else if (statusFilter === "stolen") {
 				list = list.filter(v => v.status === "stolen" || v.flags?.includes("Stolen"));
 			}
@@ -506,6 +508,7 @@
 
 	function getFlagClass(flag: string): string {
 		switch (flag) {
+			case "Impounded": return "pill pill-blue";
 			case "Stolen": return "pill pill-red";
 			case "Active Warrant": return "pill pill-red";
 			case "Bolo": return "pill pill-orange";
@@ -1698,6 +1701,13 @@
 		background: rgba(245, 158, 11, 0.08);
 		color: rgba(251, 191, 36, 0.8);
 		border: 1px solid rgba(245, 158, 11, 0.1);
+	}
+
+	/* Impounded is a location, not an accusation — it reads calmly next to Stolen/Bolo. */
+	.pill-blue {
+		background: rgba(59, 130, 246, 0.1);
+		color: rgba(147, 197, 253, 0.85);
+		border: 1px solid rgba(59, 130, 246, 0.18);
 	}
 
 	.pill-grey {

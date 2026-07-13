@@ -261,9 +261,9 @@ function GetVehicleOwner(plate)
         return "Unknown Owner"
     end
 
-    -- Sanitise plate input
-    plate = string.gsub(plate, "%s+", "") -- Remove spaces
-    plate = string.upper(plate) -- Convert to uppercase
+    -- Sanitise plate input. Trim the padding, keep spaces inside the plate.
+    plate = NormalizePlate(plate)
+    if not plate then return nil end
     ps.debug('Fetching vehicle owner for plate: ' .. plate)
 
     -- Fetch the owner
@@ -674,6 +674,23 @@ function ValidateCallsignPick(src, callsign, citizenid)
     end
 
     return true, nil, why
+end
+
+--- Normalise a number plate for lookups and storage.
+---
+--- GetVehicleNumberPlateText always returns 8 characters, PADDED WITH TRAILING SPACES.
+--- Code around the resource dealt with that by stripping every space — which also
+--- destroys the spaces INSIDE a plate, so "LS 12345" became "LS12345" and matched
+--- nothing in player_vehicles. Trim the padding; keep the plate.
+---
+--- Trailing spaces need no special handling in SQL either: the plate columns use a
+--- PAD SPACE collation, so 'ABC123' = 'ABC123  ' already compares equal.
+--- @param plate string|nil
+--- @return string|nil  the trimmed, uppercased plate, or nil if there's nothing left
+function NormalizePlate(plate)
+    if type(plate) ~= 'string' then return nil end
+    plate = plate:upper():gsub('^%s+', ''):gsub('%s+$', '')
+    return plate ~= '' and plate or nil
 end
 
 --- SetMetaData only updates the player in memory; the `players.metadata` column is

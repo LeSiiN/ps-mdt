@@ -1177,7 +1177,7 @@ local function getActiveDashcams()
                 local netId = NetworkGetNetworkIdFromEntity(veh)
                 if netId and netId ~= 0 and not byVeh[netId] then
                     local plate = GetVehicleNumberPlateText(veh)
-                    plate = plate and (plate:gsub('%s+', '')) or nil
+                    plate = plate and (plate:upper():gsub('^%s+', ''):gsub('%s+$', '')) or nil
                     -- Id is simply the plate (falls back to the net id only if a
                     -- vehicle somehow has no plate).
                     local id = plate or ('#' .. netId)

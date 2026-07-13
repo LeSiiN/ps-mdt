@@ -356,7 +356,7 @@ local function getAllTrackers(matchFn, domain)
                 seenVehicles[veh] = true
                 local vCoords  = GetEntityCoords(veh)
                 local vHeading = GetEntityHeading(veh)
-                local plate    = GetVehicleNumberPlateText(veh):gsub('%s+', '')
+                local plate    = GetVehicleNumberPlateText(veh):upper():gsub('^%s+', ''):gsub('%s+$', '')
                 local coordsTbl = { x = vCoords.x, y = vCoords.y, z = vCoords.z }
                 vehicles[#vehicles + 1] = { plate = plate, coords = coordsTbl, heading = vHeading }
                 vehicleCache[plate]     = { plate = plate, coords = coordsTbl, heading = vHeading, _ts = now }
@@ -391,7 +391,7 @@ local function getAllTrackers(matchFn, domain)
                 seenVehicles[veh] = true
                 local vCoords  = GetEntityCoords(veh)
                 local vHeading = GetEntityHeading(veh)
-                local plate    = GetVehicleNumberPlateText(veh):gsub('%s+', '')
+                local plate    = GetVehicleNumberPlateText(veh):upper():gsub('^%s+', ''):gsub('%s+$', '')
                 local coordsTbl = { x = vCoords.x, y = vCoords.y, z = vCoords.z }
                 vehicles[#vehicles + 1] = { plate = plate, coords = coordsTbl, heading = vHeading }
                 vehicleCache[plate]     = { plate = plate, coords = coordsTbl, heading = vHeading, _ts = now }
@@ -516,7 +516,7 @@ RegisterNetEvent('baseevents:leftVehicle', function(vehicle, seat, model, netId)
     if not veh or veh == 0 then return end
     local coords = GetEntityCoords(veh)
     local heading = GetEntityHeading(veh)
-    local plate = GetVehicleNumberPlateText(veh):gsub('%s+', '')
+    local plate = GetVehicleNumberPlateText(veh):upper():gsub('^%s+', ''):gsub('%s+$', '')
     if not plate or #plate == 0 then return end
     TriggerClientEvent(resourceName .. ':client:checkVehicleClass', src, netId, plate,
         { x = coords.x, y = coords.y, z = coords.z }, heading)
@@ -526,7 +526,8 @@ AddEventHandler('entityRemoved', function(entity)
     if GetEntityType(entity) ~= 2 then return end
     local plate = GetVehicleNumberPlateText(entity)
     if not plate or plate == '' then return end
-    plate = plate:gsub('%s+', '')
+    -- Must match the key written on entityCreated exactly, or the cache leaks.
+    plate = plate:upper():gsub('^%s+', ''):gsub('%s+$', '')
     if vehicleCache[plate] then
         vehicleCache[plate] = nil
         MarkTrackingDirty('police')
