@@ -161,18 +161,43 @@ Config.Phone = {
 --   Pad        digits to pad to: 2 → 01..99, 3 → 001..999. 0 or omitted = no padding
 --   Prefix     e.g. 'L-' gives L-01. Omitted = bare numbers
 --   PageSize   boxes shown before "Load more" (default 20)
---   Reserved   [number] = 'why' — nobody may take these, and the reason is shown
+--   Reserved   restricted, not forbidden: only somebody with the
+--              roster_callsign_reserved permission may hand these out
+--   Blocked    forbidden outright. No permission unlocks a blocked callsign — it is
+--              the config saying "this number does not exist". Use it for numbers the
+--              radio uses, numbers you're holding back, or ones you never want issued.
+--
+-- Reserved and Blocked take a LIST of entries — single numbers and ranges:
+--   Reserved = {
+--       { n = 1, why = 'Chief of Police' },             -- one number
+--       { from = 2, to = 5, why = 'Command staff' },    -- a range
+--   }
+--
+-- The bracket form ([1] = 'Chief of Police') is NOT accepted, and that's deliberate.
+-- In Lua a keyless entry IS index 1, so writing
+--       { [1] = 'Chief of Police', { from = 2, to = 5, why = 'Command staff' } }
+-- makes the range overwrite the Chief while the file is being read — the string is
+-- gone before any code can see it, so it can't be detected, only prevented. The
+-- resource therefore refuses the bracket form outright and tells you what to write.
 Config.Callsigns = {
     JobTypes = {
         leo = {
             Min = 1,
-            Max = 999,
+            Max = 100,
             Pad = 3,
             Prefix = 'PD-',
             PageSize = 24,
+
+            -- Restricted: needs roster_callsign_reserved.
             Reserved = {
-                [1]  = 'Chief of Police',
-                [99] = 'Dispatch',
+                { n = 1, why = 'Chief of Police' },
+                { from = 2, to = 5, why = 'Command staff' },
+            },
+
+            -- Forbidden: nobody, ever.
+            Blocked = {
+                -- { n = 99, why = 'Dispatch uses this on the radio' },
+                { from = 90, to = 100, why = 'Held back for future units' },
             },
         },
 
@@ -183,7 +208,10 @@ Config.Callsigns = {
             Prefix = 'M-',
             PageSize = 24,
             Reserved = {
-                [1] = 'Chief of Medicine',
+                { n = 1, why = 'Chief of Medicine' },
+            },
+            Blocked = {
+                { from = 50, to = 60, why = 'Held back for future units' },
             },
         },
 
@@ -192,8 +220,13 @@ Config.Callsigns = {
             Max = 30,
             Pad = 2,
             Prefix = 'DOJ-',
-            PageSize = 30,
-            Reserved = {},
+            PageSize = 24,
+            Reserved = {
+                { n = 1, why = 'Chief of Justice' },
+            },
+            Blocked = {
+                { from = 2, to = 5, why = 'Held back for future units' },
+            },
         },
     },
 
@@ -204,8 +237,9 @@ Config.Callsigns = {
         --     Max = 299,
         --     Pad = 3,
         --     Prefix = 'S-',
-        --     PageSize = 20,
-        --     Reserved = { [200] = 'Sheriff' },
+        --     PageSize = 24,
+        --     Reserved = { { n = 200, why = 'Sheriff' } },
+        --     Blocked  = { { from = 290, to = 299, why = 'Reserved for air units' } },
         -- },
     },
 }

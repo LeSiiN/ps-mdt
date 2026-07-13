@@ -583,6 +583,7 @@
 		pageSize: number;
 		taken: Record<string, { citizenid: string; name?: string }>;
 		reserved: Record<string, string>;
+		blocked: Record<string, string>;
 	}
 
 	let csData = $state<CallsignAvailability | null>(null);
@@ -604,7 +605,7 @@
 		return `${csData.prefix ?? ""}${csNumber(n)}`;
 	}
 
-	type CsState = "free" | "taken" | "reserved" | "self";
+	type CsState = "free" | "taken" | "reserved" | "blocked" | "self";
 
 	interface CsBox {
 		n: number;
@@ -615,6 +616,8 @@
 		state: CsState;
 		holder?: string;
 		why?: string;
+		/** Blocked, yet somebody still holds it — a config/data mismatch worth seeing. */
+		strandedHolder?: string;
 	}
 
 	let allBoxes = $derived.by<CsBox[]>(() => {
@@ -622,12 +625,35 @@
 		const out: CsBox[] = [];
 		for (let n = csData.min; n <= csData.max; n++) {
 			const label = formatCs(n);
-			const why = csData.reserved[label];
+			const blockedWhy = csData.blocked?.[label];
+			const reservedWhy = csData.reserved[label];
 			const held = csData.taken[label];
+
+			// Priority matters here. Blocked outranks everything — it's the config saying
+			// the number doesn't exist. After that, WHO HOLDS IT beats why it's set
+			// aside: a reserved number the officer already carries is their current
+			// callsign, and showing it as "Chief of Police" instead of "Current" hid
+			// exactly that. Reserved only decides whether a FREE box may be taken.
 			let state: CsState = "free";
-			if (why) state = "reserved";
-			else if (held) state = held.citizenid === selectedOfficer?.citizenid ? "self" : "taken";
-			out.push({ n, num: csNumber(n), label, state, holder: held?.name, why });
+			let why: string | undefined;
+			let strandedHolder: string | undefined;
+
+			if (blockedWhy) {
+				state = "blocked";
+				why = blockedWhy;
+				// Somebody holding a number that's since been blocked is a mismatch the
+				// config author should see rather than have quietly hidden.
+				strandedHolder = held?.name;
+			} else if (held) {
+				state = held.citizenid === selectedOfficer?.citizenid ? "self" : "taken";
+				// Kept so the tooltip can still say it's a reserved number.
+				why = reservedWhy;
+			} else if (reservedWhy) {
+				state = "reserved";
+				why = reservedWhy;
+			}
+
+			out.push({ n, num: csNumber(n), label, state, holder: held?.name, why, strandedHolder });
 		}
 		return out;
 	});
@@ -648,6 +674,7 @@
 
 	let canAssignReserved = $derived(csData?.canAssignReserved === true);
 	let freeCount = $derived(allBoxes.filter((b) => b.state === "free").length);
+	let strandedCount = $derived(allBoxes.filter((b) => b.strandedHolder).length);
 	let armedBox = $derived(allBoxes.find((b) => b.label === csPending) ?? null);
 
 	async function loadCallsigns() {
@@ -659,7 +686,7 @@
 			const res = await fetchNui<CallsignAvailability>(
 				NUI_EVENTS.ROSTER.GET_CALLSIGN_AVAILABILITY,
 				{},
-				{ success: true, min: 1, max: 100, pad: 2, prefix: "", pageSize: 20, taken: {}, reserved: {} },
+				{ success: true, min: 1, max: 100, pad: 2, prefix: "", pageSize: 20, taken: {}, reserved: {}, blocked: {} },
 			);
 			if (res?.success) {
 				csData = res;
@@ -684,7 +711,8 @@
 	// boxes shouldn't reassign somebody's callsign. Clicking a box only selects it —
 	// the Assign button in the bar above is what actually commits.
 	function pickBox(box: CsBox) {
-		if (box.state === "taken") return;
+		// Blocked is absolute — there is no permission that opens it.
+		if (box.state === "blocked" || box.state === "taken") return;
 		// Reserved isn't off-limits to everyone — only to anyone without the permission.
 		if (box.state === "reserved" && !canAssignReserved) return;
 		csPending = csPending === box.label ? null : box.label;
@@ -1061,8 +1089,20 @@
 									<span class="cs-key cs-key-free"></span>Free
 									<span class="cs-key cs-key-taken"></span>Taken
 									<span class="cs-key cs-key-reserved"></span>Reserved{#if canAssignReserved} (you may assign){/if}
+									<span class="cs-key cs-key-blocked"></span>Blocked
 								</div>
 							</div>
+
+							{#if strandedCount > 0}
+								<div class="cs-stranded">
+									<span class="material-icons">report_problem</span>
+									<span>
+										{strandedCount} blocked callsign{strandedCount === 1 ? " is" : "s are"} still held
+										by an officer. Blocking a number doesn't take it off whoever already has it —
+										reassign them.
+									</span>
+								</div>
+							{/if}
 
 							{#if armedBox}
 								<div class="cs-armed-bar" class:cs-armed-reserved={armedBox.state === "reserved"}>
@@ -1093,23 +1133,28 @@
 											class="cs-box cs-{box.state}"
 											class:cs-unlocked={box.state === "reserved" && canAssignReserved}
 											class:cs-armed={csPending === box.label}
-											disabled={box.state === "taken" ||
+											disabled={box.state === "blocked" ||
+												box.state === "taken" ||
 												(box.state === "reserved" && !canAssignReserved) ||
 												isSavingBoss}
-											title={box.state === "taken"
-												? `Held by ${box.holder ?? "another officer"}`
-												: box.state === "reserved"
-													? canAssignReserved
-														? `Reserved — ${box.why}. You may assign this.`
-														: `Reserved — ${box.why}`
-													: box.state === "self"
-														? "Current callsign"
-														: "Click to select"}
+											title={box.state === "blocked"
+												? `Blocked — ${box.why}. Nobody can be given this.${box.strandedHolder ? ` Still held by ${box.strandedHolder}.` : ""}`
+												: box.state === "self"
+													? `Current callsign${box.why ? ` — reserved for ${box.why}` : ""}`
+													: box.state === "taken"
+														? `Held by ${box.holder ?? "another officer"}${box.why ? ` — reserved for ${box.why}` : ""}`
+														: box.state === "reserved"
+															? canAssignReserved
+																? `Reserved — ${box.why}. You may assign this.`
+																: `Reserved — ${box.why}`
+															: "Click to select"}
 											onclick={() => pickBox(box)}
 										>
 											<span class="cs-num">{box.num}</span>
 											{#if csPending === box.label}
 												<span class="cs-confirm">Selected</span>
+											{:else if box.state === "blocked"}
+												<span class="cs-holder">{box.strandedHolder ?? box.why}</span>
 											{:else if box.state === "taken"}
 												<span class="cs-holder">{box.holder ?? "Taken"}</span>
 											{:else if box.state === "reserved"}
@@ -2156,6 +2201,7 @@
 	.cs-key-free { background: rgba(16, 185, 129, 0.4); }
 	.cs-key-taken { background: rgba(255, 255, 255, 0.16); }
 	.cs-key-reserved { background: rgba(239, 68, 68, 0.4); }
+	.cs-key-blocked { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); }
 
 	/* Load more used to just keep stacking rows until the panel ran off the screen.
 	   The grid gets its own frame and scrolls inside it instead. */
@@ -2233,6 +2279,36 @@
 		border-color: rgba(239, 68, 68, 0.6);
 	}
 	.cs-unlocked .cs-num { color: rgba(248, 113, 113, 0.95); }
+
+	/* Blocked: the config says this number doesn't exist. It isn't a permission the
+	   supervisor is missing, so it doesn't tease with red — it just reads as absent. */
+	.cs-blocked {
+		cursor: not-allowed;
+		border-style: dashed;
+		border-color: rgba(255, 255, 255, 0.09);
+		background: rgba(255, 255, 255, 0.015);
+	}
+	.cs-blocked .cs-num {
+		color: rgba(255, 255, 255, 0.18);
+		text-decoration: line-through;
+		text-decoration-thickness: 1px;
+	}
+	.cs-blocked .cs-holder { color: rgba(255, 255, 255, 0.2); }
+
+	.cs-stranded {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		margin-bottom: 8px;
+		padding: 8px 10px;
+		border-radius: 4px;
+		background: rgba(251, 191, 36, 0.07);
+		border: 1px solid rgba(251, 191, 36, 0.22);
+		font-size: 10px;
+		line-height: 1.45;
+		color: rgba(252, 211, 77, 0.85);
+	}
+	.cs-stranded .material-icons { font-size: 15px; flex-shrink: 0; }
 
 	/* The officer's own callsign — not free, but not somebody else's either. */
 	.cs-self {

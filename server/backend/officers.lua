@@ -35,11 +35,26 @@ ps.registerCallback(resourceName .. ':server:setCallsign', function(source, payl
 
     local Player = QBCore.Functions.GetPlayerByCitizenId(cid)
     if Player then
+        -- Same guard as the roster path: the DB decides first. The UNIQUE index is the
+        -- only thing that can settle two simultaneous assignments, and if it rejects
+        -- this one the player's metadata must not already be carrying the new callsign.
+        local wrote = pcall(function()
+            MySQL.update.await('UPDATE mdt_profiles SET callsign = ? WHERE citizenid = ?', { newCallsign, cid })
+        end)
+        if not wrote then
+            local holder = CallsignHolder(newCallsign, cid)
+            return {
+                success = false,
+                message = holder
+                    and ('%s was just taken by %s'):format(newCallsign, holder)
+                    or ('%s is already in use'):format(newCallsign),
+            }
+        end
+
         Player.Functions.SetMetaData('callsign', newCallsign)
+        PersistLiveMetadata(Player, cid)
         TriggerClientEvent(resourceName .. ':client:updateCallsign', Player.PlayerData.source, newCallsign)
- 
-        MySQL.update.await('UPDATE mdt_profiles SET callsign = ? WHERE citizenid = ?', { newCallsign, cid })
- 
+
         if ps.auditLog then
             ps.auditLog(src, 'callsign_changed', 'officer', cid, { callsign = newCallsign })
         end
@@ -65,22 +80,58 @@ ps.registerCallback(resourceName .. ':server:getCallsignAvailability', function(
 
     -- Who currently holds a callsign. Names come along so the picker can show whose
     -- box it is instead of just "taken".
+    local taken = {}
+
+    -- mdt_profiles is the authoritative store: it's the one the MDT writes and the one
+    -- with the UNIQUE index. Whatever it says an officer's callsign is, that is it.
+    local hasProfileCallsign = {}
     local rows = MySQL.query.await([[
         SELECT citizenid, callsign, fullname
         FROM mdt_profiles
         WHERE callsign IS NOT NULL AND callsign <> ''
     ]], {}) or {}
-
-    local taken = {}
     for _, r in ipairs(rows) do
         taken[tostring(r.callsign)] = { citizenid = r.citizenid, name = r.fullname }
+        hasProfileCallsign[r.citizenid] = true
     end
 
-    -- Reserved is keyed by number in the config; hand it over keyed by the rendered
-    -- callsign so the UI never has to know about padding or prefixes.
+    -- A callsign also lives in the player's metadata, which is worth reading because a
+    -- callsign set outside the MDT never reaches mdt_profiles at all.
+    --
+    -- But an officer has exactly ONE callsign. If the profile already gave them one,
+    -- any different value in their metadata is simply stale, and adding it here listed
+    -- the same officer under two numbers — both of which then rendered as "Current".
+    -- So metadata only speaks for officers the profile table says nothing about.
+    local metaRows = MySQL.query.await([[
+        SELECT p.citizenid,
+               JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.callsign')) AS callsign,
+               CONCAT(
+                   JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')), ' ',
+                   JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
+               ) AS fullname
+        FROM players p
+        WHERE JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.callsign')) IS NOT NULL
+          AND JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.callsign')) <> ''
+    ]], {}) or {}
+    for _, r in ipairs(metaRows) do
+        if not hasProfileCallsign[r.citizenid] then
+            local cs = tostring(r.callsign)
+            if not taken[cs] then
+                taken[cs] = { citizenid = r.citizenid, name = r.fullname }
+            end
+        end
+    end
+
+    -- Both lists are keyed by number in the config; hand them over keyed by the
+    -- rendered callsign so the UI never has to know about padding or prefixes.
     local reserved = {}
     for n, why in pairs(cfg.Reserved or {}) do
         reserved[FormatCallsign(n, cfg)] = tostring(why)
+    end
+
+    local blocked = {}
+    for n, why in pairs(cfg.Blocked or {}) do
+        blocked[FormatCallsign(n, cfg)] = tostring(why)
     end
 
     return {
@@ -96,6 +147,7 @@ ps.registerCallback(resourceName .. ':server:getCallsignAvailability', function(
         source   = cfg.Source,
         taken    = taken,
         reserved = reserved,
+        blocked  = blocked,
     }
 end)
 

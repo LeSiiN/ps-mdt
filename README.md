@@ -275,13 +275,21 @@ Config.Callsigns = {
             Pad = 2,          -- 2 → 01..99, 3 → 001..999, 0 or omitted → no padding
             Prefix = '',      -- 'L-' gives L-01
             PageSize = 20,    -- boxes shown before "Load more"
-            Reserved = {      -- nobody may take these; the reason shows in the picker
-                [1]  = 'Chief of Police',
-                [99] = 'Dispatch',
+
+            -- Restricted: only somebody with roster_callsign_reserved may hand these out.
+            Reserved = {
+                { n = 1, why = 'Chief of Police' },
+                { from = 2, to = 5, why = 'Command staff' },   -- ranges work too
+            },
+
+            -- Forbidden outright. No permission unlocks a blocked callsign.
+            Blocked = {
+                { n = 99, why = 'Dispatch uses this on the radio' },
+                { from = 90, to = 98, why = 'Held back for future units' },
             },
         },
-        ems = { Min = 1, Max = 60, Pad = 2, Prefix = 'M-', Reserved = { [1] = 'Chief of Medicine' } },
-        doj = { Min = 1, Max = 30, Pad = 2, Prefix = 'DOJ-', Reserved = {} },
+        ems = { Min = 1, Max = 60, Pad = 2, Prefix = 'M-', Reserved = { { n = 1, why = 'Chief of Medicine' } }, Blocked = {} },
+        doj = { Min = 1, Max = 30, Pad = 2, Prefix = 'DOJ-', Reserved = {}, Blocked = {} },
     },
 
     -- Optional. A job entry replaces the job type entry completely — it isn't merged
@@ -297,9 +305,20 @@ Config.Callsigns = {
 
 An officer's range is looked up by job name first, then by job type. Assigning is done from Roster → the officer → Callsign, and needs `roster_manage_officers`.
 
-Reserved callsigns are a separate permission: `roster_callsign_reserved`. Without it, reserved boxes are visible but locked; with it they can be handed out, and doing so is logged as a reserved assignment rather than an ordinary one. That's the split between an FTO who can give a recruit a spare number and a supervisor who can hand out the Chief's.
+There are two ways to hold a number back, and the difference matters:
 
-The range, the reserved list, the reserved permission and uniqueness are all enforced server-side, not just hidden in the UI.
+| | Who can assign it |
+|---|---|
+| **Reserved** | Anyone with the `roster_callsign_reserved` permission. That's the split between an FTO who can give a recruit a spare number and a supervisor who can hand out the Chief's. Assigning one is logged as a reserved assignment, not an ordinary one |
+| **Blocked** | **Nobody.** No permission unlocks it. The config is saying the number doesn't exist — use it for numbers the radio needs, or ones you're holding back |
+
+Blocking a number doesn't take it away from an officer who already has it. When that happens the picker says so, so it doesn't sit there unnoticed.
+
+Write every entry as `{ n = 1, why = '…' }` or `{ from = 2, to = 5, why = '…' }`. The bracket form (`[1] = '…'`) is rejected: in Lua a keyless range entry *is* index 1, so putting the two next to each other makes the range overwrite the single number as the file is parsed — the value is gone before any code can notice. The resource refuses the shape rather than letting it fail silently.
+
+Both lists are checked on resource start: a bad range, a number listed as both Reserved and Blocked, or one sitting outside `Min`–`Max` gets a warning in the console rather than surfacing the day somebody opens the picker.
+
+The range, both lists, the reserved permission and uniqueness are all enforced server-side, not just hidden in the UI.
 
 ### Internal Affairs
 

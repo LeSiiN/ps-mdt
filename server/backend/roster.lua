@@ -469,12 +469,33 @@ ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payl
         return { success = false, message = 'Officer must be online to update callsign' }
     end
 
+    -- The check above and this write are not one atomic step: two supervisors assigning
+    -- the same callsign in the same instant both pass it. The UNIQUE index on
+    -- mdt_profiles.callsign is what actually stops the second one — but on its own that
+    -- surfaces as a raw SQL error. Write first, and treat a failure as "somebody beat
+    -- you to it" so the loser gets a sentence instead of a stack trace, and nothing is
+    -- half-applied to the player's metadata.
+    local wrote = pcall(function()
+        MySQL.update.await('UPDATE mdt_profiles SET callsign = ? WHERE citizenid = ?', { newCallsign, citizenid })
+    end)
+    if not wrote then
+        local holder = CallsignHolder(newCallsign, citizenid)
+        return {
+            success = false,
+            message = holder
+                and ('%s was just taken by %s'):format(newCallsign, holder)
+                or ('%s is already in use'):format(newCallsign),
+        }
+    end
+
     Player.Functions.SetMetaData('callsign', newCallsign)
+    -- ...and push it to the DB now. Without this the players table keeps the OLD
+    -- callsign until the next autosave, and the uniqueness check — which reads that
+    -- table — attributes the stale number to this officer as well.
+    PersistLiveMetadata(Player, citizenid)
 
     local resourceName = GetCurrentResourceName()
     TriggerClientEvent(resourceName .. ':client:updateCallsign', Player.PlayerData.source, newCallsign)
-
-    MySQL.update.await('UPDATE mdt_profiles SET callsign = ? WHERE citizenid = ?', { newCallsign, citizenid })
 
     if ps.auditLog then
         -- Handing out a reserved number is a different act from handing out a spare
