@@ -193,6 +193,12 @@ function CleanupPersonnelData(citizenid)
         return { ok = false, error = 'transaction failed', steps = #queries }
     end
 
+    -- The callsign lives in the player's metadata too, and a fired officer is usually
+    -- still connected — so clearing only the database would be undone by their next
+    -- autosave, and the number would stay locked to somebody who no longer works here.
+    -- ClearCallsign clears the live player first, then the database, in that order.
+    ClearCallsign(citizenid)
+
     if Config and Config.Debug then
         print(('[ps-mdt] personnel cleanup removed footprint for %s (%d steps)'):format(citizenid, #queries))
     end

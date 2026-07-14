@@ -11,6 +11,14 @@ Config.CivilianAccess = {
     command = true,   -- Allow /mdt command for civilians
     showWarrants = true, -- Show active warrants on civilian profile
     showBolos = true,    -- Show active BOLOs on civilian profile
+
+    -- Let citizens see and settle the impound fees on their OWN vehicles.
+    -- Paying the release fee is paperwork, not police work: an officer had to be
+    -- present to take the money, which meant a citizen with an impounded car had to
+    -- find one and ask them to press a button. This lets them pay it themselves.
+    -- The vehicle still isn't released until an officer releases it — this only
+    -- settles the bill.
+    payImpounds = true,
 }
 
 -- Time and Date Settings
@@ -197,7 +205,7 @@ Config.Callsigns = {
             -- Forbidden: nobody, ever.
             Blocked = {
                 -- { n = 99, why = 'Dispatch uses this on the radio' },
-                { from = 90, to = 100, why = 'Held back for future units' },
+                { from = 90, to = 98, why = 'Held back for future units' },
             },
         },
 
@@ -493,6 +501,18 @@ Config.Impound = {
         { id = 'hold',      label = 'Until an officer releases it' },
     },
     DefaultDuration = 'hold',
+
+    -- Collecting the fee takes money out of a citizen's account. An officer pressing a
+    -- button on the other side of the map to do that is a strange kind of power — no
+    -- towing company on earth debits your account remotely.
+    --
+    -- So Collect becomes what it pretends to be: a payment taken at the counter, with
+    -- both people standing there. The owner must be within this many metres of the
+    -- officer. Citizens who aren't nearby can still settle the bill themselves in the
+    -- civilian MDT (Config.CivilianAccess.payImpounds).
+    --
+    -- Set to 0 to disable the check and go back to collecting from any distance.
+    CollectRange = 6.0,
 
     -- How many vehicles the lot view lists before the "Load more" button. A busy lot
     -- otherwise renders every held vehicle at once and the modal scrolls forever.
@@ -848,6 +868,105 @@ Config.OfficerStatus = {
 --     }
 -- }
 Config.PermissionDefaults = Config.PermissionDefaults or {}
+
+-- ---------------------------------------------------------------------------
+--  Department banking
+-- ---------------------------------------------------------------------------
+-- Fines and impound fees were taken off citizens and then simply ceased to exist.
+-- That money should land somewhere: the department that collected it.
+--
+-- Every banking script has its own idea of how to be paid, so this doesn't pick one.
+-- Choose a Method and fill in the block for it; if none of them fit, write Custom.
+Config.DepartmentBanking = {
+    Enabled = true,
+
+    -- How the money gets in. 'export' | 'event' | 'custom' | 'none'
+    Method = 'export',
+
+    -- The account name is the job name by default (police -> 'police'). Use this only
+    -- to override — e.g. to pour BCSO's takings into the same pot as the LSPD.
+    Accounts = {
+        -- ['bcso']      = 'police',
+        -- ['sasp']      = 'police',
+        -- ['ambulance'] = 'ems',
+    },
+
+    -- Where the money goes when the department can't be determined (an old impound
+    -- record from before this existed, say). Leave nil to skip the deposit instead.
+    Fallback = nil,
+
+    -- Method = 'export'
+    --   exports[resource][method](unpack(args))
+    -- `args` is the call signature: the strings 'account', 'amount' and 'reason' are
+    -- replaced with the real values, anything else is passed through as written. That
+    -- covers scripts that want the arguments in a different order, or extra ones.
+    Export = {
+        -- Renewed-Banking:
+        resource = 'Renewed-Banking', method = 'addAccountMoney',
+        args = { 'account', 'amount' }
+
+        -- resource = 'qb-banking',
+        -- method   = 'AddMoney',
+        -- args     = { 'account', 'amount', 'reason' },
+
+        --
+        -- okokBanking:
+        --   resource = 'okokBanking', method = 'AddMoney',
+        --   args = { 'account', 'amount' }
+        --
+        -- qb-management (older QBCore):
+        --   resource = 'qb-management', method = 'AddMoney',
+        --   args = { 'account', 'amount' }
+        --
+        -- esx_addonaccount is not an export — use Method = 'custom' below.
+    },
+
+    -- Method = 'event'  →  TriggerEvent(name, unpack(args))
+    Event = {
+        name = 'qb-banking:server:AddMoney',
+        args = { 'account', 'amount', 'reason' },
+    },
+
+    -- Method = 'custom'
+    -- The escape hatch: anything the two above can't express. Return true if the money
+    -- actually landed — a false return is logged, not silently swallowed.
+    ---@param account string  -- resolved account name, e.g. 'police'
+    ---@param amount number
+    ---@param reason string
+    ---@return boolean
+    Custom = function(account, amount, reason)
+        -- ESX example:
+        -- TriggerEvent('esx_addonaccount:getSharedAccount', 'society_' .. account,
+        --     function(acc) acc.addMoney(amount) end)
+        -- return true
+        return false
+    end,
+}
+
+-- ---------------------------------------------------------------------------
+--  Audit log retention
+-- ---------------------------------------------------------------------------
+-- The audit log grows with every report, search, impound and login, and nothing
+-- ever removed rows from it. That's fine for a week and a problem after a year:
+-- the Activity page runs a COUNT(*) over the whole table on every page load, and
+-- InnoDB has no cached row count, so it gets slower in step with the table.
+--
+-- Keeping a bounded window fixes that at the root. Set Enabled = false if you'd
+-- rather keep everything forever (or ship it off to FiveManage and prune there).
+Config.AuditRetention = {
+    Enabled = true,
+
+    -- Anything older than this is deleted. 0 disables deletion entirely.
+    Days = 90,
+
+    -- How often the sweep runs. It also runs once shortly after startup.
+    IntervalHours = 24,
+
+    -- Rows deleted per statement. The sweep loops until it's done, yielding between
+    -- batches, so the very first run on a huge table doesn't hold a long lock or
+    -- stall the server thread.
+    BatchSize = 2000,
+}
 
 -- HIGHLY recommended not tuse this natively. Use FiveManage for this.
 -- Activity Tracking - Controls which actions are logged to the audit trail

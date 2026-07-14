@@ -236,6 +236,17 @@
 		}
 	}
 
+	// selectEvidence resolves the item out of the loaded list, so this has to wait for
+	// the list — consuming the target early would open a stub with nothing in it.
+	$effect(() => {
+		const target = tabService?.pendingTarget;
+		if (target?.tab === "Evidence" && target.id && items.length > 0) {
+			const id = tabService?.consumeTarget("Evidence");
+			const item = items.find((i: any) => i.id === Number(id));
+			if (item) selectEvidence(item);
+		}
+	});
+
 	async function selectEvidence(item: any) {
 		selectedEvidenceId = item.id;
 		selectedEvidence = items.find(i => i.id === item.id) || item;

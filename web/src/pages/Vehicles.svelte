@@ -554,6 +554,14 @@
 		}
 	}
 
+	$effect(() => {
+		const target = tabService.pendingTarget;
+		if (target?.tab === "Vehicles" && target.id) {
+			const id = tabService.consumeTarget("Vehicles");
+			if (id) viewVehicle(String(id));
+		}
+	});
+
 	async function viewVehicle(plate: string) {
 		vehicleDetailError = null;
 		vehicleDetailLoading = true;

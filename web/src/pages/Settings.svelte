@@ -4,7 +4,6 @@
 	const STORAGE_KEY = "ps-mdt-preferences";
 
 	// Appearance
-	let theme = $state("dark");
 	let notificationSounds = $state(true);
 	let uiZoom = $state(130);
 
@@ -24,7 +23,7 @@
 	// topbar can show an "Unsaved changes" hint.
 	let savedSnapshot = $state("");
 	function snapshot(): string {
-		return JSON.stringify({ theme, notificationSounds, uiZoom, defaultZoom, showOfficers, showVehicles, showBodycams, patrolZoneNotifications });
+		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, showOfficers, showVehicles, showBodycams, patrolZoneNotifications });
 	}
 	let isDirty = $derived(savedSnapshot !== "" && snapshot() !== savedSnapshot);
 
@@ -64,7 +63,6 @@
 			const saved = localStorage.getItem(STORAGE_KEY);
 			if (!saved) return;
 			const data = JSON.parse(saved);
-			if (data.theme) theme = data.theme;
 			if (data.notificationSounds !== undefined) notificationSounds = data.notificationSounds;
 			if (data.uiZoom !== undefined) uiZoom = data.uiZoom;
 			if (data.defaultZoom !== undefined) defaultZoom = data.defaultZoom;
@@ -80,7 +78,6 @@
 	function savePreferences() {
 		try {
 			const data = {
-				theme,
 				notificationSounds,
 				uiZoom,
 				defaultZoom,
@@ -149,16 +146,6 @@
 				<div class="card-head">
 					<span class="material-icons card-icon">palette</span>
 					<span class="card-label">Appearance</span>
-				</div>
-				<div class="setting-row">
-					<div class="setting-info">
-						<span class="setting-label">Theme</span>
-						<span class="setting-desc">Select the MDT color theme</span>
-					</div>
-					<select class="setting-select" bind:value={theme}>
-						<option value="dark">Dark</option>
-						<option value="light">Light</option>
-					</select>
 				</div>
 				<div class="setting-row">
 					<div class="setting-info">
@@ -397,22 +384,6 @@
 	.setting-desc  { color: rgba(255, 255, 255, 0.35); font-size: 10px; }
 
 	/* ===== Controls ===== */
-	.setting-select {
-		padding: 4px 24px 4px 8px;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.06);
-		border-radius: 3px;
-		color: rgba(255, 255, 255, 0.75);
-		font-size: 10px;
-		outline: none;
-		cursor: pointer;
-		transition: border-color 0.1s;
-	}
-	.setting-select:hover, .setting-select:focus { border-color: rgba(255, 255, 255, 0.12); }
-	.setting-select option {
-		background: #1a1d23;
-		color: rgba(255, 255, 255, 0.85);
-	}
 
 	.setting-input {
 		background: rgba(255, 255, 255, 0.03);

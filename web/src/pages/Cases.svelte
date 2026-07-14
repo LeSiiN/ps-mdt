@@ -117,6 +117,14 @@
 		isLoading = false;
 	}
 
+	$effect(() => {
+		const target = tabService?.pendingTarget;
+		if (target?.tab === "Cases" && target.id) {
+			const id = tabService?.consumeTarget("Cases");
+			if (id) selectCase(Number(id));
+		}
+	});
+
 	async function selectCase(caseId: number) {
 		isLoading = true;
 		const data = await caseService.getCase(caseId);

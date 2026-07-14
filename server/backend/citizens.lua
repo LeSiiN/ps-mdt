@@ -1239,17 +1239,40 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
         end
     end
 
-    -- Vehicles
-    local vOk, vehicles = pcall(MySQL.query.await,
-        'SELECT plate, vehicle FROM player_vehicles WHERE citizenid = ?',
+    -- Vehicles. The raw row says "nero"; nobody calls it that. Resolve the display name
+    -- and pull the MDT's photo of the car in the same pass.
+    local vOk, vehicleRows = pcall(MySQL.query.await,
+        'SELECT plate, vehicle, mdt_vehicle_image AS image FROM player_vehicles WHERE citizenid = ?',
         { citizenid })
-    vehicles = vOk and vehicles or {}
+    vehicleRows = vOk and vehicleRows or {}
 
-    -- Weapons
-    local wpOk, weapons = pcall(MySQL.query.await,
+    local vehicles = {}
+    for _, v in ipairs(vehicleRows) do
+        vehicles[#vehicles + 1] = {
+            plate   = v.plate,
+            vehicle = v.vehicle,
+            label   = VehicleDisplayName(v.vehicle),
+            image   = (v.image and v.image ~= '') and v.image or nil,
+        }
+    end
+
+    -- Weapons. Same reasoning: WEAPON_HEAVYPISTOL is an identifier, not a name.
+    local wpOk, weaponRows = pcall(MySQL.query.await,
         'SELECT id, serial, scratched, weaponModel FROM mdt_weapons WHERE owner = ?',
         { citizenid })
-    weapons = wpOk and weapons or {}
+    weaponRows = wpOk and weaponRows or {}
+
+    local weapons = {}
+    for _, w in ipairs(weaponRows) do
+        weapons[#weapons + 1] = {
+            id          = w.id,
+            serial      = w.serial,
+            scratched   = w.scratched,
+            weaponModel = w.weaponModel,
+            label       = WeaponLabel(w.weaponModel),
+            image       = WeaponImage(w.weaponModel),
+        }
+    end
 
     -- Custom licenses
     local clOk, customLicenses = pcall(MySQL.query.await,

@@ -13,6 +13,12 @@
 
 local resourceName = tostring(GetCurrentResourceName())
 
+CreateThread(function()
+    -- Which department took the vehicle. Needed because the fee can be paid long after
+    -- the impound, by the owner, with no officer online to ask.
+    EnsureColumn('mdt_impound', 'officer_job', "`officer_job` varchar(50) DEFAULT NULL")
+end)
+
 local function impoundCfg()
     return (Config and Config.Impound) or {}
 end
@@ -259,12 +265,14 @@ local function doImpound(src, payload)
         INSERT INTO mdt_impound
             (vehicleid, status, plate, reason, notes, photo, lot, linkedreport, fee, fee_paid,
              hold_type, hold_until, hold_label,
-             officer_citizenid, officer_name, time)
-        VALUES (?, 'active', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+             officer_citizenid, officer_name, officer_job, time)
+        VALUES (?, 'active', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         vehicle.id, plate, reason, notes, photo, lotId, linkedReport, fee,
         holdType, holdUntil, holdLabel,
-        cid, officerName, os.time(),
+        -- The department is stored WITH the impound, not looked up when the fee is paid:
+        -- a citizen can settle the bill days later, with nobody from that shift online.
+        cid, officerName, ps.getJobName(src), os.time(),
     })
 
     -- Recovering the car closes any active BOLO on it.
@@ -322,6 +330,158 @@ end)
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Collect the release fee (bank/cash via the bridge's removeMoney).
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ── Civilian self-service ────────────────────────────────────────────────────
+-- Settling an impound bill is paperwork, not police work. Until now only an officer
+-- could take the money, so a citizen whose car was impounded had to find one and ask
+-- them to press Collect. These two let the owner do it themselves.
+--
+-- Security model, same as every other civilian callback: the citizenid comes from the
+-- SESSION (ps.getIdentifier), never from the payload. A client can name any plate it
+-- likes; if the vehicle isn't theirs, nothing happens. And the money always comes from
+-- the caller — you cannot pay a bill out of somebody else's account.
+--
+-- Note what this deliberately does NOT do: it doesn't release the vehicle. Paying the
+-- fee and lifting the hold are different decisions, and only one of them is the
+-- citizen's to make.
+
+local function civilianPayEnabled()
+    local cfg = Config and Config.CivilianAccess
+    return cfg and cfg.enabled == true and cfg.payImpounds == true
+end
+
+--- Every vehicle of MINE currently sitting in a lot, with what it costs.
+ps.registerCallback(resourceName .. ':server:getMyImpounds', function(source)
+    local src = source
+    if not civilianPayEnabled() then return { success = false, enabled = false, impounds = {} } end
+
+    local citizenid = ps.getIdentifier(src)
+    if not citizenid or citizenid == '' then
+        return { success = false, message = 'Could not identify you', impounds = {} }
+    end
+
+    local rows = MySQL.query.await([[
+        SELECT i.id, i.fee, i.fee_paid, i.reason, i.lot, i.notes, i.photo, i.time, i.officer_job,
+               i.hold_type, i.hold_until, i.hold_label,
+               v.plate, v.vehicle, v.mdt_vehicle_image AS image
+        FROM mdt_impound i
+        INNER JOIN player_vehicles v ON v.id = i.vehicleid
+        WHERE i.status = 'active' AND v.citizenid = ?
+        ORDER BY i.time DESC
+    ]], { citizenid }) or {}
+
+    local impounds = {}
+    for _, r in ipairs(rows) do
+        local owed, storage = totalOwed(r)
+        local paid = isTruthy(r.fee_paid)
+
+        impounds[#impounds + 1] = {
+            id        = r.id,
+            plate     = r.plate,
+            vehicle   = VehicleDisplayName(r.vehicle),
+            image     = (r.image and r.image ~= '') and r.image or nil,
+            reason    = r.reason,
+            -- The officer's note and the photo taken at the scene. Both were recorded
+            -- and then never shown to the one person they're actually about — the owner
+            -- had to ask an officer what happened to their own car.
+            notes     = (r.notes and r.notes ~= '') and r.notes or nil,
+            photo     = (r.photo and r.photo ~= '') and r.photo or nil,
+            time      = r.time,
+            -- The police UI resolves the lot id against the config it already loaded.
+            -- The civilian view has no such config, so it was showing "lspd" — which is
+            -- an identifier, not a place anybody could drive to.
+            lot       = (getLot(r.lot) or {}).label or r.lot,
+            fee       = r.fee or 0,
+            storage   = storage,
+            total     = owed,
+            fee_paid  = paid,
+            -- Shown so the citizen understands that paying doesn't get the car back
+            -- on its own — the hold is a separate thing, decided by an officer.
+            hold      = decorateHold(r),
+        }
+    end
+
+    return { success = true, enabled = true, impounds = impounds }
+end)
+
+--- Settle the bill on one of MY vehicles.
+ps.registerCallback(resourceName .. ':server:payMyImpoundFee', function(source, payload)
+    local src = source
+    if not civilianPayEnabled() then return { success = false, message = 'Not available' } end
+
+    local citizenid = ps.getIdentifier(src)
+    if not citizenid or citizenid == '' then
+        return { success = false, message = 'Could not identify you' }
+    end
+
+    payload = payload or {}
+    local plate = cleanPlate(payload.plate)
+    if not plate then return { success = false, message = 'Missing plate number' } end
+
+    -- Ownership is checked in the query itself, so a forged plate simply finds nothing.
+    local vehicle = MySQL.single.await(
+        'SELECT id, citizenid FROM player_vehicles WHERE plate = ? AND citizenid = ? LIMIT 1',
+        { plate, citizenid })
+    if not vehicle then return { success = false, message = 'That is not your vehicle' } end
+
+    local row = activeImpound(vehicle.id)
+    if not row then return { success = false, message = 'That vehicle is not impounded' } end
+    if isTruthy(row.fee_paid) then return { success = false, message = 'This fee is already paid' } end
+
+    local owed, storage = totalOwed(row)
+    if owed <= 0 then
+        MySQL.update.await('UPDATE mdt_impound SET fee_paid = 1 WHERE id = ?', { row.id })
+        return { success = true, message = 'Nothing to pay' }
+    end
+
+    -- Claim the payment BEFORE taking money. The conditional update is the lock: an
+    -- officer pressing Collect at the same moment can only ever produce one charge.
+    local claimed = MySQL.update.await(
+        'UPDATE mdt_impound SET fee_paid = 1 WHERE id = ? AND fee_paid = 0', { row.id })
+    if not claimed or claimed < 1 then
+        return { success = false, message = 'This fee has just been paid' }
+    end
+
+    local account = impoundCfg().FeeAccount or 'bank'
+    local removed = ps.removeMoney(src, account, owed, 'mdt-impound-fee')
+    if not removed then
+        -- Give the claim back, or an unpayable bill would be marked settled.
+        MySQL.update.await('UPDATE mdt_impound SET fee_paid = 0 WHERE id = ?', { row.id })
+        return {
+            success = false,
+            message = ("You don't have $%d in your %s account"):format(owed, account),
+        }
+    end
+
+    -- The money goes to the department that impounded it. Read off the record, because
+    -- nobody from that shift needs to be online for the owner to settle the bill.
+    DepositToDepartment(row.officer_job, owed, ('Impound fee — %s'):format(plate))
+
+    local receipt = ('$%d has been paid for the release of %s.'):format(owed, plate)
+    if storage > 0 then
+        receipt = receipt .. ('\n\nImpound fee: $%d\nStorage: $%d\nTotal: $%d')
+            :format(row.fee or 0, storage, owed)
+    end
+    receipt = receipt .. '\n\nAn officer can now release your vehicle.'
+    mailOwner(citizenid, ('Impound fee paid — %s'):format(plate), receipt)
+
+    if ps.auditLog then
+        ps.auditLog(src, 'vehicle_impound_fee_paid', 'vehicle', plate, {
+            plate        = plate,
+            fee          = row.fee,
+            storage      = storage,
+            total        = owed,
+            self_paid    = true,
+            action_label = ('Owner paid $%d for %s themselves'):format(owed, plate),
+        })
+    end
+
+    return {
+        success = true,
+        message = ('Paid $%d for %s'):format(owed, plate),
+        total   = owed,
+    }
+end)
+
 ps.registerCallback(resourceName .. ':server:payImpoundFee', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -358,6 +518,29 @@ ps.registerCallback(resourceName .. ':server:payImpoundFee', function(source, pa
         return { success = false, message = 'Vehicle owner must be online to pay the fee' }
     end
 
+    -- Collect is a payment taken at the counter, not a remote debit. Taking money out
+    -- of someone's account by pressing a button from across the map is a strange kind
+    -- of power, and no tow yard on earth works that way — so the owner has to be here.
+    -- Anyone who isn't can settle it themselves in the civilian MDT.
+    local range = tonumber(impoundCfg().CollectRange) or 0
+    if range > 0 then
+        local officerPed = GetPlayerPed(src)
+        local ownerPed   = GetPlayerPed(ownerSrc)
+
+        if not officerPed or officerPed == 0 or not ownerPed or ownerPed == 0 then
+            return { success = false, message = 'Vehicle owner must be present to pay the fee' }
+        end
+
+        local dist = #(GetEntityCoords(officerPed) - GetEntityCoords(ownerPed))
+        if dist > range then
+            return {
+                success = false,
+                message = ('The owner must be within %dm to pay. They can also pay it themselves in their MDT.')
+                    :format(math.floor(range)),
+            }
+        end
+    end
+
     -- Claim the payment BEFORE taking money. The conditional update is the lock:
     -- two officers pressing Collect at once can only ever produce one charge.
     local claimed = MySQL.update.await(
@@ -372,6 +555,10 @@ ps.registerCallback(resourceName .. ':server:payImpoundFee', function(source, pa
         MySQL.update.await('UPDATE mdt_impound SET fee_paid = 0 WHERE id = ?', { row.id })
         return { success = false, message = 'Owner could not cover the fee' }
     end
+
+    -- Straight into the collecting department's account. It used to just evaporate.
+    DepositToDepartment(row.officer_job or ps.getJobName(src), owed,
+        ('Impound fee — %s'):format(plate))
 
     -- Money leaving an account warrants immediate feedback, so the on-screen note
     -- stays; the e-mail is the receipt they can actually go back and read.

@@ -90,6 +90,9 @@ ps.registerCallback(resourceName .. ':server:processFine', function(source, payl
     -- Remove money from bank
     local removed = ps.removeMoney(Player.source or Player.PlayerData.source, 'bank', fine, 'mdt-fine')
     if removed then
+        -- ...and into the department that issued it. Fines used to simply evaporate.
+        DepositToDepartment(ps.getJobName(src), fine, 'Fine issued')
+
         ps.notify(Player.source or Player.PlayerData.source, '$' .. fine .. ' fine deducted from your bank account', 'error')
 
         -- Anti-spam cooldown

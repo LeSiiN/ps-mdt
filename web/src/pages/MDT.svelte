@@ -139,6 +139,7 @@
         <div class="mdt-interface">
             <TopBar
                     {authService}
+                    {tabService}
                     onOpacityStyleChange={handleOpacityStyleChange}
             />
 

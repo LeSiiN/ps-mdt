@@ -436,6 +436,41 @@ ps.registerCallback('ps-mdt:server:fireOfficer', function(source, payload)
 end)
 
 -- Update officer callsign (wrapper around existing setCallsign for NUI)
+--- Hand a callsign back without firing anybody.
+--- Officers change department, go on leave, or simply hand a number over. Until now the
+--- only way to free a callsign was to terminate the officer, so numbers stayed locked to
+--- people who weren't using them and a small range silently filled up with dead entries.
+ps.registerCallback('ps-mdt:server:releaseOfficerCallsign', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    if not CheckPermission(src, 'roster_manage_officers') then
+        return { success = false, message = 'No permission to manage officers' }
+    end
+
+    payload = payload or {}
+    local citizenid = payload.citizenid
+    if not citizenid then return { success = false, message = 'Missing citizen ID' } end
+
+    local current = MySQL.scalar.await(
+        'SELECT callsign FROM mdt_profiles WHERE citizenid = ?', { citizenid })
+
+    -- One helper, one order: the player's memory first, then the database. Doing it the
+    -- other way round let PersistLiveMetadata write the old callsign straight back.
+    ClearCallsign(citizenid)
+
+    if ps.auditLog then
+        ps.auditLog(src, 'callsign_changed', 'officers', citizenid, {
+            callsign     = nil,
+            released     = current,
+            action_label = current
+                and ('Released callsign %s'):format(current)
+                or 'Released callsign',
+        })
+    end
+
+    return { success = true, message = current and ('Released ' .. current) or 'Callsign cleared' }
+end)
+
 ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end

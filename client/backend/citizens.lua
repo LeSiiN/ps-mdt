@@ -6,6 +6,18 @@ RegisterNUICallback('getMyProfile', function(data, cb)
     cb(result or { success = false })
 end)
 
+-- Civilian impound self-service. Same reasoning as getMyProfile: everything is scoped
+-- server-side to the caller's own citizenid, so there's nothing here to guard.
+RegisterNUICallback('getMyImpounds', function(data, cb)
+    local result = ps.callback(resourceName .. ':server:getMyImpounds')
+    cb(result or { success = false, impounds = {} })
+end)
+
+RegisterNUICallback('payMyImpoundFee', function(data, cb)
+    local result = ps.callback(resourceName .. ':server:payMyImpoundFee', data or {})
+    cb(result or { success = false, message = 'Payment failed' })
+end)
+
 RegisterNUICallback('getProperty', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
     if not data or not data.property_id then

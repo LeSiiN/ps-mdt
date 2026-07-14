@@ -409,6 +409,16 @@
 		} catch { /* silent */ }
 	}
 
+	// A search hit drops a target on the tabService; this is where it's picked up.
+	// Consuming it clears it, so it can't reopen the record on a later mount.
+	$effect(() => {
+		const target = tabService.pendingTarget;
+		if (target?.tab === "Citizens" && target.id) {
+			const id = tabService.consumeTarget("Citizens");
+			if (id) viewProfile(String(id));
+		}
+	});
+
 	async function viewProfile(citizenId: string) {
 		if (isEnvBrowser()) {
 			const mockProfiles: Record<string, CitizenProfile> = {

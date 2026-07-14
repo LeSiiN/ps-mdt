@@ -109,6 +109,232 @@ end
 ---@param src number
 ---@return "police"|"ems"
 --- Self-healing schema helper: add a column if it doesn't already exist.
+-- ── Department banking ───────────────────────────────────────────────────────
+-- Money taken from a citizen used to vanish. It should end up with the department that
+-- collected it. Every banking resource disagrees about how to be paid, so this resolves
+-- the account and then does whatever the config says.
+
+local function bankingCfg()
+    return (Config and Config.DepartmentBanking) or {}
+end
+
+--- Which account does this job pay into? The job name, unless the config overrides it.
+---@param jobName string|nil
+---@return string|nil
+function DepartmentAccount(jobName)
+    local cfg = bankingCfg()
+    if jobName and jobName ~= '' then
+        local mapped = (cfg.Accounts or {})[jobName]
+        if mapped and mapped ~= '' then return mapped end
+        return jobName
+    end
+    -- No job on the record (an impound from before we started storing it, say).
+    local fb = cfg.Fallback
+    return (fb and fb ~= '') and fb or nil
+end
+
+--- Build the argument list for a call, substituting the placeholders.
+local function buildArgs(spec, account, amount, reason)
+    local out = {}
+    for i, key in ipairs(spec or {}) do
+        if key == 'account' then out[i] = account
+        elseif key == 'amount' then out[i] = amount
+        elseif key == 'reason' then out[i] = reason
+        else out[i] = key end
+    end
+    return out
+end
+
+--- Pay money into a department's account.
+---
+--- Deliberately never throws and never blocks the caller: the citizen has already been
+--- charged by the time this runs, and a misconfigured banking resource must not undo a
+--- payment that went through. A failure is loud in the console, not in the player's face.
+---@param jobName string|nil  -- the department that collected (e.g. 'police')
+---@param amount number
+---@param reason string
+---@return boolean deposited
+function DepositToDepartment(jobName, amount, reason)
+    local cfg = bankingCfg()
+    if cfg.Enabled ~= true then return false end
+
+    local method = cfg.Method or 'none'
+    if method == 'none' then return false end
+
+    amount = tonumber(amount) or 0
+    if amount <= 0 then return false end
+
+    local account = DepartmentAccount(jobName)
+    if not account then
+        ps.warn(('[banking] No account for job "%s" and no Fallback set — $%d not deposited.')
+            :format(tostring(jobName), amount))
+        return false
+    end
+
+    reason = reason or 'ps-mdt'
+
+    local ok, err = pcall(function()
+        if method == 'custom' then
+            local fn = cfg.Custom
+            if type(fn) ~= 'function' then error('Method is "custom" but Custom is not a function') end
+            return fn(account, amount, reason) == true
+        end
+
+        if method == 'event' then
+            local e = cfg.Event or {}
+            if not e.name or e.name == '' then error('Method is "event" but Event.name is empty') end
+            TriggerEvent(e.name, table.unpack(buildArgs(e.args, account, amount, reason)))
+            -- An event gives us no answer, so we take it on trust.
+            return true
+        end
+
+        -- export
+        local e = cfg.Export or {}
+        if not e.resource or not e.method then error('Method is "export" but Export.resource/method is empty') end
+
+        local res = exports[e.resource]
+        if not res then error(('resource "%s" is not running'):format(tostring(e.resource))) end
+
+        local fn = res[e.method]
+        if type(fn) ~= 'function' then
+            error(('export %s:%s does not exist'):format(tostring(e.resource), tostring(e.method)))
+        end
+
+        fn(res, table.unpack(buildArgs(e.args, account, amount, reason)))
+        return true
+    end)
+
+    if not ok then
+        -- Loud, because money that should have arrived hasn't — but the citizen's payment
+        -- stands, so this is a bookkeeping problem, not a transaction to roll back.
+        print(('[ps-mdt] [banking] Failed to deposit $%d into "%s": %s')
+            :format(amount, tostring(account), tostring(err)))
+        return false
+    end
+
+    if Config and Config.Debug then
+        print(('[ps-mdt] [banking] Deposited $%d into "%s" (%s)'):format(amount, account, reason))
+    end
+    return true
+end
+
+-- ── Display names ────────────────────────────────────────────────────────────
+-- Spawn names ("nero", "banshee2") are what the game calls a car; nobody else does.
+-- Item names ("WEAPON_HEAVYPISTOL") are the same problem. These resolve both to what
+-- a person would actually say, and live here so every screen agrees on the answer.
+
+local sharedCore
+local function core()
+    if sharedCore then return sharedCore end
+    local ok, c = pcall(function() return exports['qb-core']:GetCoreObject() end)
+    if ok and c then sharedCore = c return sharedCore end
+    local okQbx, qbx = pcall(function() return exports['qbx_core']:GetCoreObject() end)
+    if okQbx and qbx then sharedCore = qbx return sharedCore end
+    return nil
+end
+
+--- "nero" → "Truffade Nero". Falls back to the spawn name, which is still better than
+--- an empty cell.
+---@param model string
+---@return string
+function VehicleDisplayName(model)
+    if not model or model == '' then return 'Unknown Vehicle' end
+
+    local c = core()
+    local data = c and c.Shared and c.Shared.Vehicles and c.Shared.Vehicles[model]
+    if not data then return model end
+
+    local name  = data.name or model
+    local brand = data.brand
+
+    -- Some shared files already fold the brand into the name. Don't say it twice.
+    if brand and brand ~= '' and not name:lower():find(brand:lower(), 1, true) then
+        return brand .. ' ' .. name
+    end
+    return name
+end
+
+--- Spawn names whose display name matches a query.
+---
+--- The database only stores "nero", so a search for "Truffade" would find nothing even
+--- though that's what the UI shows. The shared vehicle table is already in memory, so
+--- scanning it is cheap — and it lets the officer search for the name they can see.
+---@param query string
+---@param limit number|nil
+---@return string[] models
+function VehicleModelsMatching(query, limit)
+    local out = {}
+    if not query or query == '' then return out end
+
+    local c = core()
+    local shared = c and c.Shared and c.Shared.Vehicles
+    if not shared then return out end
+
+    local needle = query:lower()
+    limit = limit or 25
+
+    for model, data in pairs(shared) do
+        local brand = (data.brand or ''):lower()
+        local name  = (data.name or ''):lower()
+        if brand:find(needle, 1, true) or name:find(needle, 1, true) then
+            out[#out + 1] = model
+            if #out >= limit then break end
+        end
+    end
+
+    return out
+end
+
+--- "WEAPON_HEAVYPISTOL" → "Heavy Pistol".
+---@param weaponModel string
+---@return string
+function WeaponLabel(weaponModel)
+    if not weaponModel or weaponModel == '' then return 'Unknown Weapon' end
+
+    local c = core()
+    if not (c and c.Shared) then return weaponModel end
+
+    -- Weapons are keyed by hash; items by lowercase name. Different servers register
+    -- them in different places, so try both before giving up.
+    local byHash = c.Shared.Weapons and c.Shared.Weapons[GetHashKey(weaponModel)]
+    if byHash and byHash.label and byHash.label ~= '' then return byHash.label end
+
+    local byItem = c.Shared.Items and c.Shared.Items[weaponModel:lower()]
+    if byItem and byItem.label and byItem.label ~= '' then return byItem.label end
+
+    return weaponModel
+end
+
+--- The inventory image for a weapon, matching what the Weapons tab already uses.
+---@param weaponModel string
+---@return string|nil
+function WeaponImage(weaponModel)
+    if not weaponModel or weaponModel == '' then return nil end
+    local path = Config and Config.WeaponImagePath
+    if not path or path == '' then return nil end
+    return path .. weaponModel:upper() .. '.png'
+end
+
+--- Same idea as EnsureColumn, for indexes. Adding one on a table that has grown large
+--- can take a moment, which is exactly why it's worth doing before it grows further.
+---@param tableName string
+---@param indexName string
+---@param columns string -- e.g. "`created_at`"
+---@return boolean added
+function EnsureIndex(tableName, indexName, columns)
+    local exists = MySQL.single.await([[
+        SELECT 1 AS x FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?
+    ]], { tableName, indexName })
+    if exists then return false end
+    local ok = pcall(MySQL.query.await,
+        ('ALTER TABLE `%s` ADD INDEX `%s` (%s)'):format(tableName, indexName, columns))
+    if ok then
+        print(('[ps-mdt] added index %s on %s'):format(indexName, tableName))
+    end
+    return ok
+end
+
 --- Lets backends introduce a new column (e.g. a domain marker) without shipping
 --- a manual migration. No-op if the column is already present.
 ---@param tableName string
@@ -704,6 +930,36 @@ function PersistLiveMetadata(Player, citizenid)
     if ok and encoded then
         MySQL.update.await('UPDATE players SET metadata = ? WHERE citizenid = ?', { encoded, citizenid })
     end
+end
+
+--- Take a callsign off a citizen, in both stores, in an order that can't undo itself.
+---
+--- The order is the whole point. Clearing the DB first and the player second means
+--- PersistLiveMetadata writes the in-memory metadata straight back over the DB — and
+--- since most QB/QBX builds guard SetMetaData with `if not val then return end`, passing
+--- nil is a no-op and the OLD callsign is what gets written back. Releasing a callsign
+--- looked like it half-worked and needed doing twice.
+---
+--- So: clear the player's memory FIRST, using an empty string (no framework guards
+--- against that), persist it, and only then clean the DB. Nothing left can rewrite it.
+function ClearCallsign(citizenid)
+    if not citizenid then return end
+
+    local ok, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
+    if ok and QBCore then
+        local Player = QBCore.Functions.GetPlayerByCitizenId(citizenid)
+        if Player then
+            Player.Functions.SetMetaData('callsign', '')
+            PersistLiveMetadata(Player, citizenid)
+            TriggerClientEvent(GetCurrentResourceName() .. ':client:updateCallsign',
+                Player.PlayerData.source, '')
+        end
+    end
+
+    MySQL.update.await('UPDATE mdt_profiles SET callsign = NULL WHERE citizenid = ?', { citizenid })
+    MySQL.update.await(
+        "UPDATE players SET metadata = JSON_SET(metadata, '$.callsign', '') WHERE citizenid = ?",
+        { citizenid })
 end
 
 --- Who holds this callsign, other than `exceptCitizenid`?

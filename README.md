@@ -303,7 +303,7 @@ Config.Callsigns = {
 }
 ```
 
-An officer's range is looked up by job name first, then by job type. Assigning is done from Roster → the officer → Callsign, and needs `roster_manage_officers`.
+An officer's range is looked up by job name first, then by job type. Assigning is done from Roster → the officer → Callsign, and needs `roster_manage_officers`. The same panel can hand a callsign back, so a number isn't stuck with someone who changed department or went on leave — firing an officer frees theirs automatically.
 
 There are two ways to hold a number back, and the difference matters:
 
@@ -319,6 +319,71 @@ Write every entry as `{ n = 1, why = '…' }` or `{ from = 2, to = 5, why = '…
 Both lists are checked on resource start: a bad range, a number listed as both Reserved and Blocked, or one sitting outside `Min`–`Max` gets a warning in the console rather than surfacing the day somebody opens the picker.
 
 The range, both lists, the reserved permission and uniqueness are all enforced server-side, not just hidden in the UI.
+
+### Impound fees
+
+Collecting a fee takes money out of a citizen's account, so it happens face to face:
+
+```lua
+Config.Impound.CollectRange = 6.0  -- owner must be within this many metres; 0 disables
+```
+
+An officer pressing Collect from across the map to debit somebody's bank account is a strange kind of power, and no tow yard works that way. With `CollectRange` set, the owner has to be standing there — and anyone who isn't can settle the bill themselves:
+
+```lua
+Config.CivilianAccess.payImpounds = true
+```
+
+Citizens then see their impounded vehicles in the civilian MDT with the fee itemised (impound fee + accrued storage), any hold that's in force, and a button to pay. Paying does **not** release the vehicle — an officer still does that.
+
+### Department banking
+
+Fines and impound fees were taken off citizens and then simply ceased to exist. They now land in the account of the department that collected them.
+
+```lua
+Config.DepartmentBanking = {
+    Enabled = true,
+    Method  = 'export',            -- 'export' | 'event' | 'custom' | 'none'
+
+    Accounts = {                   -- account name defaults to the job name
+        -- ['bcso'] = 'police',    -- only needed to override
+    },
+    Fallback = nil,                -- used when the department can't be determined
+
+    Export = {
+        resource = 'qb-banking',
+        method   = 'AddMoney',
+        args     = { 'account', 'amount', 'reason' },
+    },
+}
+```
+
+`args` is the call signature: `'account'`, `'amount'` and `'reason'` are substituted, anything else is passed through as written — so a banking script that wants its arguments in a different order, or extra ones, is a config change rather than a code change. Presets for Renewed-Banking, okokBanking and qb-management are in the config comments; `Method = 'custom'` takes a Lua function for anything else (ESX society accounts, for instance).
+
+The department is recorded **with the impound**, not looked up when the fee is paid — an owner can settle the bill days later with nobody from that shift online. A failed deposit is logged loudly but never reverses the citizen's payment: that's a bookkeeping problem, not a transaction to roll back.
+
+### Audit log retention
+
+The audit log grows with every report, search, impound and login, and nothing used to remove rows from it. That's fine for a week and a problem after a year: the Activity page runs a `COUNT(*)` over the whole table on every page load, and InnoDB keeps no cached row count, so it slows down in step with the table.
+
+```lua
+Config.AuditRetention = {
+    Enabled = true,
+    Days = 90,          -- anything older is deleted; 0 disables deletion
+    IntervalHours = 24, -- how often the sweep runs (also runs shortly after startup)
+    BatchSize = 2000,   -- rows per statement, so the first sweep can't stall the server
+}
+```
+
+The sweep adds the index it needs (`created_at`) on first run, and deletes in batches with a yield in between — a server that has been running for a year may have millions of rows to remove the first time, and one big `DELETE` would hold a lock far too long.
+
+You can force a sweep without waiting for the timer:
+
+```lua
+exports['ps-mdt']:pruneAuditLogs()
+```
+
+Set `Enabled = false` to keep everything forever, or if you ship the log elsewhere and prune there.
 
 ### Internal Affairs
 

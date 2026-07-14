@@ -11,6 +11,16 @@ import {
 
 export function createTabService() {
 	let activeTab = $state<MDTTab>("Dashboard");
+
+	/**
+	 * A record the destination tab should open once it's on screen.
+	 *
+	 * Switching tabs and opening a record are two different things, and nothing
+	 * connected them: a page could be shown, but not told which citizen or vehicle
+	 * to load. The search drops a target here, the destination page picks it up on
+	 * arrival and clears it — so a stale target can't reopen a record later.
+	 */
+	let pendingTarget = $state<{ tab: MDTTab; id: string | number } | null>(null);
 	let instances = $state<TabInstance[]>([]);
 
 	// Load from localStorage on creation, preserving each instance's last tab
@@ -62,6 +72,29 @@ export function createTabService() {
 
 		setActiveTab(tab: MDTTab): void {
 			activeTab = tab;
+		},
+
+		/** Switch to a tab AND tell it which record to open. */
+		openWithTarget(tab: MDTTab, id: string | number): void {
+			pendingTarget = { tab, id };
+			activeTab = tab;
+			const active = this.getActiveInstance();
+			if (active) this.setInstanceTab(active.id, tab);
+		},
+
+		get pendingTarget() {
+			return pendingTarget;
+		},
+
+		/**
+		 * Read and clear the target, but only if it was meant for this tab. Consuming
+		 * it is what stops it firing again the next time the page mounts.
+		 */
+		consumeTarget(tab: MDTTab): string | number | null {
+			if (!pendingTarget || pendingTarget.tab !== tab) return null;
+			const id = pendingTarget.id;
+			pendingTarget = null;
+			return id;
 		},
 
 		getActiveComponent(): ComponentId {

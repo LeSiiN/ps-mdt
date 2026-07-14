@@ -1,6 +1,6 @@
 local resourceName = tostring(GetCurrentResourceName())
 
-local function getEffectiveJobType(src)
+function GetEffectiveJobType(src)
     local jobType = ps.getJobType(src)
     local jobName = ps.getJobName(src)
     if Config.DojJobs then
@@ -41,7 +41,7 @@ local function checkReportAccess(src, reportId)
 
     local identifier = ps.getIdentifier(src)
     local job = ps.getJobName(src)
-    local jobType = getEffectiveJobType(src)
+    local jobType = GetEffectiveJobType(src)
 
     if not identifier then
         return false
@@ -202,7 +202,7 @@ local function buildReportAnalyticsClause(filters)
     return ' AND ' .. table.concat(clauses, ' AND '), values
 end
 
-local function buildReportAccessClause()
+function BuildReportAccessClause()
     return [[
         (
             (? = 'doj' AND NOT EXISTS(
@@ -224,7 +224,7 @@ ps.registerCallback(resourceName .. ':server:getReports', function(source, page,
 
     local identifier = ps.getIdentifier(src)
     local job = ps.getJobName(src)
-    local jobType = getEffectiveJobType(src)
+    local jobType = GetEffectiveJobType(src)
 
     local pageNumber = tonumber(page) or 1
     pageNumber = math.max(1, pageNumber)
@@ -234,7 +234,7 @@ ps.registerCallback(resourceName .. ':server:getReports', function(source, page,
     local filterClause, filterValues = buildReportFilterClause(filters)
     filterClause = filterClause or ''
 
-    local accessClause = buildReportAccessClause()
+    local accessClause = BuildReportAccessClause()
     local baseParams = { jobType, jobType, jobType, identifier, job, jobType }
 
     local queryParams = {}
@@ -288,7 +288,7 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
 
 	local identifier = ps.getIdentifier(src)
     local job = ps.getJobName(src)
-    local jobType = getEffectiveJobType(src)
+    local jobType = GetEffectiveJobType(src)
 
     local result = MySQL.query.await([[
         SELECT
@@ -1069,12 +1069,12 @@ ps.registerCallback(resourceName..':server:getReportAnalytics', function(source,
 
     local identifier = ps.getIdentifier(src)
     local job = ps.getJobName(src)
-    local jobType = getEffectiveJobType(src)
+    local jobType = GetEffectiveJobType(src)
 
     local filterClause, filterValues = buildReportFilterClause(filters)
     filterClause = filterClause or ''
 
-	local accessClause = buildReportAccessClause()
+	local accessClause = BuildReportAccessClause()
     local cacheKeyParts = {
         identifier or '',
         job or '',

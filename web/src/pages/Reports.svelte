@@ -15,6 +15,7 @@
 		clearPendingReport,
 	} from "../stores/reportsStore";
 	import type { createTabService } from "../services/tabService.svelte";
+	import { openReportInEditor } from "../stores/reportsStore";
 	import type { MDTTab } from "../constants";
 	import Pagination from "../components/Pagination.svelte";
 	import type { JobType } from "../interfaces/IUser";
@@ -26,6 +27,15 @@
 	}
 
 	let { instanceStateService, tabService, jobType = 'leo' }: Props = $props();
+
+	// Search hits for a report — and for a warrant, which opens its report — land here.
+	$effect(() => {
+		const target = tabService?.pendingTarget;
+		if (target?.tab === "Reports" && target.id) {
+			const id = tabService?.consumeTarget("Reports");
+			if (id) openReportInEditor(String(id));
+		}
+	});
 
 	function navigateTo(tab: MDTTab) {
 		if (!tabService) return;

@@ -100,6 +100,14 @@
 		boloPage = 1;
 	});
 
+	$effect(() => {
+		const target = tabService?.pendingTarget;
+		if (target?.tab === "BOLOs" && target.id) {
+			const id = tabService?.consumeTarget("BOLOs");
+			if (id) viewBolo(Number(id));
+		}
+	});
+
 	function viewBolo(boloId: number) {
 		selectedBolo = bolos.find((item) => item.id === boloId) ?? null;
 	}

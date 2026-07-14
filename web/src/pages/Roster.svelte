@@ -680,6 +680,7 @@
 	async function loadCallsigns() {
 		csLoading = true;
 		csPending = null;
+		csConfirmRelease = false;
 		csSearch = "";
 		csError = "";
 		try {
@@ -716,6 +717,36 @@
 		// Reserved isn't off-limits to everyone — only to anyone without the permission.
 		if (box.state === "reserved" && !canAssignReserved) return;
 		csPending = csPending === box.label ? null : box.label;
+	}
+
+	let csConfirmRelease = $state(false);
+
+	async function releaseCallsign() {
+		if (!selectedOfficer?.citizenid || isSavingBoss) return;
+		isSavingBoss = true;
+		try {
+			const response = await fetchNui<{ success: boolean; message?: string }>(
+				NUI_EVENTS.ROSTER.RELEASE_CALLSIGN,
+				{ citizenid: selectedOfficer.citizenid },
+			);
+			if (response?.success) {
+				const idx = officers.findIndex((o) => o.citizenid === selectedOfficer!.citizenid);
+				if (idx !== -1) {
+					officers[idx].callsign = "";
+					officers[idx].badgeNumber = "";
+				}
+				selectedOfficer = { ...selectedOfficer, callsign: "" };
+				globalNotifications.success(response.message || "Callsign released");
+				csConfirmRelease = false;
+				await Promise.all([loadCallsigns(), loadRoster()]);
+			} else {
+				globalNotifications.error(response?.message || "Failed to release callsign");
+			}
+		} catch {
+			globalNotifications.error("Failed to release callsign");
+		} finally {
+			isSavingBoss = false;
+		}
 	}
 
 	async function assignCallsign(label: string) {
@@ -1042,6 +1073,22 @@
 							Pick a callsign for this {term.memberLower}. {term.member} must be online.
 							{#if selectedOfficer?.callsign}
 								<span class="cs-current">Currently <strong>{selectedOfficer.callsign}</strong></span>
+								<!-- Freeing a number is not the same as handing out a spare one, so it
+								     asks once. Without this the only way to release a callsign was to
+								     fire the officer. -->
+								{#if csConfirmRelease}
+									<button class="cs-release cs-release-confirm" disabled={isSavingBoss}
+										onclick={releaseCallsign}>
+										{isSavingBoss ? "Releasing…" : "Confirm release"}
+									</button>
+									<button class="cs-release" disabled={isSavingBoss}
+										onclick={() => (csConfirmRelease = false)}>Cancel</button>
+								{:else}
+									<button class="cs-release" disabled={isSavingBoss}
+										onclick={() => (csConfirmRelease = true)}>
+										<span class="material-icons">link_off</span>Release
+									</button>
+								{/if}
 							{/if}
 							{#if csData}<span class="cs-free-count">{freeCount} free</span>{/if}
 							{#if csData?.source}
@@ -1105,22 +1152,45 @@
 							{/if}
 
 							{#if armedBox}
-								<div class="cs-armed-bar" class:cs-armed-reserved={armedBox.state === "reserved"}>
+								{@const isOwn = armedBox.state === "self"}
+								<div
+									class="cs-armed-bar"
+									class:cs-armed-reserved={armedBox.state === "reserved"}
+									class:cs-armed-own={isOwn}
+								>
 									<span class="cs-armed-full">{armedBox.label}</span>
 									<span class="cs-armed-text">
-										Assign to {selectedOfficer?.firstName} {selectedOfficer?.lastName}?
-										{#if armedBox.state === "reserved"}
+										{#if isOwn}
+											<!-- They already have this one. Offering to assign it again was a
+											     no-op dressed up as an action; the only thing left to do with
+											     your own callsign is give it back. -->
+											{selectedOfficer?.firstName} already has this callsign. Release it?
 											<span class="cs-armed-warn">
-												This callsign is reserved for {armedBox.why} — assigning it is logged.
+												The number goes back into the pool and they'll have none until
+												one is assigned.
 											</span>
+										{:else}
+											Assign to {selectedOfficer?.firstName} {selectedOfficer?.lastName}?
+											{#if armedBox.state === "reserved"}
+												<span class="cs-armed-warn">
+													This callsign is reserved for {armedBox.why} — assigning it is logged.
+												</span>
+											{/if}
 										{/if}
 									</span>
 									<button class="cs-armed-cancel" disabled={isSavingBoss}
 										onclick={() => (csPending = null)}>Cancel</button>
-									<button class="cs-armed-assign" disabled={isSavingBoss}
-										onclick={() => assignCallsign(armedBox.label)}>
-										{isSavingBoss ? "Assigning…" : "Assign"}
-									</button>
+									{#if isOwn}
+										<button class="cs-armed-release" disabled={isSavingBoss}
+											onclick={releaseCallsign}>
+											{isSavingBoss ? "Releasing…" : "Release"}
+										</button>
+									{:else}
+										<button class="cs-armed-assign" disabled={isSavingBoss}
+											onclick={() => assignCallsign(armedBox.label)}>
+											{isSavingBoss ? "Assigning…" : "Assign"}
+										</button>
+									{/if}
 								</div>
 							{/if}
 
@@ -1140,7 +1210,7 @@
 											title={box.state === "blocked"
 												? `Blocked — ${box.why}. Nobody can be given this.${box.strandedHolder ? ` Still held by ${box.strandedHolder}.` : ""}`
 												: box.state === "self"
-													? `Current callsign${box.why ? ` — reserved for ${box.why}` : ""}`
+													? `Current callsign — click to release it${box.why ? ` (reserved for ${box.why})` : ""}`
 													: box.state === "taken"
 														? `Held by ${box.holder ?? "another officer"}${box.why ? ` — reserved for ${box.why}` : ""}`
 														: box.state === "reserved"
@@ -1152,7 +1222,7 @@
 										>
 											<span class="cs-num">{box.num}</span>
 											{#if csPending === box.label}
-												<span class="cs-confirm">Selected</span>
+												<span class="cs-confirm">{box.state === "self" ? "Release?" : "Selected"}</span>
 											{:else if box.state === "blocked"}
 												<span class="cs-holder">{box.strandedHolder ?? box.why}</span>
 											{:else if box.state === "taken"}
@@ -2037,6 +2107,43 @@
 		color: var(--accent-70);
 	}
 
+	/* This takes a number off somebody. A ghost button in the corner didn't read as an
+	   action at all — it should look like what it does. */
+	.cs-release {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		margin-left: 6px;
+		padding: 1px 6px;
+		border-radius: 3px;
+		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: rgba(239, 68, 68, 0.08);
+		color: rgba(248, 113, 113, 0.9);
+		font-size: 9px;
+		font-weight: 600;
+		font-family: inherit;
+		cursor: pointer;
+		transition: all 0.1s;
+		vertical-align: middle;
+	}
+	.cs-release .material-icons { font-size: 10px; }
+	.cs-release:hover:not(:disabled) {
+		background: rgba(239, 68, 68, 0.18);
+		border-color: rgba(239, 68, 68, 0.55);
+		color: rgba(252, 165, 165, 1);
+	}
+	.cs-release-confirm {
+		border-color: rgba(239, 68, 68, 0.75);
+		background: rgba(239, 68, 68, 0.28);
+		color: rgba(254, 226, 226, 1);
+		font-weight: 700;
+	}
+	.cs-release-confirm:hover:not(:disabled) {
+		background: rgba(239, 68, 68, 0.42);
+		border-color: rgba(239, 68, 68, 0.9);
+	}
+	.cs-release:disabled { opacity: 0.45; cursor: not-allowed; }
+
 	.cs-free-count {
 		margin-left: 6px;
 		padding: 1px 6px;
@@ -2142,6 +2249,37 @@
 		color: rgba(255, 255, 255, 0.6);
 	}
 	.cs-armed-warn { font-size: 10px; color: rgba(252, 165, 165, 0.9); }
+
+	.cs-armed-release {
+		flex-shrink: 0;
+		background: rgba(239, 68, 68, 0.12);
+		border: 1px solid rgba(239, 68, 68, 0.4);
+		border-radius: 3px;
+		padding: 3px 12px;
+		color: rgba(248, 113, 113, 0.95);
+		font-size: 10px;
+		font-weight: 700;
+		font-family: inherit;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.cs-armed-release:hover:not(:disabled) {
+		background: rgba(239, 68, 68, 0.22);
+		border-color: rgba(239, 68, 68, 0.6);
+		color: rgba(252, 165, 165, 1);
+	}
+	.cs-armed-release:disabled { opacity: 0.45; cursor: not-allowed; }
+
+	/* Taking a number back reads differently from giving one out — it uses the
+	   officer's own accent, not the amber "you're about to hand this over" bar. */
+	.cs-armed-own {
+		background: var(--accent-10);
+		border-color: var(--accent-30);
+	}
+	.cs-armed-own .cs-armed-full {
+		background: var(--accent-10);
+		color: var(--accent-70);
+	}
 
 	/* Handing out a reserved number shouldn't feel like handing out a spare one. */
 	.cs-armed-reserved {

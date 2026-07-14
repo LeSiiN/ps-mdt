@@ -238,11 +238,35 @@
 <div class="form-group form-full">
 	<span class="field-label">Notes</span>
 	<textarea class="form-input" rows="3" maxlength="500" bind:value={notes}
-		placeholder="Condition, contents, anything the next officer should know…"></textarea>
+		placeholder="Condition, contents, why it was taken…"></textarea>
+
+	<!-- The note and the photo both show up in the owner's MDT. The placeholder used to
+	     say "anything the next officer should know", which invited officers to write for
+	     an audience that isn't the only one reading. Better they know before they type
+	     than find out afterwards. -->
+	<span class="field-hint">
+		<span class="material-icons">visibility</span>
+		The vehicle owner can read this note and see the photo in their MDT.
+	</span>
 </div>
 
 <style>
 	.form-group { display: flex; flex-direction: column; gap: 3px; }
+
+	.field-hint {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		margin-top: 5px;
+		font-size: 10px;
+		line-height: 1.35;
+		color: rgba(255, 255, 255, 0.38);
+	}
+	.field-hint .material-icons {
+		font-size: 13px;
+		flex-shrink: 0;
+		color: rgba(255, 255, 255, 0.28);
+	}
 	.form-full { grid-column: 1 / -1; }
 	.field-label {
 		display: flex;
