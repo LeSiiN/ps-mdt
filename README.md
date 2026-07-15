@@ -67,9 +67,7 @@ lawyer = {
 
 ### 2. Import the database
 
-Run `sql/qbcore.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
-
-If you're **updating** an existing install rather than starting fresh, also run everything in `sql/migrations/`. Each one is safe to run more than once.
+Run `sql/qbcore.sql` or `sql/qbx.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
 
 ### 3. Set your FiveManage API keys
 

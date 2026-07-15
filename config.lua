@@ -40,7 +40,7 @@ Config.Sharing = {
             'warrants'
         },
         departments = {
-            'lspd',
+            'police',
             'bcso',
             'sahp'
         }
@@ -55,7 +55,7 @@ Config.Sharing = {
                 'gov'
             },
             targets = {
-                'lspd',
+                'police',
                 'bcso',
                 'sahp'
             },
@@ -567,7 +567,7 @@ Config.Impound = {
 -- Job Settings
 Config.PoliceJobType = "leo"
 Config.PoliceJobs = {
-    'lspd',
+    'police',
     'bcso',
     'sahp',
     'fib',
