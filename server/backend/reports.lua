@@ -623,6 +623,7 @@ end)
 ps.registerCallback(resourceName..':server:saveReport', function(source, reportData)
     local src = source
     if not CheckAuth(src) then return end
+    if not RateLimitAction(src, 'createReport') then return end
 
     local identifier = ps.getIdentifier(src)
     local playerName = ps.getPlayerName(src)

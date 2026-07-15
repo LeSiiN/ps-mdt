@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { formatDateTime } from "../utils/datetime";
+	import SkeletonList from "../components/SkeletonList.svelte";
 	import { fetchNui } from "../utils/fetchNui";
 	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { isEnvBrowser } from "../utils/misc";
@@ -240,7 +241,7 @@
 
 	<!-- List -->
 	{#if loading}
-		<div class="center-msg"><div class="spinner"></div><span>Loading BOLOs...</span></div>
+		<SkeletonList rows={8} thumb={false} columns={[1.6, 1.4, 1, 0.8]} />
 	{:else if filteredBolos.length === 0}
 		<div class="center-msg"><span>No BOLOs found.</span></div>
 	{:else}

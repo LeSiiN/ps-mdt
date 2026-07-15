@@ -131,6 +131,11 @@ local function checkDuty(citizenid, matchFn)
 end
 
 ps.registerCallback('ps-mdt:server:getRosterList', function(source)
+    -- Without this a civilian reached the roster: GetMdtDomain resolves any non-EMS job
+    -- (mechanic, unemployed, anyone) to 'police', so the fallback path handed out the
+    -- full police roster — names, ranks, callsigns — to whoever asked.
+    if not CheckAuth(source) then return {} end
+
     -- Scope the roster to the caller's domain: EMS sees EMS, police sees police.
     local domain = GetMdtDomain(source)
     local jobList, matchFn, defaultDept, scopeJobType

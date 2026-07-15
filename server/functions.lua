@@ -109,6 +109,78 @@ end
 ---@param src number
 ---@return "police"|"ems"
 --- Self-healing schema helper: add a column if it doesn't already exist.
+-- ── Rate limiting ────────────────────────────────────────────────────────────
+-- A client can fire NUI events as fast as it likes. Nothing stopped one from calling
+-- createReport or createBolo in a tight loop and flooding the database — not an exploit
+-- in the sense of reading data it shouldn't, but one bad or malicious client shouldn't
+-- be able to bury the server in writes. This is a lightweight sliding-window limiter:
+-- the caller records an action, and it's rejected if it happens too often too quickly.
+
+local rlBuckets = {}   -- key -> { timestamps }
+
+--- Is this action allowed right now?
+---
+--- Keyed by source AND action, so a burst of one kind of write doesn't lock the player
+--- out of everything else. Returns false when the limit is exceeded; the caller decides
+--- what to tell the user.
+---@param src number
+---@param action string   -- a stable name, e.g. 'createReport'
+---@param max number      -- how many are allowed within the window
+---@param windowMs number -- the window length in milliseconds
+---@return boolean allowed
+function RateLimit(src, action, max, windowMs)
+    if not src or src <= 0 then return true end  -- server-invoked, not a player
+    max = max or 5
+    windowMs = windowMs or 10000
+
+    local key = tostring(src) .. ':' .. tostring(action)
+    local now = GetGameTimer()
+    local bucket = rlBuckets[key]
+
+    if not bucket then
+        bucket = {}
+        rlBuckets[key] = bucket
+    end
+
+    -- Drop anything that's aged out of the window.
+    local cutoff = now - windowMs
+    local kept = {}
+    for _, t in ipairs(bucket) do
+        if t > cutoff then kept[#kept + 1] = t end
+    end
+    rlBuckets[key] = kept
+
+    if #kept >= max then return false end
+
+    kept[#kept + 1] = now
+    return true
+end
+
+--- Convenience wrapper that reads the cap from Config.RateLimits by action name.
+--- Returns false (blocked) only when limiting is enabled AND the action has a config
+--- entry AND the caller is over the cap — so an unlisted action is never accidentally
+--- throttled.
+---@param src number
+---@param action string
+---@return boolean allowed
+function RateLimitAction(src, action)
+    local cfg = Config and Config.RateLimits
+    if not cfg or cfg.Enabled ~= true then return true end
+    local rule = cfg[action]
+    if not rule then return true end
+    return RateLimit(src, action, rule.max, rule.windowMs)
+end
+
+--- Clear a disconnected player's buckets so the table doesn't grow without bound.
+AddEventHandler('playerDropped', function()
+    local src = source
+    if not src then return end
+    local prefix = tostring(src) .. ':'
+    for key in pairs(rlBuckets) do
+        if key:sub(1, #prefix) == prefix then rlBuckets[key] = nil end
+    end
+end)
+
 -- ── Department banking ───────────────────────────────────────────────────────
 -- Money taken from a citizen used to vanish. It should end up with the department that
 -- collected it. Every banking resource disagrees about how to be paid, so this resolves

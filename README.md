@@ -67,7 +67,9 @@ lawyer = {
 
 ### 2. Import the database
 
-Run `sql/qbcore.sql` or `sql/qbx.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
+Run `sql/qbcore.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
+
+If you're **updating** an existing install rather than starting fresh, also run everything in `sql/migrations/`. Each one is safe to run more than once.
 
 ### 3. Set your FiveManage API keys
 
@@ -335,6 +337,24 @@ Config.CivilianAccess.payImpounds = true
 ```
 
 Citizens then see their impounded vehicles in the civilian MDT with the fee itemised (impound fee + accrued storage), any hold that's in force, and a button to pay. Paying does **not** release the vehicle — an officer still does that.
+
+### Rate limiting
+
+A client can send NUI events as fast as it can generate them. These caps stop one misbehaving client from flooding the database — they're generous enough that a real officer writing quickly never hits them, and apply per player, per action.
+
+```lua
+Config.RateLimits = {
+    Enabled = true,
+    createReport   = { max = 8,  windowMs = 20000 },  -- at most 8 per 20s
+    createCase     = { max = 8,  windowMs = 20000 },
+    createBolo     = { max = 10, windowMs = 20000 },
+    createCharge   = { max = 15, windowMs = 20000 },
+    createBulletin = { max = 10, windowMs = 20000 },
+    sendMessage    = { max = 20, windowMs = 15000 },
+}
+```
+
+An action with no config entry is never throttled, so adding a limit elsewhere is just a config line plus a `RateLimitAction(src, 'name')` call. Buckets are cleared when a player disconnects.
 
 ### Department banking
 

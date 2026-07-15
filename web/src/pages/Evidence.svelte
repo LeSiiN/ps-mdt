@@ -6,6 +6,7 @@
 	import type { createTabService } from "../services/tabService.svelte";
 	import type { MDTTab } from "../constants";
 	import Pagination from "../components/Pagination.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 
 	let { tabService }: { tabService?: ReturnType<typeof createTabService> } = $props();
 
@@ -569,7 +570,7 @@
 		<!-- Evidence List (left) -->
 		<div class="list-panel">
 			{#if isLoading}
-				<div class="empty-state">Loading evidence...</div>
+				<SkeletonList rows={8} thumb columns={[2, 1.2, 1, 0.8]} />
 			{:else if items.length === 0}
 				<div class="empty-state">No evidence found.</div>
 			{:else}

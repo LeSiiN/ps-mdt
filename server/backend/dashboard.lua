@@ -113,6 +113,9 @@ ps.registerCallback(resourceName .. ':server:createBulletin', function(source, p
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    if not RateLimitAction(src, 'createBulletin') then
+        return { success = false, message = 'You are doing that too fast — wait a moment.' }
+    end
 
     payload = payload or {}
     local content = payload.content

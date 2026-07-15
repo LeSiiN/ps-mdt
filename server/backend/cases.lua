@@ -28,6 +28,9 @@ end
 ps.registerCallback(resourceName .. ':server:createCase', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+    if not RateLimitAction(src, 'createCase') then
+        return { success = false, error = 'You are doing that too fast — wait a moment.' }
+    end
 
     payload = payload or {}
     local title = payload.title or 'Untitled Case'

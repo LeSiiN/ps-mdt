@@ -210,6 +210,10 @@ ps.registerCallback(resourceName .. ':server:createCharge', function(source, pay
         return { success = false, message = 'You do not have permission to manage charges' }
     end
 
+    if not RateLimitAction(src, 'createCharge') then
+        return { success = false, message = 'You are doing that too fast — wait a moment.' }
+    end
+
     payload = payload or {}
     local code = type(payload.code) == 'string' and payload.code:gsub('^%s+', ''):gsub('%s+$', '') or ''
     local label = type(payload.label) == 'string' and payload.label:gsub('^%s+', ''):gsub('%s+$', '') or ''

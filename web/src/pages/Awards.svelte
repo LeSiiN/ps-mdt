@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { formatDate } from "../utils/datetime";
 	import { fetchNui } from "../utils/fetchNui";
+	import SkeletonList from "../components/SkeletonList.svelte";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
 	import type { createTabService } from "../services/tabService.svelte";
@@ -157,10 +158,7 @@
 	</div>
 
 	{#if isLoading}
-		<div class="loading-state">
-			<div class="loading-spinner"></div>
-			<p>Loading...</p>
-		</div>
+		<SkeletonList rows={6} thumb columns={[2, 1.2, 1]} />
 	{:else if view === "stats"}
 		<div class="stats-view">
 			<div class="stats-grid">
@@ -646,7 +644,7 @@
 		text-overflow: ellipsis;
 	}
 
-	.loading-state, .empty-state {
+	.empty-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -656,15 +654,6 @@
 		font-size: 11px;
 	}
 
-	.loading-spinner {
-		width: 20px;
-		height: 20px;
-		border: 2px solid rgba(255, 255, 255, 0.06);
-		border-left: 2px solid rgba(var(--accent-rgb), 0.4);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-		margin-bottom: 8px;
-	}
 
 	@keyframes spin {
 		0% { transform: rotate(0deg); }

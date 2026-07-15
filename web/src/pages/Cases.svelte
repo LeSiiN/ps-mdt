@@ -6,6 +6,7 @@
 	import { createSearchService } from "../services/searchService.svelte";
 	import { fileToBase64, formatBytes } from "../services/uploadService";
 	import PersonSearchModal from "../components/report-editor/PersonSearchModal.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 	import Pagination from "../components/Pagination.svelte";
 	import type { createTabService } from "../services/tabService.svelte";
 	import type { MDTTab } from "../constants";
@@ -1080,10 +1081,7 @@
 
 		<div class="list-panel">
 			{#if isLoading && cases.length === 0}
-				<div class="center-state">
-					<div class="loading-spinner"></div>
-					<p>Loading cases...</p>
-				</div>
+				<SkeletonList rows={8} thumb={false} columns={[2.2, 1, 1, 0.8]} />
 			{:else if filteredCaseList.length === 0}
 				<div class="center-state">
 					<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -1970,14 +1968,6 @@
 		margin: 0;
 	}
 
-	.loading-spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid rgba(255, 255, 255, 0.06);
-		border-left: 2px solid rgba(var(--accent-rgb), 0.5);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
 
 	.error-text {
 		color: rgba(248, 113, 113, 0.8);

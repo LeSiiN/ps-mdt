@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { formatDate, formatDateTime } from "../utils/datetime";
 	import ImpoundFormFields from "../components/impound/ImpoundFormFields.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 	import type { ImpoundDuration, ImpoundReason, ImpoundLot } from "../interfaces/IImpound";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
@@ -1257,7 +1258,7 @@
 			</div>
 			<div class="list-body">
 				{#if loading}
-					<div class="empty-state">Loading vehicles...</div>
+					<SkeletonList rows={9} thumb={false} columns={[1.4, 1.4, 1, 0.8]} />
 				{:else if filteredVehicles.length === 0}
 					<div class="empty-state">{searchQuery ? "No vehicles match your search." : "No vehicles found."}</div>
 				{:else}

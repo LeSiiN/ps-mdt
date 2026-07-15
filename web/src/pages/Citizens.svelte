@@ -10,6 +10,7 @@
 	import { globalNotifications } from "../services/notificationService.svelte";
 	import { openBoloDetail } from "../stores/navigationStore";
 	import Pagination from "../components/Pagination.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 
 	interface Citizen {
 		id: number;
@@ -1765,7 +1766,9 @@
 			</div>
 
 			{#if loading}
-				<div class="center-msg"><div class="spinner"></div><span>Loading citizens...</span></div>
+				<!-- A skeleton in the list's own shape, so the table doesn't jump when the
+				     rows arrive — the space was already the right size. -->
+				<SkeletonList rows={10} thumb columns={[1.5, 1, 1, 0.6, 0.8, 1.2, 1.2, 1.5]} />
 			{:else if citizens.length === 0}
 				<div class="center-msg"><span>No citizen records available.</span></div>
 			{:else}

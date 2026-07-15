@@ -934,6 +934,9 @@ end)
 ps.registerCallback(resourceName .. ':server:createBolo', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    if not RateLimitAction(src, 'createBolo') then
+        return { success = false, message = 'You are doing that too fast — wait a moment.' }
+    end
 
     payload = payload or {}
     local boloType = payload.type or 'citizen'

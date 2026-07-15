@@ -40,7 +40,7 @@ Config.Sharing = {
             'warrants'
         },
         departments = {
-            'police',
+            'lspd',
             'bcso',
             'sahp'
         }
@@ -55,7 +55,7 @@ Config.Sharing = {
                 'gov'
             },
             targets = {
-                'police',
+                'lspd',
                 'bcso',
                 'sahp'
             },
@@ -567,7 +567,7 @@ Config.Impound = {
 -- Job Settings
 Config.PoliceJobType = "leo"
 Config.PoliceJobs = {
-    'police',
+    'lspd',
     'bcso',
     'sahp',
     'fib',
@@ -870,6 +870,24 @@ Config.OfficerStatus = {
 Config.PermissionDefaults = Config.PermissionDefaults or {}
 
 -- ---------------------------------------------------------------------------
+--  Rate limiting
+-- ---------------------------------------------------------------------------
+-- A client can send NUI events as fast as it can generate them. These caps stop one
+-- misbehaving client from flooding the database with records. They're deliberately
+-- generous — a real officer writing quickly will never hit them — and apply per player,
+-- per action. { max, windowMs }: at most `max` of that action per `windowMs`.
+Config.RateLimits = {
+    Enabled = true,
+
+    createReport   = { max = 8,  windowMs = 20000 },
+    createCase     = { max = 8,  windowMs = 20000 },
+    createBolo     = { max = 10, windowMs = 20000 },
+    createCharge   = { max = 15, windowMs = 20000 },
+    createBulletin = { max = 10, windowMs = 20000 },
+    sendMessage    = { max = 20, windowMs = 15000 },
+}
+
+-- ---------------------------------------------------------------------------
 --  Department banking
 -- ---------------------------------------------------------------------------
 -- Fines and impound fees were taken off citizens and then simply ceased to exist.
@@ -901,14 +919,13 @@ Config.DepartmentBanking = {
     -- replaced with the real values, anything else is passed through as written. That
     -- covers scripts that want the arguments in a different order, or extra ones.
     Export = {
+        resource = 'qb-banking',
+        method   = 'AddMoney',
+        args     = { 'account', 'amount', 'reason' },
+
         -- Renewed-Banking:
-        resource = 'Renewed-Banking', method = 'addAccountMoney',
-        args = { 'account', 'amount' }
-
-        -- resource = 'qb-banking',
-        -- method   = 'AddMoney',
-        -- args     = { 'account', 'amount', 'reason' },
-
+        --   resource = 'Renewed-Banking', method = 'addAccountMoney',
+        --   args = { 'account', 'amount' }
         --
         -- okokBanking:
         --   resource = 'okokBanking', method = 'AddMoney',

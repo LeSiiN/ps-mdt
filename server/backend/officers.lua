@@ -4,6 +4,9 @@ if not ok then QBCore = nil end
  
 -- Get player source ID by citizenId
 ps.registerCallback(resourceName .. ':server:GetPlayerSourceId', function(source, targetCitizenId)
+    -- Resolving a citizenid to a live server id, and confirming who's online, is not
+    -- something an unauthenticated client should be able to do — it's a targeting vector.
+    if not CheckAuth(source) then return nil end
     if not targetCitizenId then return nil end
     local targetPlayer = ps.getPlayerByIdentifier(targetCitizenId)
     if not targetPlayer then
