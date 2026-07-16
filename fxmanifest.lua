@@ -6,7 +6,7 @@ game 'gta5'
 name 'ps-mdt'
 author "Project Sloth Development Team"
 description 'Project Sloth MDT'
-version '3.1.5'
+version '3.1.4'
 
 ui_page 'web/dist/index.html'
 
