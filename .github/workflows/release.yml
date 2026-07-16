@@ -1,41 +1,62 @@
-name: Build
+name: Release
 
 on:
   push:
     branches:
       - main
-  # Manual runs from the Actions tab, e.g. to rebuild without a new commit.
+  # Manual runs from the Actions tab, e.g. to cut a release without a commit.
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
-# A newer push to main cancels a still-running build of the older commit —
-# no point finishing an archive nobody will download.
+# Queue runs instead of cancelling: every main commit gets its own release,
+# and sequential execution guarantees each run sees the tag the previous run
+# just created — otherwise two quick pushes would both compute the same
+# "next" version and the second tag/release would collide.
 concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build resource
+  release:
+    name: Build and publish release
     runs-on: ubuntu-latest
+    # Escape hatch: commits with [skip release] in the message build nothing.
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Full history + tags — required to find the latest v* tag below.
+          fetch-depth: 0
 
-      - name: Resolve build id
-        id: build
+      # Rolling version: take the highest existing v* tag and bump the patch
+      # (v1.4.2 -> v1.4.3). No tags yet -> start at v1.0.0. Minor/major bumps
+      # stay a deliberate act: push such a tag manually once (e.g. v1.5.0)
+      # and the automation continues counting from there.
+      - name: Resolve next version
+        id: version
         run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "Building main @ ${SHORT_SHA}"
+          git fetch --tags --force
+          LATEST="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n1)"
+          if [ -z "${LATEST}" ]; then
+            NEXT_TAG="v1.0.0"
+          else
+            BASE="${LATEST#v}"
+            MAJOR="$(echo "${BASE}" | cut -d. -f1)"
+            MINOR="$(echo "${BASE}" | cut -d. -f2)"
+            PATCH="$(echo "${BASE}" | cut -d. -f3 | cut -d- -f1)"
+            NEXT_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          VERSION="${NEXT_TAG#v}"
+          echo "tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Latest tag: '${LATEST:-none}' -> releasing '${NEXT_TAG}'"
 
-      # Stamp the manifest with a dev version so in-game it's obvious which
-      # commit a test server is running (releases overwrite this properly).
       - name: Sync fxmanifest.lua version
         run: |
-          sed -i -E "s/^(version[[:space:]]+')[^']*(')/\1dev-${{ steps.build.outputs.short_sha }}\2/" fxmanifest.lua
+          sed -i -E "s/^(version[[:space:]]+')[^']*(')/\1${{ steps.version.outputs.version }}\2/" fxmanifest.lua
           grep -E "^version " fxmanifest.lua
 
       - name: Setup pnpm
@@ -77,12 +98,21 @@ jobs:
           echo "Staged contents:"
           find "${STAGE_DIR}" -maxdepth 3 -print
 
-      # upload-artifact zips the directory itself, so the download contains
-      # a ready-to-drop-in ps-mdt/ folder — no separate zip step needed.
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - name: Create release archive
+        id: archive
+        run: |
+          ARCHIVE_NAME="ps-mdt-${{ steps.version.outputs.tag }}.zip"
+          (cd release-stage && zip -r "../${ARCHIVE_NAME}" ps-mdt)
+          echo "name=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+          ls -lh "${ARCHIVE_NAME}"
+
+      # Creates the tag on this commit AND the release in one step.
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ps-mdt-main-${{ steps.build.outputs.short_sha }}
-          path: release-stage/ps-mdt
-          if-no-files-found: error
-          retention-days: 14
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: ${{ steps.archive.outputs.name }}
