@@ -392,19 +392,21 @@ RegisterNUICallback("attachToDispatch", function(data, cb)
     end
     if AutoStatusClientEngage then AutoStatusClientEngage(id) end
 
-    -- Self-attach: set the waypoint like a dispatcher assign would. No notify
-    -- on purpose — the officer is literally looking at the call on screen and
-    -- just pressed "Attach yourself"; telling them what they did is noise.
+    -- Self-attach: set the waypoint like a dispatcher assign would (user
+    -- preference, Settings > Dispatch > "Automatic Waypoint"). No notify on
+    -- purpose — the officer is literally looking at the call on screen.
     -- Resolved from the ONE list fetch this callback does anyway for the NUI
     -- response — no extra round-trip (see coalescing note on GetRecentDispatch).
     local list = GetRecentDispatch() or {}
-    for _, d in ipairs(list) do
-        if tostring(d.id) == tostring(id) then
-            local c = d.coords
-            local x = c and (tonumber(c.x) or tonumber(c[1]))
-            local y = c and (tonumber(c.y) or tonumber(c[2]))
-            if x and y then SetNewWaypoint(x, y) end
-            break
+    if not MdtPref or MdtPref('autoWaypoint', true) ~= false then
+        for _, d in ipairs(list) do
+            if tostring(d.id) == tostring(id) then
+                local c = d.coords
+                local x = c and (tonumber(c.x) or tonumber(c[1]))
+                local y = c and (tonumber(c.y) or tonumber(c[2]))
+                if x and y then SetNewWaypoint(x, y) end
+                break
+            end
         end
     end
     cb(list)
@@ -461,12 +463,21 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
     if not data.manual then providerAttach(data.id) end
     if AutoStatusClientEngage then AutoStatusClientEngage(data.id, data.coords) end
 
+    -- Waypoint + notify are both user preferences (Settings > Dispatch),
+    -- mirrored from the NUI via preferences.lua; defaults keep both on.
+    local wantWaypoint = not MdtPref or MdtPref('autoWaypoint', true) ~= false
+    local waypointSet = false
     local c = data.coords
-    if c then
+    if wantWaypoint and c then
         local x = tonumber(c.x) or tonumber(c[1])
         local y = tonumber(c.y) or tonumber(c[2])
-        if x and y then SetNewWaypoint(x, y) end
+        if x and y then
+            SetNewWaypoint(x, y)
+            waypointSet = true
+        end
     end
+
+    if MdtPref and MdtPref('assignmentNotifications', true) == false then return end
 
     -- 10-code for the notify comes resolved from the server (both provider
     -- and MDT-created calls). Never look it up here: a blocking
@@ -474,12 +485,13 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
     -- refresh through ps_lib's name-keyed callbacks (10s timeout).
     local code = type(data.code) == 'string' and data.code ~= '' and data.code or nil
     local what = code and ('Dispatch assigned you: %s'):format(code) or 'Dispatch assigned you to a call'
+    if waypointSet then what = what .. ' — waypoint set' end
 
     local note = type(data.note) == 'string' and data.note ~= '' and data.note or nil
     if note then
-        ps.notify(('%s — waypoint set. Note: %s'):format(what, note), 'success')
+        ps.notify(('%s. Note: %s'):format(what, note), 'success')
     else
-        ps.notify(what .. ' — waypoint set', 'success')
+        ps.notify(what, 'success')
     end
 end)
 

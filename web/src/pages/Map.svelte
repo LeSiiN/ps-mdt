@@ -148,6 +148,13 @@
     // Calls a dispatcher has dismissed locally (cleared from ticker + map).
     let dismissedCallIds   = $state<Set<string>>(new Set());
     let showCalls          = $state(localStorage.getItem("mdt_map_calls") !== "false");
+
+    // Preferences saved by the Settings tab (same NUI document, so plain
+    // localStorage reads are enough — no round-trip needed).
+    function readPreferences(): Record<string, unknown> {
+        try { return JSON.parse(localStorage.getItem("ps-mdt-preferences") ?? "{}"); } catch { return {}; }
+    }
+
     // Shown when the view has drifted away from the island — one click glides back.
     let showBackToMap      = $state(false);
     let selectedDispatchId = $state<string | null>(null);
@@ -1768,12 +1775,16 @@
 
             officers = freshOfficers;
 
-            // Pan to own position once per MDT open
-            if (!centeredOnSelf && map && ownCitizenId) {
+            // Pan to own position once per MDT open — user preference
+            // (Settings > Map > "Center on my position", default on).
+            // Uses the preferred default zoom so both settings play together.
+            if (!centeredOnSelf && map && ownCitizenId && readPreferences().centerOnSelf !== false) {
                 const self = freshOfficers.find(o => o.citizenid === ownCitizenId);
                 if (self) {
                     centeredOnSelf = true;
-                    map.setView(toMapLatLng(self.coords) as L.LatLngExpression, 5, { animate: false });
+                    const z = Number(readPreferences().defaultZoom);
+                    map.setView(toMapLatLng(self.coords) as L.LatLngExpression,
+                        Number.isFinite(z) && z >= 3 && z <= 10 ? z : 5, { animate: false });
                 }
             }
 
@@ -2157,7 +2168,12 @@
             // Zoom far enough out to see the entire map at once.
             minZoom: 2,
             maxZoom: 10,
-            zoom: 5,
+            // Default zoom is a user preference (Settings > Map, 3–10);
+            // falls back to the classic 5 when unset or out of range.
+            zoom: (() => {
+                const z = Number(readPreferences().defaultZoom);
+                return Number.isFinite(z) && z >= 3 && z <= 10 ? z : 5;
+            })(),
             preferCanvas: true,
             center: [0, -1024],
             zoomControl: false,
