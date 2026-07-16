@@ -1,34 +1,41 @@
-name: Release
+name: Build
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+  # Manual runs from the Actions tab, e.g. to rebuild without a new commit.
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+# A newer push to main cancels a still-running build of the older commit —
+# no point finishing an archive nobody will download.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  release:
-    name: Build and publish release
+  build:
+    name: Build resource
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve version
-        id: version
+      - name: Resolve build id
+        id: build
         run: |
-          TAG_NAME="${GITHUB_REF_NAME}"
-          VERSION="${TAG_NAME#v}"
-          echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Releasing tag '${TAG_NAME}' (version '${VERSION}')"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Building main @ ${SHORT_SHA}"
 
+      # Stamp the manifest with a dev version so in-game it's obvious which
+      # commit a test server is running (releases overwrite this properly).
       - name: Sync fxmanifest.lua version
         run: |
-          sed -i -E "s/^(version[[:space:]]+')[^']*(')/\1${{ steps.version.outputs.version }}\2/" fxmanifest.lua
+          sed -i -E "s/^(version[[:space:]]+')[^']*(')/\1dev-${{ steps.build.outputs.short_sha }}\2/" fxmanifest.lua
           grep -E "^version " fxmanifest.lua
 
       - name: Setup pnpm
@@ -56,7 +63,6 @@ jobs:
         run: |
           STAGE_DIR="release-stage/ps-mdt"
           mkdir -p "${STAGE_DIR}"
-
           cp -r client       "${STAGE_DIR}/"
           cp -r server       "${STAGE_DIR}/"
           cp -r sql          "${STAGE_DIR}/"
@@ -66,27 +72,17 @@ jobs:
           cp    LICENSE      "${STAGE_DIR}/"
           cp    README.md    "${STAGE_DIR}/"
           cp    SECURITY.md  "${STAGE_DIR}/"
-
           mkdir -p "${STAGE_DIR}/web"
           cp -r web/dist "${STAGE_DIR}/web/dist"
-
           echo "Staged contents:"
           find "${STAGE_DIR}" -maxdepth 3 -print
 
-      - name: Create release archive
-        id: archive
-        run: |
-          ARCHIVE_NAME="ps-mdt-${{ steps.version.outputs.tag }}.zip"
-          (cd release-stage && zip -r "../${ARCHIVE_NAME}" ps-mdt)
-          echo "name=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
-          ls -lh "${ARCHIVE_NAME}"
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+      # upload-artifact zips the directory itself, so the download contains
+      # a ready-to-drop-in ps-mdt/ folder — no separate zip step needed.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
-          files: ${{ steps.archive.outputs.name }}
+          name: ps-mdt-main-${{ steps.build.outputs.short_sha }}
+          path: release-stage/ps-mdt
+          if-no-files-found: error
+          retention-days: 14
