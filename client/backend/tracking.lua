@@ -225,6 +225,15 @@ function SendMapCitizenId()
     end
 end
 
+-- Pull counterpart to the push above: SendMapCitizenId fires once per MDT
+-- open, but if the Map component isn't mounted at that moment (player opened
+-- on another tab) the message is lost and the NUI never learns who "self"
+-- is — the officer then shows up in their own "Assign nearby units" list and
+-- center-on-self silently fails. The Map fetches this on mount instead.
+RegisterNUICallback('getLocalCitizenId', function(_, cb)
+    cb({ citizenid = getCitizenId() })
+end)
+
 RegisterNetEvent(resourceName .. ':client:checkVehicleClass', function(netId, plate, coords, heading)
     local veh = NetworkGetEntityFromNetworkId(netId)
     if not veh or veh == 0 then return end

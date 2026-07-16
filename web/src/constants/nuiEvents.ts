@@ -282,6 +282,7 @@ export const NUI_EVENTS = {
 		GET_OFFICER_STATUS_CONFIG: "getOfficerStatusConfig",
 		GET_OFFICER_STATUS_BREAKDOWN: "getOfficerStatusBreakdown",
 		SET_OFFICER_STATUS: "setOfficerStatus",
+		GET_LOCAL_CITIZEN_ID: "getLocalCitizenId",
 	},
 	MANAGEMENT: {
 		GET_PERMISSION_ROLES: "getPermissionRoles",

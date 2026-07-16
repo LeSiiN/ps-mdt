@@ -119,3 +119,22 @@ button:focus:not(:focus-visible) {
 	white-space: nowrap;
 	border: 0;
 }
+
+/* ── Reduced motion (Settings > Appearance) ──────────────────────────────────
+   Global animation kill-switch, toggled on <html> by MDT.svelte at boot and
+   by the Settings page on save. Animations run once at ~0ms instead of being
+   removed outright, so keyframes that carry an element's final visible state
+   still land there — `animation: none` would leave such elements stuck at
+   their pre-animation state. Also snaps Leaflet's zoom/pan transitions,
+   which doubles as a performance mode for weak PCs in CEF. */
+.mdt-reduced-motion *,
+.mdt-reduced-motion *::before,
+.mdt-reduced-motion *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    /* transition: NONE rather than a near-zero duration — a tiny duration
+       still spins up the transition machinery on every style write, which
+       makes Leaflet's per-frame flyTo transform updates stutter badly. */
+    transition: none !important;
+    scroll-behavior: auto !important;
+}

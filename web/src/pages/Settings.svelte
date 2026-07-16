@@ -1,4 +1,13 @@
 <script lang="ts">
+	import { getTabsForJob, getTabLabel, type MDTTab } from "../constants";
+	import type { JobType } from "../interfaces/IUser";
+
+	// authService is passed down from ContentArea so the Default Tab dropdown
+	// only offers tabs this player can actually open (job + hide-permissions).
+	// Structural type on purpose: only the two members we read, so the service
+	// object doesn't need to satisfy the full AuthService interface.
+	type AuthLike = { jobType: JobType; hasRawPermission: (perm: string) => boolean };
+	let { authService = undefined }: { authService?: AuthLike } = $props();
 	import { onMount } from "svelte";
 
 	const STORAGE_KEY = "ps-mdt-preferences";
@@ -14,6 +23,10 @@
 	// Patrol
 	let patrolZoneNotifications = $state(true);
 
+	// General
+	let defaultTab = $state("last");
+	let reducedMotion = $state(false);
+
 	// Dispatch
 	let autoStatusNotifications = $state(true);
 	let autoWaypoint = $state(true);
@@ -26,7 +39,7 @@
 	// topbar can show an "Unsaved changes" hint.
 	let savedSnapshot = $state("");
 	function snapshot(): string {
-		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, centerOnSelf, patrolZoneNotifications, autoStatusNotifications, autoWaypoint, assignmentNotifications });
+		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, centerOnSelf, patrolZoneNotifications, autoStatusNotifications, autoWaypoint, assignmentNotifications, defaultTab, reducedMotion });
 	}
 	let isDirty = $derived(savedSnapshot !== "" && snapshot() !== savedSnapshot);
 
@@ -39,6 +52,7 @@
 		function handleNuiMessage(event: MessageEvent) {
 			if (event.data?.type === "requestClientPrefs") {
 				pushClientPrefs();
+			applyReducedMotion(reducedMotion);
 			}
 			if (event.data?.type === "requestAutoStatusPref") {
 				const saved = localStorage.getItem(STORAGE_KEY);
@@ -98,6 +112,50 @@
 		}).catch(() => {});
 	}
 
+	// Tabs offered in the Default Tab dropdown: job-filtered and without tabs
+	// hidden via tab_hidden_* permissions. Falls back to the full list when
+	// authService isn't wired (e.g. dev preview).
+	let defaultTabOptions = $derived.by(() => {
+		// 'civilian' never reaches Settings (civilians get their own view), but
+		// the JobType union includes it — narrow for getTabsForJob's sake.
+		const jt = authService && authService.jobType !== "civilian" ? authService.jobType : "leo";
+		return [
+			{ value: "last", label: "Last used tab", icon: "history" },
+			...getTabsForJob(jt)
+				.filter(t => !authService?.hasRawPermission(`tab_hidden_${t.name.toLowerCase()}`))
+				.map(t => ({ value: t.name, label: getTabLabel(t.name as MDTTab), icon: t.icon })),
+		];
+	});
+
+	let tabDdOpen = $state(false);
+	let selectedTabOption = $derived(
+		defaultTabOptions.find(o => o.value === defaultTab) ?? defaultTabOptions[0],
+	);
+
+	function pickDefaultTab(value: string) {
+		defaultTab = value;
+		tabDdOpen = false;
+	}
+
+	// Close the dropdown on any click outside it (same pattern as Pagination).
+	function handleDocClick(e: MouseEvent) {
+		if (tabDdOpen && !(e.target as HTMLElement).closest(".tab-dd")) tabDdOpen = false;
+	}
+
+	// The number input's min/max only constrain the spinner buttons — typed
+	// values sail right past them, so every path (input, load, save) clamps.
+	function clampZoomLevel(z: unknown): number {
+		const n = Math.round(Number(z));
+		if (!Number.isFinite(n)) return 5;
+		return Math.min(8, Math.max(2, n));
+	}
+
+	// Applies (or removes) the global animation kill-switch. Lives on the
+	// document root so it reaches every page, Leaflet panes included.
+	function applyReducedMotion(enabled: boolean) {
+		document.documentElement.classList.toggle("mdt-reduced-motion", enabled);
+	}
+
 	function loadPreferences() {
 		try {
 			const saved = localStorage.getItem(STORAGE_KEY);
@@ -105,12 +163,14 @@
 			const data = JSON.parse(saved);
 			if (data.notificationSounds !== undefined) notificationSounds = data.notificationSounds;
 			if (data.uiZoom !== undefined) uiZoom = data.uiZoom;
-			if (data.defaultZoom !== undefined) defaultZoom = data.defaultZoom;
+			if (data.defaultZoom !== undefined) defaultZoom = clampZoomLevel(data.defaultZoom);
 			if (data.centerOnSelf !== undefined) centerOnSelf = data.centerOnSelf;
 			if (data.patrolZoneNotifications !== undefined) patrolZoneNotifications = data.patrolZoneNotifications;
 			if (data.autoStatusNotifications !== undefined) autoStatusNotifications = data.autoStatusNotifications;
 			if (data.autoWaypoint !== undefined) autoWaypoint = data.autoWaypoint;
 			if (data.assignmentNotifications !== undefined) assignmentNotifications = data.assignmentNotifications;
+			if (typeof data.defaultTab === "string") defaultTab = data.defaultTab;
+			if (data.reducedMotion !== undefined) reducedMotion = data.reducedMotion;
 		} catch {
 			// Ignore parse errors
 		}
@@ -118,6 +178,7 @@
 
 	function savePreferences() {
 		try {
+			defaultZoom = clampZoomLevel(defaultZoom);
 			const data = {
 				notificationSounds,
 				uiZoom,
@@ -127,6 +188,8 @@
 				autoStatusNotifications,
 				autoWaypoint,
 				assignmentNotifications,
+				defaultTab,
+				reducedMotion,
 			};
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 			savedSnapshot = snapshot();
@@ -143,6 +206,7 @@
 				body: JSON.stringify({ enabled: autoStatusNotifications }),
 			}).catch(() => {});
 			pushClientPrefs();
+			applyReducedMotion(reducedMotion);
 
 			showSaveStatus("Preferences saved");
 		} catch {
@@ -171,6 +235,7 @@
 	}
 </script>
 
+<svelte:document onclick={handleDocClick} />
 <div class="settings-page">
 	<div class="topbar">
 		<span class="page-title">Settings</span>
@@ -192,6 +257,55 @@
 		<div class="settings-grid">
 			<div class="settings-card">
 				<div class="card-head">
+					<span class="material-icons card-icon">tune</span>
+					<span class="card-label">General</span>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Default Tab</span>
+						<span class="setting-desc">Which tab the MDT opens on — "Last used tab" keeps the current behavior</span>
+					</div>
+					<div class="tab-dd">
+						<button class="tab-dd-trigger" class:open={tabDdOpen} onclick={() => tabDdOpen = !tabDdOpen} type="button">
+							<span class="material-icons tab-dd-icon">{selectedTabOption.icon}</span>
+							<span class="tab-dd-label">{selectedTabOption.label}</span>
+							<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<polyline points={tabDdOpen ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}/>
+							</svg>
+						</button>
+						{#if tabDdOpen}
+							<div class="tab-dd-menu">
+								{#each defaultTabOptions as t (t.value)}
+									<button class="tab-dd-option" class:active={t.value === defaultTab} onclick={() => pickDefaultTab(t.value)} type="button">
+										<span class="material-icons tab-dd-icon">{t.icon}</span>
+										{t.label}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+			</div>
+
+			<div class="settings-card">
+				<div class="card-head">
+					<span class="material-icons card-icon">route</span>
+					<span class="card-label">Patrol</span>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Zone Notifications</span>
+						<span class="setting-desc">Notify when you enter or leave your assigned patrol zone</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={patrolZoneNotifications} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+			</div>
+
+			<div class="settings-card">
+				<div class="card-head">
 					<span class="material-icons card-icon">palette</span>
 					<span class="card-label">Appearance</span>
 				</div>
@@ -202,6 +316,16 @@
 					</div>
 					<label class="toggle">
 						<input type="checkbox" bind:checked={notificationSounds} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Reduced Motion</span>
+						<span class="setting-desc">Disable pulse effects, transitions and other animations — calmer and lighter on weak PCs</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={reducedMotion} />
 						<span class="toggle-slider"></span>
 					</label>
 				</div>
@@ -229,53 +353,6 @@
 			</div>
 
 			<div class="settings-card">
-				<div class="card-head">
-					<span class="material-icons card-icon">map</span>
-					<span class="card-label">Map</span>
-				</div>
-				<div class="setting-row">
-					<div class="setting-info">
-						<span class="setting-label">Default Zoom Level</span>
-						<span class="setting-desc">Zoom level when opening the map (3-10)</span>
-					</div>
-					<input
-						type="number"
-						class="setting-input"
-						min="3"
-						max="10"
-						bind:value={defaultZoom}
-					/>
-				</div>
-				<div class="setting-row">
-					<div class="setting-info">
-						<span class="setting-label">Center On My Position</span>
-						<span class="setting-desc">Pan the map to your own position when opening the Map tab</span>
-					</div>
-					<label class="toggle">
-						<input type="checkbox" bind:checked={centerOnSelf} />
-						<span class="toggle-slider"></span>
-					</label>
-				</div>
-			</div>
-
-			<div class="settings-card settings-card--full">
-				<div class="card-head">
-					<span class="material-icons card-icon">route</span>
-					<span class="card-label">Patrol</span>
-				</div>
-				<div class="setting-row">
-					<div class="setting-info">
-						<span class="setting-label">Zone Notifications</span>
-						<span class="setting-desc">Notify when you enter or leave your assigned patrol zone</span>
-					</div>
-					<label class="toggle">
-						<input type="checkbox" bind:checked={patrolZoneNotifications} />
-						<span class="toggle-slider"></span>
-					</label>
-				</div>
-			</div>
-
-			<div class="settings-card settings-card--full">
 				<div class="card-head">
 					<span class="material-icons card-icon">notifications_active</span>
 					<span class="card-label">Dispatch</span>
@@ -307,6 +384,37 @@
 					</div>
 					<label class="toggle">
 						<input type="checkbox" bind:checked={assignmentNotifications} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+			</div>
+
+			<div class="settings-card settings-card--full">
+				<div class="card-head">
+					<span class="material-icons card-icon">map</span>
+					<span class="card-label">Map</span>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Default Zoom Level</span>
+						<span class="setting-desc">Zoom level when opening the map (2-8)</span>
+					</div>
+					<input
+						type="number"
+						class="setting-input"
+						min="2"
+						max="8"
+						bind:value={defaultZoom}
+						onchange={() => defaultZoom = clampZoomLevel(defaultZoom)}
+					/>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Center On My Position</span>
+						<span class="setting-desc">Pan the map to your own position when opening the Map tab</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={centerOnSelf} />
 						<span class="toggle-slider"></span>
 					</label>
 				</div>
@@ -514,6 +622,79 @@
 	.zoom-reset:hover { background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.6); }
 
 	/* ===== Toggle ===== */
+	/* Custom dropdown, same visual language as Pagination's per-page menu —
+	   trigger chip + dark popover, with each tab's material icon in front. */
+	.tab-dd { position: relative; }
+
+	.tab-dd-trigger {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 6px;
+		color: rgba(255, 255, 255, 0.65);
+		font-size: 0.78rem;
+		padding: 6px 10px;
+		min-width: 180px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+	.tab-dd-trigger:hover,
+	.tab-dd-trigger.open {
+		background: rgba(255, 255, 255, 0.07);
+		color: rgba(255, 255, 255, 0.85);
+		border-color: rgba(255, 255, 255, 0.12);
+	}
+	.tab-dd-trigger .tab-dd-label { flex: 1; text-align: left; }
+	.tab-dd-trigger svg { opacity: 0.6; flex-shrink: 0; }
+
+	.tab-dd-icon { font-size: 15px; opacity: 0.7; }
+
+	.tab-dd-menu {
+		position: absolute;
+		top: calc(100% + 4px);
+		right: 0;
+		background: var(--secondary-bg, #16181d);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 8px;
+		padding: 4px;
+		min-width: 200px;
+		max-height: 260px;
+		overflow-y: auto;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+		z-index: 50;
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+
+	.tab-dd-option {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		background: transparent;
+		border: none;
+		color: rgba(255, 255, 255, 0.6);
+		font-size: 0.76rem;
+		padding: 6px 10px;
+		border-radius: 5px;
+		cursor: pointer;
+		text-align: left;
+		transition: all 0.1s ease;
+	}
+	.tab-dd-option:hover {
+		background: rgba(255, 255, 255, 0.08);
+		color: rgba(255, 255, 255, 0.9);
+	}
+	.tab-dd-option.active {
+		background: rgba(var(--accent-rgb, 59, 130, 246), 0.15);
+		color: #93c5fd;
+		font-weight: 600;
+	}
+	.tab-dd-option.active .tab-dd-icon { opacity: 1; }
+
+
 	.toggle {
 		position: relative;
 		display: inline-block;
