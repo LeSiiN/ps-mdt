@@ -854,14 +854,18 @@ Config.Bodycam = {
 -- `icon` : optional emoji/short glyph shown next to the label (purely visual)
 -- To add a new status, just append a new entry — no other file needs to change.
 Config.OfficerStatus = {
+    -- `dashboard` controls whether the status appears as a chip in the
+    -- dashboard's dispatch breakdown widget. Officers in a hidden status
+    -- still count toward the "online" total — only the chip is omitted.
+    -- Omitting the key entirely counts as `dashboard = true`.
     list = {
-        { id = 'active',      label = 'Available',        color = '#22C55E', icon = '●' },
-        { id = 'busy',        label = 'Busy',             color = '#F59E0B', icon = '●' },
-        { id = 'enroute',     label = 'En Route',         color = '#3B82F6', icon = '●' },
-        { id = 'onscene',     label = 'On Scene',         color = '#06B6D4', icon = '●' },
-        { id = 'break',       label = 'Meal Break',       color = '#8B5CF6', icon = '●' },
-        { id = 'training',    label = 'Training',         color = '#0EA5E9', icon = '●' },
-        { id = 'unavailable', label = 'Unavailable',      color = '#6B7280', icon = '●' },
+        { id = 'active',      label = 'Available',        color = '#22C55E', icon = '●', dashboard = true },
+        { id = 'busy',        label = 'Busy',             color = '#F59E0B', icon = '●', dashboard = true },
+        { id = 'enroute',     label = 'En Route',         color = '#3B82F6', icon = '●', dashboard = false },
+        { id = 'onscene',     label = 'On Scene',         color = '#06B6D4', icon = '●', dashboard = true },
+        { id = 'break',       label = 'Meal Break',       color = '#8B5CF6', icon = '●', dashboard = false },
+        { id = 'training',    label = 'Training',         color = '#0EA5E9', icon = '●', dashboard = false },
+        { id = 'unavailable', label = 'Unavailable',      color = '#6B7280', icon = '●', dashboard = false },
     },
     -- Status id assumed for any officer who has never set one.
     Default = 'active',

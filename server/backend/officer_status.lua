@@ -260,12 +260,17 @@ function GetOfficerStatusBreakdown(domain)
     end
 
     -- Project onto the configured list so order/labels/colours stay stable and
-    -- a zero-count status still shows up in the legend.
+    -- a zero-count status still shows up in the legend. Statuses flagged with
+    -- `dashboard = false` in Config.OfficerStatus.list are left out of the
+    -- widget entirely; their officers still count toward `total`, so the
+    -- online headcount stays honest even when e.g. Meal Break is hidden.
     local breakdown = {}
     for _, s in ipairs(statusList) do
-        breakdown[#breakdown + 1] = {
-            id = s.id, label = s.label, color = s.color, count = counts[s.id] or 0,
-        }
+        if s.dashboard ~= false then
+            breakdown[#breakdown + 1] = {
+                id = s.id, label = s.label, color = s.color, count = counts[s.id] or 0,
+            }
+        end
     end
     return { total = total, statuses = breakdown }
 end
