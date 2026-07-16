@@ -484,6 +484,23 @@ local function invalidateDispatchCache()
     dispatchListCache.list = nil
 end
 
+-- Provider attach/detach runs client → provider directly, so this server
+-- never sees it and can't invalidate the dispatch-list cache itself — the
+-- list a client refetches right after attaching would still show pre-attach
+-- units for up to the cache TTL. Clients ping this after any provider
+-- attach/detach. Per-player rate limit instead of a global throttle on
+-- purpose: switching calls fires attach + detach back-to-back, and a global
+-- cooldown would swallow the second invalidation, leaving the OLD call's
+-- unit list stale until the next poll. Invalidation itself is free — the
+-- limit only guards against a hostile client forcing constant provider-
+-- export rebuilds.
+RegisterNetEvent(resourceName .. ':server:touchDispatchCache', function()
+    local src = source
+    if not CheckAuth(src) then return end
+    if not RateLimit(src, 'touchDispatchCache', 20, 10000) then return end
+    invalidateDispatchCache()
+end)
+
 local function buildSanitizedDispatches()
     local now = GetGameTimer()
     if dispatchListCache.list and (now - dispatchListCache.ts) < DISPATCH_CACHE_TTL then
@@ -515,6 +532,22 @@ local function buildSanitizedDispatches()
     dispatchListCache.list = built
     dispatchListCache.ts = now
     return built
+end
+
+-- Auto-status and the assignment notify need one call's code/coords resolved
+-- SERVER-side (the client must never do a blocking list round-trip for it —
+-- see the coalescing note on GetRecentDispatch). Reads the same cached
+-- sanitized list the MDT serves, so it covers provider calls AND MDT-created
+-- manual calls without extra export hits. Global on purpose; used guarded.
+function GetDispatchInfoById(id)
+    id = tostring(id)
+    for _, call in ipairs(buildSanitizedDispatches()) do
+        if tostring(call.id) == id then
+            local code = type(call.code) == 'string' and call.code ~= '' and call.code or nil
+            return { code = code, coords = call.coords }
+        end
+    end
+    return nil
 end
 
 local function computeRecentDispatches(src)
@@ -678,6 +711,10 @@ ps.registerCallback(resourceName .. ':server:dismissDispatch', function(source, 
     DismissedDispatches[id] = os.time()
     DispatchNotes[id] = nil -- note dies with the call
     ManualDispatches[id] = nil -- MDT-created calls are removed outright
+    -- Auto-status: everyone en route / on scene for this call goes back to
+    -- available (only if their status is still the automation's — see
+    -- auto_status.lua). Guarded so the module can be absent.
+    if AutoStatusCallClosed then AutoStatusCallClosed(id) end
     if ps.auditLog then
         ps.auditLog(src, 'dispatch_dismiss', 'dispatch', id, {
             dispatch_id  = id,
@@ -1020,6 +1057,10 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
                 coords = data.coords, -- {x, y} for waypoint (attach only)
                 note = noteText,      -- included in the assignment notify
                 manual = manualCall ~= nil, -- skip provider attach for manual calls
+                -- 10-code for the notify, resolved from the cached sanitized
+                -- list — works for provider AND manual calls, and spares the
+                -- client a blocking list round-trip.
+                code = (GetDispatchInfoById(dispatchId) or {}).code,
             })
             hit = hit + 1
         else

@@ -16,6 +16,9 @@
 	// Patrol
 	let patrolZoneNotifications = $state(true);
 
+	// Dispatch
+	let autoStatusNotifications = $state(true);
+
 	let saveStatus: string | null = $state(null);
 	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -23,7 +26,7 @@
 	// topbar can show an "Unsaved changes" hint.
 	let savedSnapshot = $state("");
 	function snapshot(): string {
-		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, showOfficers, showVehicles, showBodycams, patrolZoneNotifications });
+		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, showOfficers, showVehicles, showBodycams, patrolZoneNotifications, autoStatusNotifications });
 	}
 	let isDirty = $derived(savedSnapshot !== "" && snapshot() !== savedSnapshot);
 
@@ -31,9 +34,26 @@
 		loadPreferences();
 		savedSnapshot = snapshot();
 
-		// Respond to Lua client asking for the patrol zone notification preference.
-		// Fires on resource start so the client has the correct value immediately.
+		// Respond to Lua client asking for stored notification preferences.
+		// Fires on resource start so the client has the correct values immediately.
 		function handleNuiMessage(event: MessageEvent) {
+			if (event.data?.type === "requestAutoStatusPref") {
+				const saved = localStorage.getItem(STORAGE_KEY);
+				let enabled = true; // default
+				try {
+					if (saved) {
+						const data = JSON.parse(saved);
+						if (data.autoStatusNotifications !== undefined) {
+							enabled = data.autoStatusNotifications;
+						}
+					}
+				} catch { /* ignore */ }
+				fetch(`https://${(window as any).GetParentResourceName?.() ?? "ps-mdt"}/autoStatusPref`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ enabled }),
+				}).catch(() => {});
+			}
 			if (event.data?.type === "requestPatrolZonePref") {
 				const saved = localStorage.getItem(STORAGE_KEY);
 				let enabled = true; // default
@@ -70,6 +90,7 @@
 			if (data.showVehicles !== undefined) showVehicles = data.showVehicles;
 			if (data.showBodycams !== undefined) showBodycams = data.showBodycams;
 			if (data.patrolZoneNotifications !== undefined) patrolZoneNotifications = data.patrolZoneNotifications;
+			if (data.autoStatusNotifications !== undefined) autoStatusNotifications = data.autoStatusNotifications;
 		} catch {
 			// Ignore parse errors
 		}
@@ -85,15 +106,21 @@
 				showVehicles,
 				showBodycams,
 				patrolZoneNotifications,
+				autoStatusNotifications,
 			};
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 			savedSnapshot = snapshot();
 
-			// Immediately sync patrol zone pref to Lua client
+			// Immediately sync notification prefs to the Lua client
 			fetch(`https://${(window as any).GetParentResourceName?.() ?? "ps-mdt"}/patrolZonePref`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ enabled: patrolZoneNotifications }),
+			}).catch(() => {});
+			fetch(`https://${(window as any).GetParentResourceName?.() ?? "ps-mdt"}/autoStatusPref`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ enabled: autoStatusNotifications }),
 			}).catch(() => {});
 
 			showSaveStatus("Preferences saved");
@@ -242,6 +269,23 @@
 					</div>
 					<label class="toggle">
 						<input type="checkbox" bind:checked={patrolZoneNotifications} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+			</div>
+
+			<div class="settings-card settings-card--full">
+				<div class="card-head">
+					<span class="material-icons card-icon">notifications_active</span>
+					<span class="card-label">Dispatch</span>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Automatic Status Notifications</span>
+						<span class="setting-desc">Notify when a call automatically changes your status (En Route, On Scene, back to Active)</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={autoStatusNotifications} />
 						<span class="toggle-slider"></span>
 					</label>
 				</div>

@@ -89,6 +89,17 @@ Config.Commands = {
         enabled = true, -- Enable/disable command (boolean)
         command = 'motd', -- Command to set message of the day (string)
     },
+    Status = {
+        enabled = true, -- Enable/disable command (boolean)
+        command = 'mdtstatus', -- /mdtstatus <id> [note...] (string)
+        -- No RegisterKeyMapping on purpose (it would add one entry per status
+        -- to everyone's GTA key-binding settings). Players who want a status
+        -- on a key bind it themselves via the F8 console, e.g.:
+        --   bind keyboard F5 "mdtstatus enroute"
+        --   bind keyboard F6 "mdtstatus onscene"
+        --   bind keyboard F7 "mdtstatus active"
+        -- (Run once; FiveM persists binds. `unbind keyboard F5` removes it.)
+    },
 }
 
 -- Dispatch Settings
@@ -855,9 +866,34 @@ Config.OfficerStatus = {
     -- Status id assumed for any officer who has never set one.
     Default = 'active',
     -- Max length for the optional free-text note (e.g. "Traffic Stop").
-    MaxNoteLength = 60,
+    MaxNoteLength = 30,
     -- Minimum ms between two status changes from the same player (anti-spam).
     ChangeCooldownMs = 1500,
+
+    -- ── Automatic status from dispatch lifecycle ────────────────────────────
+    -- Attach to a call        -> EnRouteStatus
+    -- Arrive at call coords   -> OnSceneStatus
+    -- Detach / call dismissed -> RevertStatus
+    -- The automation NEVER fights the officer: it only replaces statuses
+    -- listed in Overridable, and a manual status change while en route /
+    -- on scene disengages the automation for that call entirely.
+    Auto = {
+        Enabled = true,
+        EnRouteStatus = 'enroute',
+        OnSceneStatus = 'onscene',
+        RevertStatus  = 'active',
+        -- Statuses the automation is allowed to replace on assignment.
+        -- Deliberate away-states (break/training/unavailable) are preserved:
+        -- assigning such an officer leaves their status untouched.
+        Overridable = { 'active', 'busy', 'enroute', 'onscene' },
+        -- Metres (2D) from the call coords that count as "arrived".
+        OnSceneRadius = 100.0,
+        -- Client proximity poll interval while en route (ms).
+        ArrivalCheckMs = 5000,
+        -- Failsafe: calls that are never closed/detached (e.g. provider call
+        -- silently expired) auto-revert after this many minutes. 0 = disabled.
+        MaxEngagementMinutes = 45,
+    },
 }
 
 -- Optional defaults for role permissions by job/grade
