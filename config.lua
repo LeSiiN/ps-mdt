@@ -11,6 +11,14 @@ Config.CivilianAccess = {
     command = true,   -- Allow /mdt command for civilians
     showWarrants = true, -- Show active warrants on civilian profile
     showBolos = true,    -- Show active BOLOs on civilian profile
+
+    -- Let citizens see and settle the impound fees on their OWN vehicles.
+    -- Paying the release fee is paperwork, not police work: an officer had to be
+    -- present to take the money, which meant a citizen with an impounded car had to
+    -- find one and ask them to press a button. This lets them pay it themselves.
+    -- The vehicle still isn't released until an officer releases it — this only
+    -- settles the bill.
+    payImpounds = true,
 }
 
 -- Time and Date Settings
@@ -32,7 +40,7 @@ Config.Sharing = {
             'warrants'
         },
         departments = {
-            'lspd',
+            'police',
             'bcso',
             'sahp'
         }
@@ -47,7 +55,7 @@ Config.Sharing = {
                 'gov'
             },
             targets = {
-                'lspd',
+                'police',
                 'bcso',
                 'sahp'
             },
@@ -80,6 +88,17 @@ Config.Commands = {
     MessageOfTheDay = {
         enabled = true, -- Enable/disable command (boolean)
         command = 'motd', -- Command to set message of the day (string)
+    },
+    Status = {
+        enabled = true, -- Enable/disable command (boolean)
+        command = 'mdtstatus', -- /mdtstatus <id> [note...] (string)
+        -- No RegisterKeyMapping on purpose (it would add one entry per status
+        -- to everyone's GTA key-binding settings). Players who want a status
+        -- on a key bind it themselves via the F8 console, e.g.:
+        --   bind keyboard F5 "mdtstatus enroute"
+        --   bind keyboard F6 "mdtstatus onscene"
+        --   bind keyboard F7 "mdtstatus active"
+        -- (Run once; FiveM persists binds. `unbind keyboard F5` removes it.)
     },
 }
 
@@ -139,6 +158,109 @@ Config.Phone = {
     -- Court messaging (uses the same Resource above)
     SmsSenderNumber = 'SA-COURT',                 -- "from" number shown on reminder SMS (any string lb-phone accepts)
     MailSender      = 'San Andreas Judicial System', -- sender shown in the recipient's inbox
+}
+
+
+-- Callsigns
+-- Officers pick a callsign from a grid rather than typing one, so the range has to be
+-- defined somewhere. There is deliberately NO global fallback: a job with no range
+-- configured is a configuration mistake, and the MDT says so instead of quietly
+-- handing out numbers from a range nobody chose.
+--
+-- Lookup order for an officer:
+--   1. Callsigns.Jobs[<job name>]      — e.g. 'lspd'
+--   2. Callsigns.JobTypes[<job type>]  — e.g. 'leo'
+--   3. nothing → the picker refuses and tells you which job is unconfigured
+--
+-- A Jobs entry replaces the JobTypes entry completely; it is not merged into it. If
+-- one department needs its own block of numbers, spell that block out in full.
+--
+-- Per block:
+--   Min, Max   (required) the pickable range
+--   Pad        digits to pad to: 2 → 01..99, 3 → 001..999. 0 or omitted = no padding
+--   Prefix     e.g. 'L-' gives L-01. Omitted = bare numbers
+--   PageSize   boxes shown before "Load more" (default 20)
+--   Reserved   restricted, not forbidden: only somebody with the
+--              roster_callsign_reserved permission may hand these out
+--   Blocked    forbidden outright. No permission unlocks a blocked callsign — it is
+--              the config saying "this number does not exist". Use it for numbers the
+--              radio uses, numbers you're holding back, or ones you never want issued.
+--
+-- Reserved and Blocked take a LIST of entries — single numbers and ranges:
+--   Reserved = {
+--       { n = 1, why = 'Chief of Police' },             -- one number
+--       { from = 2, to = 5, why = 'Command staff' },    -- a range
+--   }
+--
+-- The bracket form ([1] = 'Chief of Police') is NOT accepted, and that's deliberate.
+-- In Lua a keyless entry IS index 1, so writing
+--       { [1] = 'Chief of Police', { from = 2, to = 5, why = 'Command staff' } }
+-- makes the range overwrite the Chief while the file is being read — the string is
+-- gone before any code can see it, so it can't be detected, only prevented. The
+-- resource therefore refuses the bracket form outright and tells you what to write.
+Config.Callsigns = {
+    JobTypes = {
+        leo = {
+            Min = 1,
+            Max = 100,
+            Pad = 2,
+            Prefix = '1A',
+            PageSize = 24,
+
+            -- Restricted: needs roster_callsign_reserved.
+            Reserved = {
+                { n = 1, why = 'Chief of Police' },
+                { from = 2, to = 5, why = 'Command staff' },
+            },
+
+            -- Forbidden: nobody, ever.
+            Blocked = {
+                -- { n = 99, why = 'Dispatch uses this on the radio' },
+                { from = 90, to = 100, why = 'Held back for future units' },
+            },
+        },
+
+        ems = {
+            Min = 1,
+            Max = 60,
+            Pad = 2,
+            Prefix = 'M-',
+            PageSize = 24,
+            Reserved = {
+                { n = 1, why = 'Chief of Medicine' },
+            },
+            Blocked = {
+                { from = 50, to = 60, why = 'Held back for future units' },
+            },
+        },
+
+        doj = {
+            Min = 1,
+            Max = 30,
+            Pad = 2,
+            Prefix = 'DOJ-',
+            PageSize = 24,
+            Reserved = {
+                { n = 1, why = 'Chief of Justice' },
+            },
+            Blocked = {
+                { from = 2, to = 5, why = 'Held back for future units' },
+            },
+        },
+    },
+
+    -- Optional. Anything in here overrides the job type block entirely for that one job.
+    Jobs = {
+        -- bcso = {
+        --     Min = 200,
+        --     Max = 299,
+        --     Pad = 3,
+        --     Prefix = 'S-',
+        --     PageSize = 24,
+        --     Reserved = { { n = 200, why = 'Sheriff' } },
+        --     Blocked  = { { from = 290, to = 299, why = 'Reserved for air units' } },
+        -- },
+    },
 }
 
 
@@ -391,6 +513,22 @@ Config.Impound = {
     },
     DefaultDuration = 'hold',
 
+    -- Collecting the fee takes money out of a citizen's account. An officer pressing a
+    -- button on the other side of the map to do that is a strange kind of power — no
+    -- towing company on earth debits your account remotely.
+    --
+    -- So Collect becomes what it pretends to be: a payment taken at the counter, with
+    -- both people standing there. The owner must be within this many metres of the
+    -- officer. Citizens who aren't nearby can still settle the bill themselves in the
+    -- civilian MDT (Config.CivilianAccess.payImpounds).
+    --
+    -- Set to 0 to disable the check and go back to collecting from any distance.
+    CollectRange = 6.0,
+
+    -- How many vehicles the lot view lists before the "Load more" button. A busy lot
+    -- otherwise renders every held vehicle at once and the modal scrolls forever.
+    LotPageSize = 10,
+
     -- E-mail the owner when their vehicle is impounded, charged, or released.
     -- The owner is usually nowhere near the vehicle when it happens, so an on-screen
     -- notification they never see is worse than useless. Uses Config.Phone.
@@ -440,7 +578,7 @@ Config.Impound = {
 -- Job Settings
 Config.PoliceJobType = "leo"
 Config.PoliceJobs = {
-    'lspd',
+    'police',
     'bcso',
     'sahp',
     'fib',
@@ -662,6 +800,7 @@ Config.ManagementPermissions = {
     -- Roster
     'roster_manage_certifications',
     'roster_manage_officers',
+    'roster_callsign_reserved',
     -- PPR
     'ppr_view',
     'ppr_manage',
@@ -716,19 +855,45 @@ Config.Bodycam = {
 -- To add a new status, just append a new entry — no other file needs to change.
 Config.OfficerStatus = {
     list = {
-        { id = 'active', label = 'Active', color = '#22C55E', icon = '●' },
-        { id = 'busy',   label = 'Busy',   color = '#F59E0B', icon = '●' },
-        -- Examples for future statuses (uncomment / adjust as needed):
-        -- { id = 'enroute',   label = 'En Route',   color = '#3B82F6', icon = '●' },
-        -- { id = 'unavailable', label = 'Unavailable', color = '#EF4444', icon = '●' },
-        -- { id = 'break',     label = 'On Break',    color = '#8B5CF6', icon = '●' },
+        { id = 'active',      label = 'Available',        color = '#22C55E', icon = '●' },
+        { id = 'busy',        label = 'Busy',             color = '#F59E0B', icon = '●' },
+        { id = 'enroute',     label = 'En Route',         color = '#3B82F6', icon = '●' },
+        { id = 'onscene',     label = 'On Scene',         color = '#06B6D4', icon = '●' },
+        { id = 'break',       label = 'Meal Break',       color = '#8B5CF6', icon = '●' },
+        { id = 'training',    label = 'Training',         color = '#0EA5E9', icon = '●' },
+        { id = 'unavailable', label = 'Unavailable',      color = '#6B7280', icon = '●' },
     },
     -- Status id assumed for any officer who has never set one.
     Default = 'active',
     -- Max length for the optional free-text note (e.g. "Traffic Stop").
-    MaxNoteLength = 60,
+    MaxNoteLength = 30,
     -- Minimum ms between two status changes from the same player (anti-spam).
     ChangeCooldownMs = 1500,
+
+    -- ── Automatic status from dispatch lifecycle ────────────────────────────
+    -- Attach to a call        -> EnRouteStatus
+    -- Arrive at call coords   -> OnSceneStatus
+    -- Detach / call dismissed -> RevertStatus
+    -- The automation NEVER fights the officer: it only replaces statuses
+    -- listed in Overridable, and a manual status change while en route /
+    -- on scene disengages the automation for that call entirely.
+    Auto = {
+        Enabled = true,
+        EnRouteStatus = 'enroute',
+        OnSceneStatus = 'onscene',
+        RevertStatus  = 'active',
+        -- Statuses the automation is allowed to replace on assignment.
+        -- Deliberate away-states (break/training/unavailable) are preserved:
+        -- assigning such an officer leaves their status untouched.
+        Overridable = { 'active', 'busy', 'enroute', 'onscene' },
+        -- Metres (2D) from the call coords that count as "arrived".
+        OnSceneRadius = 100.0,
+        -- Client proximity poll interval while en route (ms).
+        ArrivalCheckMs = 5000,
+        -- Failsafe: calls that are never closed/detached (e.g. provider call
+        -- silently expired) auto-revert after this many minutes. 0 = disabled.
+        MaxEngagementMinutes = 45,
+    },
 }
 
 -- Optional defaults for role permissions by job/grade
@@ -740,6 +905,122 @@ Config.OfficerStatus = {
 --     }
 -- }
 Config.PermissionDefaults = Config.PermissionDefaults or {}
+
+-- ---------------------------------------------------------------------------
+--  Rate limiting
+-- ---------------------------------------------------------------------------
+-- A client can send NUI events as fast as it can generate them. These caps stop one
+-- misbehaving client from flooding the database with records. They're deliberately
+-- generous — a real officer writing quickly will never hit them — and apply per player,
+-- per action. { max, windowMs }: at most `max` of that action per `windowMs`.
+Config.RateLimits = {
+    Enabled = true,
+
+    createReport   = { max = 8,  windowMs = 20000 },
+    createCase     = { max = 8,  windowMs = 20000 },
+    createBolo     = { max = 10, windowMs = 20000 },
+    createCharge   = { max = 15, windowMs = 20000 },
+    createBulletin = { max = 10, windowMs = 20000 },
+    sendMessage    = { max = 20, windowMs = 15000 },
+}
+
+-- ---------------------------------------------------------------------------
+--  Department banking
+-- ---------------------------------------------------------------------------
+-- Fines and impound fees were taken off citizens and then simply ceased to exist.
+-- That money should land somewhere: the department that collected it.
+--
+-- Every banking script has its own idea of how to be paid, so this doesn't pick one.
+-- Choose a Method and fill in the block for it; if none of them fit, write Custom.
+Config.DepartmentBanking = {
+    Enabled = true,
+
+    -- How the money gets in. 'export' | 'event' | 'custom' | 'none'
+    Method = 'export',
+
+    -- The account name is the job name by default (police -> 'police'). Use this only
+    -- to override — e.g. to pour BCSO's takings into the same pot as the LSPD.
+    Accounts = {
+        -- ['bcso']      = 'police',
+        -- ['sasp']      = 'police',
+        -- ['ambulance'] = 'ems',
+    },
+
+    -- Where the money goes when the department can't be determined (an old impound
+    -- record from before this existed, say). Leave nil to skip the deposit instead.
+    Fallback = nil,
+
+    -- Method = 'export'
+    --   exports[resource][method](unpack(args))
+    -- `args` is the call signature: the strings 'account', 'amount' and 'reason' are
+    -- replaced with the real values, anything else is passed through as written. That
+    -- covers scripts that want the arguments in a different order, or extra ones.
+    Export = {
+        resource = 'qb-banking',
+        method   = 'AddMoney',
+        args     = { 'account', 'amount', 'reason' },
+
+        -- Renewed-Banking:
+        --   resource = 'Renewed-Banking', method = 'addAccountMoney',
+        --   args = { 'account', 'amount' }
+        --
+        -- okokBanking:
+        --   resource = 'okokBanking', method = 'AddMoney',
+        --   args = { 'account', 'amount' }
+        --
+        -- qb-management (older QBCore):
+        --   resource = 'qb-management', method = 'AddMoney',
+        --   args = { 'account', 'amount' }
+        --
+        -- esx_addonaccount is not an export — use Method = 'custom' below.
+    },
+
+    -- Method = 'event'  →  TriggerEvent(name, unpack(args))
+    Event = {
+        name = 'qb-banking:server:AddMoney',
+        args = { 'account', 'amount', 'reason' },
+    },
+
+    -- Method = 'custom'
+    -- The escape hatch: anything the two above can't express. Return true if the money
+    -- actually landed — a false return is logged, not silently swallowed.
+    ---@param account string  -- resolved account name, e.g. 'police'
+    ---@param amount number
+    ---@param reason string
+    ---@return boolean
+    Custom = function(account, amount, reason)
+        -- ESX example:
+        -- TriggerEvent('esx_addonaccount:getSharedAccount', 'society_' .. account,
+        --     function(acc) acc.addMoney(amount) end)
+        -- return true
+        return false
+    end,
+}
+
+-- ---------------------------------------------------------------------------
+--  Audit log retention
+-- ---------------------------------------------------------------------------
+-- The audit log grows with every report, search, impound and login, and nothing
+-- ever removed rows from it. That's fine for a week and a problem after a year:
+-- the Activity page runs a COUNT(*) over the whole table on every page load, and
+-- InnoDB has no cached row count, so it gets slower in step with the table.
+--
+-- Keeping a bounded window fixes that at the root. Set Enabled = false if you'd
+-- rather keep everything forever (or ship it off to FiveManage and prune there).
+Config.AuditRetention = {
+    Enabled = true,
+
+    -- Anything older than this is deleted. 0 disables deletion entirely.
+    Days = 90,
+
+    -- How often the sweep runs. It also runs once shortly after startup.
+    IntervalHours = 24,
+
+    -- Rows deleted per statement. The sweep loops until it's done, yielding between
+    -- batches, so the very first run on a huge table doesn't hold a long lock or
+    -- stall the server thread.
+    BatchSize = 2000,
+}
 
 -- HIGHLY recommended not tuse this natively. Use FiveManage for this.
 -- Activity Tracking - Controls which actions are logged to the audit trail

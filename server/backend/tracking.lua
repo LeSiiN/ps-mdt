@@ -22,14 +22,11 @@
 --    * broadcastPatrols coalesces plain broadcasts to one per frame. Action
 --      broadcasts (assigned/removed) bypass coalescing because the NUI needs
 --      the flash hint immediately.
---
---  Set MDT_DEBUG = true for verbose console logging while developing.
 -- ============================================================================
 
 local resourceName = tostring(GetCurrentResourceName())
 
 -- ─── Tunables ───────────────────────────────────────────────────────────────
-local MDT_DEBUG           = false   -- verbose dev logging; KEEP FALSE on production (log spam)
 local TRACKING_CACHE_TTL  = 2000    -- ms — shared tracking snapshot lifetime
 local VEHICLE_CACHE_TTL   = 600000  -- ms — parked-vehicle cache entry lifetime (10 min)
 local SAVE_DEBOUNCE_MS    = 1000    -- ms — coalesce window for debounced patrol saves
@@ -46,9 +43,9 @@ local trackingCache = {
 
 -- ─── Tiny helpers ─────────────────────────────────────────────────────────
 
--- Gated dev logger. No-op unless MDT_DEBUG is on, so it's free in production.
+-- Gated dev logger. No-op unless Config.Debug is on, so it's free in production.
 local function dbg(...)
-    if MDT_DEBUG then print('[MDT]', ...) end
+    if Config.Debug then print('[MDT]', ...) end
 end
 
 -- Cache the QBCore object once instead of crossing the export boundary on
@@ -356,7 +353,7 @@ local function getAllTrackers(matchFn, domain)
                 seenVehicles[veh] = true
                 local vCoords  = GetEntityCoords(veh)
                 local vHeading = GetEntityHeading(veh)
-                local plate    = GetVehicleNumberPlateText(veh):gsub('%s+', '')
+                local plate    = GetVehicleNumberPlateText(veh):upper():gsub('^%s+', ''):gsub('%s+$', '')
                 local coordsTbl = { x = vCoords.x, y = vCoords.y, z = vCoords.z }
                 vehicles[#vehicles + 1] = { plate = plate, coords = coordsTbl, heading = vHeading }
                 vehicleCache[plate]     = { plate = plate, coords = coordsTbl, heading = vHeading, _ts = now }
@@ -391,7 +388,7 @@ local function getAllTrackers(matchFn, domain)
                 seenVehicles[veh] = true
                 local vCoords  = GetEntityCoords(veh)
                 local vHeading = GetEntityHeading(veh)
-                local plate    = GetVehicleNumberPlateText(veh):gsub('%s+', '')
+                local plate    = GetVehicleNumberPlateText(veh):upper():gsub('^%s+', ''):gsub('%s+$', '')
                 local coordsTbl = { x = vCoords.x, y = vCoords.y, z = vCoords.z }
                 vehicles[#vehicles + 1] = { plate = plate, coords = coordsTbl, heading = vHeading }
                 vehicleCache[plate]     = { plate = plate, coords = coordsTbl, heading = vHeading, _ts = now }
@@ -516,7 +513,7 @@ RegisterNetEvent('baseevents:leftVehicle', function(vehicle, seat, model, netId)
     if not veh or veh == 0 then return end
     local coords = GetEntityCoords(veh)
     local heading = GetEntityHeading(veh)
-    local plate = GetVehicleNumberPlateText(veh):gsub('%s+', '')
+    local plate = GetVehicleNumberPlateText(veh):upper():gsub('^%s+', ''):gsub('%s+$', '')
     if not plate or #plate == 0 then return end
     TriggerClientEvent(resourceName .. ':client:checkVehicleClass', src, netId, plate,
         { x = coords.x, y = coords.y, z = coords.z }, heading)
@@ -526,7 +523,8 @@ AddEventHandler('entityRemoved', function(entity)
     if GetEntityType(entity) ~= 2 then return end
     local plate = GetVehicleNumberPlateText(entity)
     if not plate or plate == '' then return end
-    plate = plate:gsub('%s+', '')
+    -- Must match the key written on entityCreated exactly, or the cache leaks.
+    plate = plate:upper():gsub('^%s+', ''):gsub('%s+$', '')
     if vehicleCache[plate] then
         vehicleCache[plate] = nil
         MarkTrackingDirty('police')

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { fetchNui } from "../utils/fetchNui";
+	import SkeletonList from "../components/SkeletonList.svelte";
 	import { formatDate } from "../utils/datetime";
 	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { isEnvBrowser } from "../utils/misc";
@@ -185,10 +186,7 @@
 
 		<div class="table-body">
 			{#if isLoading && warrants.length === 0}
-				<div class="empty-state">
-					<div class="loading-spinner"></div>
-					<p>Loading warrants...</p>
-				</div>
+				<SkeletonList rows={8} thumb={false} columns={[1.6, 1.4, 1, 0.8]} />
 			{:else if filteredWarrants.length === 0}
 				<div class="empty-state">
 					<p class="empty-title">No Warrants Found</p>
@@ -558,15 +556,6 @@
 		margin: 0;
 	}
 
-	.loading-spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid rgba(255, 255, 255, 0.06);
-		border-left: 2px solid rgba(var(--accent-rgb), 0.5);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-		margin-bottom: 10px;
-	}
 
 	@keyframes spin {
 		0% { transform: rotate(0deg); }

@@ -8,6 +8,7 @@
 	import type { AuthService } from "../services/authService.svelte";
 
 	import ChargeType from "../components/ChargeType.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 
 	import type { Charge, GroupedCharges } from "./../interfaces/ICharges";
 
@@ -320,10 +321,7 @@
 
 	<div class="charges-content">
 		{#if isLoading && charges.length === 0}
-			<div class="empty-state">
-				<div class="loading-spinner"></div>
-				<p>Loading charges...</p>
-			</div>
+			<SkeletonList rows={9} thumb={false} columns={[2.4, 1, 0.8]} />
 		{:else if filteredCharges.length === 0}
 			<div class="empty-state">
 				<p class="empty-title">No Charges Found</p>
@@ -615,15 +613,6 @@
 		margin: 0;
 	}
 
-	.loading-spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid rgba(255, 255, 255, 0.06);
-		border-left: 2px solid rgba(var(--accent-rgb), 0.5);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-		margin-bottom: 10px;
-	}
 
 	@keyframes spin {
 		0% { transform: rotate(0deg); }

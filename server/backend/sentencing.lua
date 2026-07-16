@@ -95,6 +95,9 @@ ps.registerCallback(resourceName .. ':server:giveCitation', function(source, pay
         return { success = false, message = 'Could not deduct fine (insufficient funds)' }
     end
 
+    -- The fine goes to the department that handed it down, rather than nowhere at all.
+    DepositToDepartment(ps.getJobName(src), fine, 'Court fine')
+
     ps.notify(playerSrc, '$' .. fine .. ' fine deducted from your bank account', 'error')
     ps.notify(src, '$' .. fine .. ' fine issued successfully', 'success')
 

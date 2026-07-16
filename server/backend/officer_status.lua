@@ -16,17 +16,14 @@
 --    file, the client, and the UI all read that list, so nothing else needs
 --    to change. Never remove/rename an existing id; officers who saved an
 --    old id before it was removed would fall back to Config.OfficerStatus.Default.
---
---  Set MDT_DEBUG = true for verbose console logging while developing.
 -- ============================================================================
 
 local resourceName = tostring(GetCurrentResourceName())
 
 -- ─── Tunables ───────────────────────────────────────────────────────────────
-local MDT_DEBUG = false -- verbose dev logging; KEEP FALSE on production
 
 local function dbg(...)
-    if MDT_DEBUG then print('[MDT:status]', ...) end
+    if Config.Debug then print('[MDT:status]', ...) end
 end
 
 -- ─── Config-derived lookups ─────────────────────────────────────────────────
@@ -162,7 +159,57 @@ local function broadcastStatus(citizenid, entry)
     if MarkTrackingDirty then MarkTrackingDirty(domain) end
 end
 
--- ─── Public accessor for tracking.lua ───────────────────────────────────────
+-- ─── Programmatic status writes (auto_status.lua) ───────────────────────────
+-- Same write path as a manual change (memory + DB + broadcast + audit), but
+-- driven by the dispatch automation instead of the officer: no per-player
+-- cooldown, and the audit entry is attributed to the automation. Returns the
+-- previous status id (or nil if the write was rejected).
+function AutoSetOfficerStatus(src, statusId, note, reasonLabel)
+    if not isValidStatusId(statusId) then return nil end
+    local officer = getOfficerInfo(src)
+    if not officer or not officer.citizenid then return nil end
+
+    local domain = GetMdtDomain(src)
+    local previous = officerStatus[officer.citizenid]
+    local previousId = (previous and previous.status) or defaultStatus
+    if previousId == statusId then return previousId end
+
+    local entry = {
+        status    = statusId,
+        note      = sanitizeNote(note),
+        updatedAt = os.time() * 1000,
+        domain    = domain,
+    }
+    officerStatus[officer.citizenid] = entry
+    saveStatusNow(officer.citizenid, entry)
+    broadcastStatus(officer.citizenid, entry)
+
+    dbg(('auto: %s -> "%s" (%s)'):format(officer.name or officer.citizenid, statusId, reasonLabel or 'dispatch'))
+
+    if ps.auditLog then
+        ps.auditLog(src, 'officer_status_changed', 'officers', officer.citizenid, {
+            officer_name     = officer.name,
+            officer_callsign = officer.callsign,
+            officer_id       = officer.citizenid,
+            previous_status  = previousId,
+            new_status       = statusId,
+            note             = entry.note,
+            automated        = true,
+            action_label     = ('%s auto-set to "%s" (%s)'):format(
+                officer.name or 'Officer', statusId, reasonLabel or 'dispatch'
+            ),
+        })
+    end
+    return previousId
+end
+
+-- Current status id for one officer (config default if they never set one).
+function GetOfficerStatusId(citizenid)
+    local entry = citizenid and officerStatus[citizenid]
+    return (entry and entry.status) or defaultStatus
+end
+
+-- ─── Public accessor for tracking.lua ──────────────────────────────────────────
 -- Returns { [citizenid] = { status, note, updatedAt } } for one domain. Cheap:
 -- pure in-memory filter, no DB hit, safe to call on every getTracking poll.
 function GetOfficerStatusSnapshot(domain)
@@ -272,6 +319,11 @@ RegisterNetEvent(resourceName .. ':server:setOfficerStatus', function(statusId, 
     officerStatus[officer.citizenid] = entry
     saveStatusNow(officer.citizenid, entry)
     broadcastStatus(officer.citizenid, entry)
+
+    -- A deliberate, manual status choice always wins: disengage the dispatch
+    -- automation for this officer so it won't overwrite them on arrival or
+    -- when the call closes. (Guarded — auto_status.lua can be absent.)
+    if AutoStatusManualOverride then AutoStatusManualOverride(officer.citizenid) end
 
     dbg(('%s set status to "%s"%s'):format(officer.name or officer.citizenid, statusId, cleanNote and (' (' .. cleanNote .. ')') or ''))
 

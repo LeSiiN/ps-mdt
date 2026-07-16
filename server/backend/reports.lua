@@ -1,6 +1,6 @@
 local resourceName = tostring(GetCurrentResourceName())
 
-local function getEffectiveJobType(src)
+function GetEffectiveJobType(src)
     local jobType = ps.getJobType(src)
     local jobName = ps.getJobName(src)
     if Config.DojJobs then
@@ -41,7 +41,7 @@ local function checkReportAccess(src, reportId)
 
     local identifier = ps.getIdentifier(src)
     local job = ps.getJobName(src)
-    local jobType = getEffectiveJobType(src)
+    local jobType = GetEffectiveJobType(src)
 
     if not identifier then
         return false
@@ -202,7 +202,7 @@ local function buildReportAnalyticsClause(filters)
     return ' AND ' .. table.concat(clauses, ' AND '), values
 end
 
-local function buildReportAccessClause()
+function BuildReportAccessClause()
     return [[
         (
             (? = 'doj' AND NOT EXISTS(
@@ -224,7 +224,7 @@ ps.registerCallback(resourceName .. ':server:getReports', function(source, page,
 
     local identifier = ps.getIdentifier(src)
     local job = ps.getJobName(src)
-    local jobType = getEffectiveJobType(src)
+    local jobType = GetEffectiveJobType(src)
 
     local pageNumber = tonumber(page) or 1
     pageNumber = math.max(1, pageNumber)
@@ -234,7 +234,7 @@ ps.registerCallback(resourceName .. ':server:getReports', function(source, page,
     local filterClause, filterValues = buildReportFilterClause(filters)
     filterClause = filterClause or ''
 
-    local accessClause = buildReportAccessClause()
+    local accessClause = BuildReportAccessClause()
     local baseParams = { jobType, jobType, jobType, identifier, job, jobType }
 
     local queryParams = {}
@@ -288,7 +288,7 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
 
 	local identifier = ps.getIdentifier(src)
     local job = ps.getJobName(src)
-    local jobType = getEffectiveJobType(src)
+    local jobType = GetEffectiveJobType(src)
 
     local result = MySQL.query.await([[
         SELECT
@@ -610,7 +610,7 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
     for _, row in ipairs(rows or {}) do
         local vehicleData = vehicleShared and vehicleShared[row.vehicle] or nil
         table.insert(results, {
-            plate = row.plate and string.upper(row.plate):gsub('%s+', '') or 'UNKNOWN',
+            plate = row.plate and (string.upper(row.plate):gsub('^%s+', ''):gsub('%s+$', '')) or 'UNKNOWN',
             vehicle_label = vehicleData and vehicleData.name or row.vehicle or 'Unknown',
             owner_name = row.owner_name or 'Unknown',
             owner_citizenid = row.citizenid or nil,
@@ -623,6 +623,7 @@ end)
 ps.registerCallback(resourceName..':server:saveReport', function(source, reportData)
     local src = source
     if not CheckAuth(src) then return end
+    if not RateLimitAction(src, 'createReport') then return end
 
     local identifier = ps.getIdentifier(src)
     local playerName = ps.getPlayerName(src)
@@ -1069,12 +1070,12 @@ ps.registerCallback(resourceName..':server:getReportAnalytics', function(source,
 
     local identifier = ps.getIdentifier(src)
     local job = ps.getJobName(src)
-    local jobType = getEffectiveJobType(src)
+    local jobType = GetEffectiveJobType(src)
 
     local filterClause, filterValues = buildReportFilterClause(filters)
     filterClause = filterClause or ''
 
-	local accessClause = buildReportAccessClause()
+	local accessClause = BuildReportAccessClause()
     local cacheKeyParts = {
         identifier or '',
         job or '',

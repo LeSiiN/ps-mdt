@@ -89,10 +89,29 @@ local function upsertProfileSession(src, action)
     if not citizenid then return end
 
     local fullName = ps.getPlayerName(src)
-    local callsign = ps.getMetadata(src, 'callsign')
     local job = ps.getJobData and ps.getJobData(src) or nil
     local jobName = job and job.name or ps.getJobName(src)
     local jobGrade = job and job.grade and job.grade.name or ps.getJobGradeName(src)
+
+    local existing = MySQL.scalar.await(
+        'SELECT callsign FROM mdt_profiles WHERE citizenid = ? LIMIT 1', { citizenid })
+    local metaCallsign = ps.getMetadata(src, 'callsign')
+
+    local callsign
+    if existing and existing ~= '' then
+        callsign = existing
+        -- Heal the cache so the uniqueness check (which reads player metadata) and the
+        -- TopBar readout stop showing the stale number.
+        if metaCallsign ~= existing then
+            local Player = ps.getPlayerByIdentifier(citizenid)
+            if Player and Player.Functions and Player.Functions.SetMetaData then
+                Player.Functions.SetMetaData('callsign', existing)
+                PersistLiveMetadata(Player, citizenid)
+            end
+        end
+    else
+        callsign = metaCallsign
+    end
 
     local ok, profileId = pcall(EnsureProfileData,
         citizenid,

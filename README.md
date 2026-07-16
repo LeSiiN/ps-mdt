@@ -67,7 +67,7 @@ lawyer = {
 
 ### 2. Import the database
 
-Run `sql/qbcore.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
+Run `sql/qbcore.sql` or `sql/qbx.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
 
 ### 3. Set your FiveManage API keys
 
@@ -243,6 +243,178 @@ Config.Impound = {
 
 Storage fees are worked out from the impound date rather than counted up by a timer, so they survive restarts and can't drift.
 
+**Hold periods.** How long the vehicle stays put, regardless of the fee — paying up doesn't shorten a hold, and a hold expiring doesn't waive the fee:
+
+```lua
+Config.Impound.Durations = {
+    { id = 'immediate', label = 'Releasable immediately', days = 0 },
+    { id = '1d',        label = '1 day',                  days = 1 },
+    { id = '3d',        label = '3 days',                 days = 3 },
+    { id = '7d',        label = '7 days',                 days = 7 },
+    { id = 'hold',      label = 'Until an officer releases it' },  -- no `days`
+}
+Config.Impound.DefaultDuration = 'immediate'
+```
+
+Each entry in `Config.Impound.Reasons` can carry a `hold` naming one of these ids. Picking that reason pre-selects it — a recommendation, not a rule, so the officer can still change it.
+
+Cutting a hold short needs the separate `vehicle_impound_override` permission and a written reason, and is logged under its own audit category.
+
+### Callsigns
+
+Callsigns are picked from a grid rather than typed, so you can see what's taken, reserved and free.
+
+Ranges are defined per job type, and optionally per job. There is **no global fallback**: a job with no range configured is a configuration mistake, and the MDT says so rather than quietly handing out numbers from a range nobody chose.
+
+```lua
+Config.Callsigns = {
+    JobTypes = {
+        leo = {
+            Min = 1,          -- required
+            Max = 100,        -- required
+            Pad = 2,          -- 2 → 01..99, 3 → 001..999, 0 or omitted → no padding
+            Prefix = '',      -- 'L-' gives L-01
+            PageSize = 20,    -- boxes shown before "Load more"
+
+            -- Restricted: only somebody with roster_callsign_reserved may hand these out.
+            Reserved = {
+                { n = 1, why = 'Chief of Police' },
+                { from = 2, to = 5, why = 'Command staff' },   -- ranges work too
+            },
+
+            -- Forbidden outright. No permission unlocks a blocked callsign.
+            Blocked = {
+                { n = 99, why = 'Dispatch uses this on the radio' },
+                { from = 90, to = 98, why = 'Held back for future units' },
+            },
+        },
+        ems = { Min = 1, Max = 60, Pad = 2, Prefix = 'M-', Reserved = { { n = 1, why = 'Chief of Medicine' } }, Blocked = {} },
+        doj = { Min = 1, Max = 30, Pad = 2, Prefix = 'DOJ-', Reserved = {}, Blocked = {} },
+    },
+
+    -- Optional. A job entry replaces the job type entry completely — it isn't merged
+    -- into it — so spell the block out in full.
+    Jobs = {
+        -- bcso = {
+        --     Min = 200, Max = 299, Pad = 3, Prefix = 'S-',
+        --     Reserved = { [200] = 'Sheriff' },
+        -- },
+    },
+}
+```
+
+An officer's range is looked up by job name first, then by job type. Assigning is done from Roster → the officer → Callsign, and needs `roster_manage_officers`. The same panel can hand a callsign back, so a number isn't stuck with someone who changed department or went on leave — firing an officer frees theirs automatically.
+
+There are two ways to hold a number back, and the difference matters:
+
+| | Who can assign it |
+|---|---|
+| **Reserved** | Anyone with the `roster_callsign_reserved` permission. That's the split between an FTO who can give a recruit a spare number and a supervisor who can hand out the Chief's. Assigning one is logged as a reserved assignment, not an ordinary one |
+| **Blocked** | **Nobody.** No permission unlocks it. The config is saying the number doesn't exist — use it for numbers the radio needs, or ones you're holding back |
+
+Blocking a number doesn't take it away from an officer who already has it. When that happens the picker says so, so it doesn't sit there unnoticed.
+
+Write every entry as `{ n = 1, why = '…' }` or `{ from = 2, to = 5, why = '…' }`. The bracket form (`[1] = '…'`) is rejected: in Lua a keyless range entry *is* index 1, so putting the two next to each other makes the range overwrite the single number as the file is parsed — the value is gone before any code can notice. The resource refuses the shape rather than letting it fail silently.
+
+Both lists are checked on resource start: a bad range, a number listed as both Reserved and Blocked, or one sitting outside `Min`–`Max` gets a warning in the console rather than surfacing the day somebody opens the picker.
+
+The range, both lists, the reserved permission and uniqueness are all enforced server-side, not just hidden in the UI.
+
+### Impound fees
+
+Collecting a fee takes money out of a citizen's account, so it happens face to face:
+
+```lua
+Config.Impound.CollectRange = 6.0  -- owner must be within this many metres; 0 disables
+```
+
+An officer pressing Collect from across the map to debit somebody's bank account is a strange kind of power, and no tow yard works that way. With `CollectRange` set, the owner has to be standing there — and anyone who isn't can settle the bill themselves:
+
+```lua
+Config.CivilianAccess.payImpounds = true
+```
+
+Citizens then see their impounded vehicles in the civilian MDT with the fee itemised (impound fee + accrued storage), any hold that's in force, and a button to pay. Paying does **not** release the vehicle — an officer still does that.
+
+### Rate limiting
+
+A client can send NUI events as fast as it can generate them. These caps stop one misbehaving client from flooding the database — they're generous enough that a real officer writing quickly never hits them, and apply per player, per action.
+
+```lua
+Config.RateLimits = {
+    Enabled = true,
+    createReport   = { max = 8,  windowMs = 20000 },  -- at most 8 per 20s
+    createCase     = { max = 8,  windowMs = 20000 },
+    createBolo     = { max = 10, windowMs = 20000 },
+    createCharge   = { max = 15, windowMs = 20000 },
+    createBulletin = { max = 10, windowMs = 20000 },
+    sendMessage    = { max = 20, windowMs = 15000 },
+}
+```
+
+An action with no config entry is never throttled, so adding a limit elsewhere is just a config line plus a `RateLimitAction(src, 'name')` call. Buckets are cleared when a player disconnects.
+
+### Department banking
+
+Fines and impound fees were taken off citizens and then simply ceased to exist. They now land in the account of the department that collected them.
+
+```lua
+Config.DepartmentBanking = {
+    Enabled = true,
+    Method  = 'export',            -- 'export' | 'event' | 'custom' | 'none'
+
+    Accounts = {                   -- account name defaults to the job name
+        -- ['bcso'] = 'police',    -- only needed to override
+    },
+    Fallback = nil,                -- used when the department can't be determined
+
+    Export = {
+        resource = 'qb-banking',
+        method   = 'AddMoney',
+        args     = { 'account', 'amount', 'reason' },
+    },
+}
+```
+
+`args` is the call signature: `'account'`, `'amount'` and `'reason'` are substituted, anything else is passed through as written — so a banking script that wants its arguments in a different order, or extra ones, is a config change rather than a code change. Presets for Renewed-Banking, okokBanking and qb-management are in the config comments; `Method = 'custom'` takes a Lua function for anything else (ESX society accounts, for instance).
+
+The department is recorded **with the impound**, not looked up when the fee is paid — an owner can settle the bill days later with nobody from that shift online. A failed deposit is logged loudly but never reverses the citizen's payment: that's a bookkeeping problem, not a transaction to roll back.
+
+### Audit log retention
+
+The audit log grows with every report, search, impound and login, and nothing used to remove rows from it. That's fine for a week and a problem after a year: the Activity page runs a `COUNT(*)` over the whole table on every page load, and InnoDB keeps no cached row count, so it slows down in step with the table.
+
+```lua
+Config.AuditRetention = {
+    Enabled = true,
+    Days = 90,          -- anything older is deleted; 0 disables deletion
+    IntervalHours = 24, -- how often the sweep runs (also runs shortly after startup)
+    BatchSize = 2000,   -- rows per statement, so the first sweep can't stall the server
+}
+```
+
+The sweep adds the index it needs (`created_at`) on first run, and deletes in batches with a yield in between — a server that has been running for a year may have millions of rows to remove the first time, and one big `DELETE` would hold a lock far too long.
+
+You can force a sweep without waiting for the timer:
+
+```lua
+exports['ps-mdt']:pruneAuditLogs()
+```
+
+Set `Enabled = false` to keep everything forever, or if you ship the log elsewhere and prune there.
+
+### Internal Affairs
+
+```lua
+Config.IA = {
+    CooldownMs = 300000,        -- how long a citizen must wait between complaints
+    NotifyComplainant = true,   -- e-mail them when their complaint changes status
+    MailSender = 'Internal Affairs',
+}
+```
+
+Complaints are matched to a real officer by badge, then by name if it points at exactly one person. If it's ambiguous the complaint is left unassigned for IA to sort out, rather than being attached to the wrong officer.
+
 ### Other stuff worth changing
 
 | Setting | Default | What it does |
@@ -298,6 +470,10 @@ Impound a vehicle from the MDT (only while it's sitting in a garage) or on the s
 
 Every impound records the reason, officer, lot, fee, notes, and an optional photo link. Releasing doesn't wipe the record, so each vehicle keeps a full impound history. The fee grows with a daily storage charge that stops at a configurable cap, and a lot view lists everything currently held with its outstanding fees. Impounding a vehicle with an active BOLO resolves that BOLO automatically.
 
+A vehicle can also be held for a set period — a fixed number of days, or until an officer says otherwise. Releasing it early is a separate permission, needs a reason, and is logged as an override. The on-site form warns the officer if the car is flagged stolen or has an open BOLO, shows the owner and how many times it's been impounded before, and spells out what the owner will actually end up paying once storage is counted.
+
+The owner is e-mailed when their vehicle is impounded, when the fee is paid, and when it's released — they're rarely standing there when it happens, and often offline.
+
 Vehicles nobody owns are a separate case: they're simply hauled away and the officer earns a small payout for keeping the streets clear, rate-limited by a cooldown and a per-shift cap.
 
 ### Weapons
@@ -343,7 +519,7 @@ Stats overview: reports this week vs last week, active units, job info.
 View and respond to dispatch calls. Hooks into ps-dispatch.
 
 ### Roster
-All officers with duty status, callsign, and department.
+All officers with duty status, callsign, and department. Supervisors assign callsigns from a grid that shows what's taken, reserved and free, rather than typing one and hoping.
 
 ### Leaderboard
 Rankings by arrests, reports, and activity.
@@ -355,13 +531,13 @@ Manage penal codes and charge definitions. Create, edit, and categorize charges 
 Recognize officers with department awards. Track commendations and achievements on officer profiles.
 
 ### Internal Affairs (IA)
-File and manage internal affairs complaints against officers. Track complaint status through investigation stages (Open, Under Investigation, Investigated, Sustained, Exonerated, Unfounded, Closed). Includes a standalone complaint form accessible via `/complaint` command or export for civilian-facing resources. IA complaints appear in officer profiles under the IA History tab.
+File and manage internal affairs complaints against officers. Complaints are linked to the officer they name, so they actually reach that officer's profile, and the complainant is e-mailed whenever the status changes. Track complaint status through investigation stages (Open, Under Investigation, Investigated, Sustained, Exonerated, Unfounded, Closed). Includes a standalone complaint form accessible via `/complaint` command or export for civilian-facing resources. IA complaints appear in officer profiles under the IA History tab.
 
 ### PPR (Performance Planning & Review)
 Create performance reviews for officers covering coachable moments, commendations, and developmental feedback. Supervisors can document incidents from cases, traffic stops, or any notable officer conduct. PPR records are tied to officer profiles and accessible from both the Personnel sidebar and the officer's profile PPR tab.
 
 ### Management
-Admin panel for the department. Set permissions per rank, post bulletins, view audit logs, manage tags. There are 62 permissions you can assign per role, covering citizens, reports, cases, evidence, BOLOs, warrants, vehicles and impounds, weapons, charges, dispatch, cameras, bodycams, dashcams, patrols, the bulletin board, SOPs, FTO, the court calendar, and management access.
+Admin panel for the department. Set permissions per rank, post bulletins, view audit logs, manage tags. There are 64 permissions you can assign per role, covering citizens, reports, cases, evidence, BOLOs, warrants, vehicles and impounds, weapons, charges, dispatch, cameras, bodycams, dashcams, patrols, the bulletin board, SOPs, FTO, the court calendar, and management access.
 
 ### Audit Trail
 Every action gets logged. Who did what, when. Covers: logins, reports, cases, evidence, warrants, vehicles, weapons, charges, searches, dispatch, officers, sentencing, arrests, ICU. Each category toggles on/off from the settings page.

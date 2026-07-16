@@ -17,6 +17,15 @@ RegisterNUICallback('setCallsign', function(data, cb)
     cb(result or { success = false, message = 'Failed to set callsign' })
 end)
 
+-- The server announces a callsign change to the officer it belongs to. Nothing was
+-- listening, so the MDT kept showing the old one until it was reopened.
+RegisterNetEvent(resourceName .. ':client:updateCallsign', function(callsign)
+    SendNUIMessage({
+        action = 'callsignUpdated',
+        data = { callsign = callsign },
+    })
+end)
+
 RegisterNUICallback('getCallsign', function(data, cb)
     if not MDTOpen then cb({ callsign = '' }) return end
     local result = ps.callback(resourceName .. ':server:getCallsign', {

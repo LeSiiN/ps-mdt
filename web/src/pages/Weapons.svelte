@@ -141,6 +141,18 @@
 		showWeaponOwnerSearch = false;
 	}
 
+	// viewWeapon() resolves the weapon out of the loaded list, and the list arrives
+	// asynchronously. Arriving from another tab, this page mounts with `weapons` still
+	// empty — so consuming the target straight away threw it away against an empty
+	// array and there was no second attempt. Wait for the list, THEN consume.
+	$effect(() => {
+		const target = tabService?.pendingTarget;
+		if (target?.tab === "Weapons" && target.id && weapons.length > 0) {
+			const id = tabService?.consumeTarget("Weapons");
+			if (id) viewWeapon(Number(id));
+		}
+	});
+
 	async function viewWeapon(weaponId: number) {
 		const weapon = weapons.find((item) => item.id === weaponId) || null;
 		selectedWeapon = weapon;

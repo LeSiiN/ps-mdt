@@ -200,8 +200,12 @@ local function isTruthy(v)
     return v == true or v == 1 or v == '1'
 end
 
-local function buildVehicleFlags(stolen, hasActiveBolo, status)
+local function buildVehicleFlags(stolen, hasActiveBolo, status, impounded)
     local flags = {}
+    -- Impounded first: it's the flag that tells an officer the car isn't out there.
+    if impounded then
+        table.insert(flags, 'Impounded')
+    end
     if hasActiveBolo then
         table.insert(flags, 'Bolo')
     end
@@ -245,6 +249,15 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
             pv.state AS core_state
         FROM player_vehicles pv
     ]])
+
+    -- Which vehicles are sitting in a lot right now. One query for the whole list —
+    -- asking per row would be a lookup per vehicle.
+    local impoundedById = {}
+    local impRows = MySQL.query.await(
+        "SELECT vehicleid, lot FROM mdt_impound WHERE status = 'active'", {}) or {}
+    for _, r in ipairs(impRows) do
+        if r.vehicleid then impoundedById[r.vehicleid] = r.lot or true end
+    end
 
     local boloRows = MySQL.query.await('SELECT id, type, subject_id, subject_name, reportId, notes, status FROM mdt_bolos WHERE type = ? AND status = ?', {'vehicle', 'active'})
     local reportIdsByPlate = {}
@@ -296,9 +309,13 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
         local reg = registrationByPlate[plate]
         local registered = reg == nil or reg.registered ~= false
         local registrationReason = reg and reg.reason or ''
-        local flags = buildVehicleFlags(isTruthy(v.stolen), hasActiveBolo, statusName)
+        -- The MDT's own record is the reliable one, but a vehicle can also be put in a
+        -- lot by another resource, which only shows up as core state 2. Either counts.
+        local impounded = impoundedById[v.id] ~= nil or tonumber(v.core_state) == 2
+        local flags = buildVehicleFlags(isTruthy(v.stolen), hasActiveBolo, statusName, impounded)
 
         table.insert(vehicles, {
+            impounded = impounded,
             id = v.id,
             model = v.vehicle,
             label = vehicleData and vehicleData.name or 'Unknown Vehicle',

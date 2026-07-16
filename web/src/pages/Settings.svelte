@@ -4,18 +4,20 @@
 	const STORAGE_KEY = "ps-mdt-preferences";
 
 	// Appearance
-	let theme = $state("dark");
 	let notificationSounds = $state(true);
 	let uiZoom = $state(130);
 
 	// Map
 	let defaultZoom = $state(5);
-	let showOfficers = $state(true);
-	let showVehicles = $state(true);
-	let showBodycams = $state(false);
+	let centerOnSelf = $state(true);
 
 	// Patrol
 	let patrolZoneNotifications = $state(true);
+
+	// Dispatch
+	let autoStatusNotifications = $state(true);
+	let autoWaypoint = $state(true);
+	let assignmentNotifications = $state(true);
 
 	let saveStatus: string | null = $state(null);
 	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -24,7 +26,7 @@
 	// topbar can show an "Unsaved changes" hint.
 	let savedSnapshot = $state("");
 	function snapshot(): string {
-		return JSON.stringify({ theme, notificationSounds, uiZoom, defaultZoom, showOfficers, showVehicles, showBodycams, patrolZoneNotifications });
+		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, centerOnSelf, patrolZoneNotifications, autoStatusNotifications, autoWaypoint, assignmentNotifications });
 	}
 	let isDirty = $derived(savedSnapshot !== "" && snapshot() !== savedSnapshot);
 
@@ -32,9 +34,29 @@
 		loadPreferences();
 		savedSnapshot = snapshot();
 
-		// Respond to Lua client asking for the patrol zone notification preference.
-		// Fires on resource start so the client has the correct value immediately.
+		// Respond to Lua client asking for stored notification preferences.
+		// Fires on resource start so the client has the correct values immediately.
 		function handleNuiMessage(event: MessageEvent) {
+			if (event.data?.type === "requestClientPrefs") {
+				pushClientPrefs();
+			}
+			if (event.data?.type === "requestAutoStatusPref") {
+				const saved = localStorage.getItem(STORAGE_KEY);
+				let enabled = true; // default
+				try {
+					if (saved) {
+						const data = JSON.parse(saved);
+						if (data.autoStatusNotifications !== undefined) {
+							enabled = data.autoStatusNotifications;
+						}
+					}
+				} catch { /* ignore */ }
+				fetch(`https://${(window as any).GetParentResourceName?.() ?? "ps-mdt"}/autoStatusPref`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ enabled }),
+				}).catch(() => {});
+			}
 			if (event.data?.type === "requestPatrolZonePref") {
 				const saved = localStorage.getItem(STORAGE_KEY);
 				let enabled = true; // default
@@ -59,19 +81,36 @@
 		return () => window.removeEventListener("message", handleNuiMessage);
 	});
 
+	// Push the Lua-mirrored bundle (sounds, waypoint, assignment notify) to the
+	// client. Reads from localStorage so the resource-start request gets saved
+	// values even before this component's state has hydrated.
+	function pushClientPrefs() {
+		let d: Record<string, unknown> = {};
+		try { d = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}"); } catch { /* defaults */ }
+		fetch(`https://${(window as any).GetParentResourceName?.() ?? "ps-mdt"}/clientPrefs`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				notificationSounds: d.notificationSounds !== false,
+				autoWaypoint: d.autoWaypoint !== false,
+				assignmentNotifications: d.assignmentNotifications !== false,
+			}),
+		}).catch(() => {});
+	}
+
 	function loadPreferences() {
 		try {
 			const saved = localStorage.getItem(STORAGE_KEY);
 			if (!saved) return;
 			const data = JSON.parse(saved);
-			if (data.theme) theme = data.theme;
 			if (data.notificationSounds !== undefined) notificationSounds = data.notificationSounds;
 			if (data.uiZoom !== undefined) uiZoom = data.uiZoom;
 			if (data.defaultZoom !== undefined) defaultZoom = data.defaultZoom;
-			if (data.showOfficers !== undefined) showOfficers = data.showOfficers;
-			if (data.showVehicles !== undefined) showVehicles = data.showVehicles;
-			if (data.showBodycams !== undefined) showBodycams = data.showBodycams;
+			if (data.centerOnSelf !== undefined) centerOnSelf = data.centerOnSelf;
 			if (data.patrolZoneNotifications !== undefined) patrolZoneNotifications = data.patrolZoneNotifications;
+			if (data.autoStatusNotifications !== undefined) autoStatusNotifications = data.autoStatusNotifications;
+			if (data.autoWaypoint !== undefined) autoWaypoint = data.autoWaypoint;
+			if (data.assignmentNotifications !== undefined) assignmentNotifications = data.assignmentNotifications;
 		} catch {
 			// Ignore parse errors
 		}
@@ -80,24 +119,30 @@
 	function savePreferences() {
 		try {
 			const data = {
-				theme,
 				notificationSounds,
 				uiZoom,
 				defaultZoom,
-				showOfficers,
-				showVehicles,
-				showBodycams,
+				centerOnSelf,
 				patrolZoneNotifications,
+				autoStatusNotifications,
+				autoWaypoint,
+				assignmentNotifications,
 			};
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 			savedSnapshot = snapshot();
 
-			// Immediately sync patrol zone pref to Lua client
+			// Immediately sync notification prefs to the Lua client
 			fetch(`https://${(window as any).GetParentResourceName?.() ?? "ps-mdt"}/patrolZonePref`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ enabled: patrolZoneNotifications }),
 			}).catch(() => {});
+			fetch(`https://${(window as any).GetParentResourceName?.() ?? "ps-mdt"}/autoStatusPref`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ enabled: autoStatusNotifications }),
+			}).catch(() => {});
+			pushClientPrefs();
 
 			showSaveStatus("Preferences saved");
 		} catch {
@@ -152,16 +197,6 @@
 				</div>
 				<div class="setting-row">
 					<div class="setting-info">
-						<span class="setting-label">Theme</span>
-						<span class="setting-desc">Select the MDT color theme</span>
-					</div>
-					<select class="setting-select" bind:value={theme}>
-						<option value="dark">Dark</option>
-						<option value="light">Light</option>
-					</select>
-				</div>
-				<div class="setting-row">
-					<div class="setting-info">
 						<span class="setting-label">Notification Sounds</span>
 						<span class="setting-desc">Play sounds for dispatch alerts and messages</span>
 					</div>
@@ -213,31 +248,11 @@
 				</div>
 				<div class="setting-row">
 					<div class="setting-info">
-						<span class="setting-label">Show Officers</span>
-						<span class="setting-desc">Display officer positions on the map</span>
+						<span class="setting-label">Center On My Position</span>
+						<span class="setting-desc">Pan the map to your own position when opening the Map tab</span>
 					</div>
 					<label class="toggle">
-						<input type="checkbox" bind:checked={showOfficers} />
-						<span class="toggle-slider"></span>
-					</label>
-				</div>
-				<div class="setting-row">
-					<div class="setting-info">
-						<span class="setting-label">Show Vehicles</span>
-						<span class="setting-desc">Display tracked vehicles on the map</span>
-					</div>
-					<label class="toggle">
-						<input type="checkbox" bind:checked={showVehicles} />
-						<span class="toggle-slider"></span>
-					</label>
-				</div>
-				<div class="setting-row">
-					<div class="setting-info">
-						<span class="setting-label">Show Bodycams</span>
-						<span class="setting-desc">Display bodycam feeds on the map</span>
-					</div>
-					<label class="toggle">
-						<input type="checkbox" bind:checked={showBodycams} />
+						<input type="checkbox" bind:checked={centerOnSelf} />
 						<span class="toggle-slider"></span>
 					</label>
 				</div>
@@ -255,6 +270,43 @@
 					</div>
 					<label class="toggle">
 						<input type="checkbox" bind:checked={patrolZoneNotifications} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+			</div>
+
+			<div class="settings-card settings-card--full">
+				<div class="card-head">
+					<span class="material-icons card-icon">notifications_active</span>
+					<span class="card-label">Dispatch</span>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Automatic Status Notifications</span>
+						<span class="setting-desc">Notify when a call automatically changes your status (En Route, On Scene, back to Active)</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={autoStatusNotifications} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Automatic Waypoint</span>
+						<span class="setting-desc">Set a GPS waypoint when you attach or get assigned to a call</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={autoWaypoint} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Assignment Notifications</span>
+						<span class="setting-desc">Notify when a dispatcher assigns you to a call</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={assignmentNotifications} />
 						<span class="toggle-slider"></span>
 					</label>
 				</div>
@@ -397,22 +449,6 @@
 	.setting-desc  { color: rgba(255, 255, 255, 0.35); font-size: 10px; }
 
 	/* ===== Controls ===== */
-	.setting-select {
-		padding: 4px 24px 4px 8px;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.06);
-		border-radius: 3px;
-		color: rgba(255, 255, 255, 0.75);
-		font-size: 10px;
-		outline: none;
-		cursor: pointer;
-		transition: border-color 0.1s;
-	}
-	.setting-select:hover, .setting-select:focus { border-color: rgba(255, 255, 255, 0.12); }
-	.setting-select option {
-		background: #1a1d23;
-		color: rgba(255, 255, 255, 0.85);
-	}
 
 	.setting-input {
 		background: rgba(255, 255, 255, 0.03);

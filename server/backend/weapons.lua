@@ -200,6 +200,7 @@ ps.registerCallback(resourceName .. ':server:getWeaponOwnershipHistory', functio
 end)
 
 ps.registerCallback(resourceName .. ':server:getWeaponConfig', function(source)
+    if not CheckAuth(source) then return { weapons = {} } end
     return { weapons = Config.Weapons }
 end)
 

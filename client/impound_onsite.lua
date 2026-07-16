@@ -173,7 +173,9 @@ local function runImpound()
     end
 
     local plate = GetVehicleNumberPlateText(veh)
-    if plate then plate = plate:gsub('%s+', ''):upper() end
+    -- Trim the 8-char padding GetVehicleNumberPlateText adds, but keep spaces that are
+    -- part of the plate itself ("LS 12345") — stripping those loses the vehicle.
+    if plate then plate = plate:upper():gsub('^%s+', ''):gsub('%s+$', '') end
     local model = GetDisplayNameFromVehicleModel(GetEntityModel(veh))
 
     local res = ps.callback(resourceName .. ':server:inspectOnSiteVehicle', {

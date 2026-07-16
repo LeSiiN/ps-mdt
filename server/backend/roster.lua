@@ -131,6 +131,11 @@ local function checkDuty(citizenid, matchFn)
 end
 
 ps.registerCallback('ps-mdt:server:getRosterList', function(source)
+    -- Without this a civilian reached the roster: GetMdtDomain resolves any non-EMS job
+    -- (mechanic, unemployed, anyone) to 'police', so the fallback path handed out the
+    -- full police roster — names, ranks, callsigns — to whoever asked.
+    if not CheckAuth(source) then return {} end
+
     -- Scope the roster to the caller's domain: EMS sees EMS, police sees police.
     local domain = GetMdtDomain(source)
     local jobList, matchFn, defaultDept, scopeJobType
@@ -436,6 +441,41 @@ ps.registerCallback('ps-mdt:server:fireOfficer', function(source, payload)
 end)
 
 -- Update officer callsign (wrapper around existing setCallsign for NUI)
+--- Hand a callsign back without firing anybody.
+--- Officers change department, go on leave, or simply hand a number over. Until now the
+--- only way to free a callsign was to terminate the officer, so numbers stayed locked to
+--- people who weren't using them and a small range silently filled up with dead entries.
+ps.registerCallback('ps-mdt:server:releaseOfficerCallsign', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    if not CheckPermission(src, 'roster_manage_officers') then
+        return { success = false, message = 'No permission to manage officers' }
+    end
+
+    payload = payload or {}
+    local citizenid = payload.citizenid
+    if not citizenid then return { success = false, message = 'Missing citizen ID' } end
+
+    local current = MySQL.scalar.await(
+        'SELECT callsign FROM mdt_profiles WHERE citizenid = ?', { citizenid })
+
+    -- One helper, one order: the player's memory first, then the database. Doing it the
+    -- other way round let PersistLiveMetadata write the old callsign straight back.
+    ClearCallsign(citizenid)
+
+    if ps.auditLog then
+        ps.auditLog(src, 'callsign_changed', 'officers', citizenid, {
+            callsign     = nil,
+            released     = current,
+            action_label = current
+                and ('Released callsign %s'):format(current)
+                or 'Released callsign',
+        })
+    end
+
+    return { success = true, message = current and ('Released ' .. current) or 'Callsign cleared' }
+end)
+
 ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -451,7 +491,14 @@ ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payl
         return { success = false, message = 'Missing citizen ID or callsign' }
     end
 
-    -- Use the existing setCallsign callback logic
+    -- This path had no checks at all: it wrote straight to a UNIQUE column, so a
+    -- duplicate callsign failed as a raw SQL error rather than a message anyone could
+    -- act on. Same validator the picker and setCallsign use.
+    local valid, why, reservedReason = ValidateCallsignPick(src, newCallsign, citizenid)
+    if not valid then
+        return { success = false, message = why }
+    end
+
     local ok, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
     if not ok or not QBCore then
         return { success = false, message = 'Core framework not available' }
@@ -462,15 +509,44 @@ ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payl
         return { success = false, message = 'Officer must be online to update callsign' }
     end
 
+    -- The check above and this write are not one atomic step: two supervisors assigning
+    -- the same callsign in the same instant both pass it. The UNIQUE index on
+    -- mdt_profiles.callsign is what actually stops the second one — but on its own that
+    -- surfaces as a raw SQL error. Write first, and treat a failure as "somebody beat
+    -- you to it" so the loser gets a sentence instead of a stack trace, and nothing is
+    -- half-applied to the player's metadata.
+    local wrote = pcall(function()
+        MySQL.update.await('UPDATE mdt_profiles SET callsign = ? WHERE citizenid = ?', { newCallsign, citizenid })
+    end)
+    if not wrote then
+        local holder = CallsignHolder(newCallsign, citizenid)
+        return {
+            success = false,
+            message = holder
+                and ('%s was just taken by %s'):format(newCallsign, holder)
+                or ('%s is already in use'):format(newCallsign),
+        }
+    end
+
     Player.Functions.SetMetaData('callsign', newCallsign)
+    -- ...and push it to the DB now. Without this the players table keeps the OLD
+    -- callsign until the next autosave, and the uniqueness check — which reads that
+    -- table — attributes the stale number to this officer as well.
+    PersistLiveMetadata(Player, citizenid)
 
     local resourceName = GetCurrentResourceName()
     TriggerClientEvent(resourceName .. ':client:updateCallsign', Player.PlayerData.source, newCallsign)
 
-    MySQL.update.await('UPDATE mdt_profiles SET callsign = ? WHERE citizenid = ?', { newCallsign, citizenid })
-
     if ps.auditLog then
-        ps.auditLog(src, 'callsign_changed', 'officers', citizenid, { callsign = newCallsign })
+        -- Handing out a reserved number is a different act from handing out a spare
+        -- one, so it doesn't get filed as the same thing.
+        ps.auditLog(src, 'callsign_changed', 'officers', citizenid, {
+            callsign     = newCallsign,
+            reserved     = reservedReason,
+            action_label = reservedReason
+                and ('Assigned the RESERVED callsign %s (%s)'):format(newCallsign, reservedReason)
+                or ('Assigned callsign %s'):format(newCallsign),
+        })
     end
 
     return { success = true, message = 'Callsign updated to ' .. newCallsign }

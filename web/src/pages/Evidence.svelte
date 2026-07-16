@@ -6,6 +6,7 @@
 	import type { createTabService } from "../services/tabService.svelte";
 	import type { MDTTab } from "../constants";
 	import Pagination from "../components/Pagination.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 
 	let { tabService }: { tabService?: ReturnType<typeof createTabService> } = $props();
 
@@ -235,6 +236,17 @@
 			evidenceError = "An error occurred while creating evidence.";
 		}
 	}
+
+	// selectEvidence resolves the item out of the loaded list, so this has to wait for
+	// the list — consuming the target early would open a stub with nothing in it.
+	$effect(() => {
+		const target = tabService?.pendingTarget;
+		if (target?.tab === "Evidence" && target.id && items.length > 0) {
+			const id = tabService?.consumeTarget("Evidence");
+			const item = items.find((i: any) => i.id === Number(id));
+			if (item) selectEvidence(item);
+		}
+	});
 
 	async function selectEvidence(item: any) {
 		selectedEvidenceId = item.id;
@@ -558,7 +570,7 @@
 		<!-- Evidence List (left) -->
 		<div class="list-panel">
 			{#if isLoading}
-				<div class="empty-state">Loading evidence...</div>
+				<SkeletonList rows={8} thumb columns={[2, 1.2, 1, 0.8]} />
 			{:else if items.length === 0}
 				<div class="empty-state">No evidence found.</div>
 			{:else}

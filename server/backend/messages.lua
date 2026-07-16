@@ -24,6 +24,9 @@ end)
 ps.registerCallback(resourceName .. ':server:sendOfficerMessage', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+    if not RateLimitAction(src, 'sendMessage') then
+        return { success = false, error = 'You are sending messages too fast — wait a moment.' }
+    end
 
     payload = payload or {}
     local receiverId = payload.receiverCitizenId

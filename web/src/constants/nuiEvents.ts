@@ -29,7 +29,9 @@ export const NUI_EVENTS = {
 		UPDATE_RECENT_DISPATCHES: "updateRecentDispatches",
 		UPDATE_USAGE_METRICS: "updateUsageMetrics",
 		SET_CALLSIGN: "setCallsign",
-		GET_CALLSIGN: "getCallsign"
+		GET_CALLSIGN: "getCallsign",
+		// Pushed from Lua when somebody changes this officer's callsign.
+		CALLSIGN_UPDATED: "callsignUpdated"
 	},
 	COURT: {
 		GET_HEARINGS: "getHearings",
@@ -134,6 +136,10 @@ export const NUI_EVENTS = {
 		UPDATE_VEHICLE: "updateVehicle",
 		GET_REPORTS_BY_PLATE: "getReportsByPlate",
 	},
+	SEARCH: {
+		GLOBAL_SEARCH: "globalSearch",
+	},
+
 	IMPOUND: {
 		IMPOUND_VEHICLE: "impoundVehicle",
 		RELEASE_IMPOUND: "releaseImpound",
@@ -179,6 +185,8 @@ export const NUI_EVENTS = {
 		PROMOTE_OFFICER: "promoteOfficer",
 		FIRE_OFFICER: "fireOfficer",
 		UPDATE_CALLSIGN: "updateOfficerCallsign",
+		GET_CALLSIGN_AVAILABILITY: "getCallsignAvailability",
+		RELEASE_CALLSIGN: "releaseOfficerCallsign",
 	},
 	PPR: {
 		GET_PPR_LIST: "getPPRList",
@@ -317,6 +325,8 @@ export const NUI_EVENTS = {
 	},
 	CIVILIAN: {
 		GET_MY_PROFILE: "getMyProfile",
+		GET_MY_IMPOUNDS: "getMyImpounds",
+		PAY_MY_IMPOUND_FEE: "payMyImpoundFee",
 	},
 	COLLAB: {
 		JOIN_REPORT_SESSION: "joinReportSession",
@@ -391,6 +401,7 @@ export const DOJ_EVENTS = NUI_EVENTS.DOJ;
 
 // All events combined for type checking
 export const ALL_NUI_EVENTS = [
+	...Object.values(NUI_EVENTS.SEARCH),
 	...Object.values(NUI_EVENTS.RADIO),
 	...Object.values(NUI_EVENTS.DASHBOARD),
 	...Object.values(NUI_EVENTS.COURT),

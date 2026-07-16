@@ -148,6 +148,13 @@
     // Calls a dispatcher has dismissed locally (cleared from ticker + map).
     let dismissedCallIds   = $state<Set<string>>(new Set());
     let showCalls          = $state(localStorage.getItem("mdt_map_calls") !== "false");
+
+    // Preferences saved by the Settings tab (same NUI document, so plain
+    // localStorage reads are enough — no round-trip needed).
+    function readPreferences(): Record<string, unknown> {
+        try { return JSON.parse(localStorage.getItem("ps-mdt-preferences") ?? "{}"); } catch { return {}; }
+    }
+
     // Shown when the view has drifted away from the island — one click glides back.
     let showBackToMap      = $state(false);
     let selectedDispatchId = $state<string | null>(null);
@@ -252,15 +259,24 @@
         return parts.join("<br>");
     }
 
-    function dispatchIcon(d: MapDispatch, selected: boolean) {
+    // Icon HTML separated from the divIcon so renderDispatchMarkers can
+    // compare it against the marker's current HTML and skip setIcon() (full
+    // DOM replacement) when nothing visual changed — before this, EVERY call
+    // marker was rebuilt on every loadDispatches, which stutters badly while
+    // a dispatcher is panning/zooming on a busy server.
+    function dispatchIconHtml(d: MapDispatch, selected: boolean): string {
         const col = priorityColor(d.priority);
         const svg = callIconSvg(d);
+        return `<div class="disp-marker${selected ? " sel" : ""}" style="--dc:${col}">`
+            + `<div class="disp-ring"></div>`
+            + `<div class="disp-badge"><svg viewBox="0 0 24 24">${svg}</svg></div>`
+            + `</div>`;
+    }
+
+    function dispatchIcon(html: string) {
         return L.divIcon({
             className: "",
-            html: `<div class="disp-marker${selected ? " sel" : ""}" style="--dc:${col}">`
-                + `<div class="disp-ring"></div>`
-                + `<div class="disp-badge"><svg viewBox="0 0 24 24">${svg}</svg></div>`
-                + `</div>`,
+            html,
             iconSize: [38, 38],
             iconAnchor: [19, 19],
         });
@@ -276,13 +292,18 @@
                 const id = String(d.id);
                 seen.add(id);
                 const ll = toMapLatLng(gp) as L.LatLngExpression;
+                const html = dispatchIconHtml(d, selectedDispatchId === id);
                 let m = dispatchMarkers.get(id);
                 if (m) {
                     m.setLatLng(ll);
-                    m.setIcon(dispatchIcon(d, selectedDispatchId === id));
+                    if ((m as any).__iconHtml !== html) {
+                        m.setIcon(dispatchIcon(html));
+                        (m as any).__iconHtml = html;
+                    }
                     m.setTooltipContent(dispatchTooltip(d));
                 } else {
-                    m = L.marker(ll, { icon: dispatchIcon(d, selectedDispatchId === id), zIndexOffset: 800 });
+                    m = L.marker(ll, { icon: dispatchIcon(html), zIndexOffset: 800 });
+                    (m as any).__iconHtml = html;
                     m.on("click", () => selectDispatch(id));
                     m.bindTooltip(dispatchTooltip(d), { direction: "top", offset: [0, -16], className: "disp-tt", opacity: 1 });
                     m.addTo(map);
@@ -322,10 +343,13 @@
         if (!gp) return [];
         const attached = attachedIds(d);
         // Only truly free units: not on the call, not part of a patrol
-        // (patrols are assigned as a whole below) and not busy.
+        // (patrols are assigned as a whole below), not busy — and not the
+        // dispatcher themselves ("Attach yourself" is the dedicated path
+        // for that, with its own waypoint + notify handling).
         return officers
             .filter(o =>
                 !attached.has(o.citizenid) &&
+                o.citizenid !== ownCitizenId &&
                 !getOfficerPatrol(o.citizenid) &&
                 (o.status ?? defaultStatusId) !== "busy")
             .map(o => ({ o, dist: Math.hypot(o.coords.x - gp.x, o.coords.y - gp.y) }))
@@ -571,12 +595,47 @@
         if (!d) return;
         const payload = isManualCall(d) ? { id: d.id, manual: true } : d.id;
         try {
-            await fetchNui(
+            // The Lua callback returns the refreshed list (post attach/detach,
+            // cache already invalidated) — apply it immediately so unit chips
+            // update on the spot; the delayed reload stays as a safety net for
+            // provider-side processing races.
+            const res = await fetchNui<MapDispatch[]>(
                 attach ? NUI_EVENTS.DISPATCH.ATTACH_TO_DISPATCH : NUI_EVENTS.DISPATCH.DETACH_FROM_DISPATCH,
                 payload, [],
             );
+            if (Array.isArray(res) && res.length) { dispatches = res; renderDispatchMarkers(); }
             setTimeout(loadDispatches, 300);
         } catch { /* ignore */ }
+    }
+
+    let switchConfirmFrom = $state<MapDispatch | null>(null);
+
+    // "Attach yourself" goes through here: already on another call → ask
+    // before switching instead of quietly stacking attachments.
+    function requestSelfAttach() {
+        const d = selectedDispatch;
+        if (!d) return;
+        const cur = myCurrentCall;
+        if (cur && String(cur.id) !== String(d.id)) { switchConfirmFrom = cur; return; }
+        selfAttachToCall(true);
+    }
+
+    async function confirmSwitchCall() {
+        const from = switchConfirmFrom;
+        switchConfirmFrom = null;
+        if (!from) return;
+        // Order matters for the automatic status: attaching FIRST moves the
+        // engagement to the new call (En Route again), so the detach from the
+        // old call below no longer matches it and can't revert the status.
+        await selfAttachToCall(true);
+        const payload = isManualCall(from) ? { id: from.id, manual: true } : from.id;
+        try {
+            // Apply the returned list right away so the OLD call's unit chips
+            // drop this officer immediately instead of waiting for the poll.
+            const res = await fetchNui<MapDispatch[]>(NUI_EVENTS.DISPATCH.DETACH_FROM_DISPATCH, payload, []);
+            if (Array.isArray(res) && res.length) { dispatches = res; renderDispatchMarkers(); }
+        } catch { /* ignore */ }
+        setTimeout(loadDispatches, 300);
     }
 
     function removeUnitFromCall(cid: string) {
@@ -655,11 +714,13 @@
         }
     }
 
-    // Reset the note editor whenever the selected call changes.
+    // Reset the note editor and any pending switch confirm whenever the
+    // selected call changes.
     $effect(() => {
         selectedDispatchId;
         noteEditing = false;
         noteDraft = "";
+        switchConfirmFrom = null;
     });
 
     // Ask before dismissing so a call isn't removed for everyone by accident.
@@ -820,6 +881,16 @@
     let ownCitizenId = $state<string | null>(null);
     let isSelfAttached = $derived(
         !!(selectedDispatch && ownCitizenId && attachedIds(selectedDispatch).has(ownCitizenId))
+    );
+
+    // The call this officer is currently attached to (if any) — used to stop
+    // silent double-attaches: being on two calls at once is almost never
+    // what anyone intended. Lives below ownCitizenId's declaration on purpose
+    // (TS use-before-declaration).
+    let myCurrentCall = $derived(
+        ownCitizenId
+            ? visibleDispatches.find(d => (d.units || []).some(u => u.citizenid === ownCitizenId)) ?? null
+            : null,
     );
 
     // Officer highlight state
@@ -1425,16 +1496,19 @@
         const hasHeading = heading != null;
         const cachedClass = cached ? " tracking-cached" : "";
         // Small status dot pinned to the marker, counter-rotated so it never
-        // tilts with heading. Only bodycams (officers) carry a status — vehicle
-        // markers are untouched.
+        // tilts with heading (the counter-rotation lives in CSS via --rot).
+        // Only bodycams (officers) carry a status — vehicle markers are untouched.
         const statusDot = (kind === "bodycam" && statusColor)
-            ? `<div class="tracking-status-dot" style="background:${statusColor};transform:rotate(${-rotation}deg)"></div>`
+            ? `<div class="tracking-status-dot" style="background:${statusColor}"></div>`
             : "";
 
+        // Rotation is applied through a CSS variable so per-tick heading
+        // changes can be written onto the EXISTING element (one style property)
+        // instead of rebuilding the whole divIcon DOM — see applyTrackIcon.
         return L.divIcon({
             className: "",
             html: `
-                <div class="tracking-dot-wrap${cachedClass}" style="transform: rotate(${rotation}deg)">
+                <div class="tracking-dot-wrap${cachedClass}" style="--rot:${rotation}deg">
                     <div class="tracking-dot" style="background:${dotColor}; border: 2px solid ${borderColor}"></div>
                     ${hasHeading ? `<div class="tracking-arrow tracking-arrow-${kind}" style="${patrolColor ? `border-bottom-color:${patrolColor}` : ""}"></div>` : ""}
                     ${statusDot}
@@ -1443,6 +1517,42 @@
             iconSize: [20, 20],
             iconAnchor: [10, 10],
         });
+    }
+
+    // Structural identity of a tracker icon — everything EXCEPT heading. As
+    // long as this key is unchanged, refresh ticks only rotate the existing
+    // element; setIcon (full DOM replacement + repaint) is skipped entirely.
+    function trackIconKey(
+        kind: "vehicle" | "bodycam",
+        heading?: number,
+        patrolColor?: string,
+        cached = false,
+        statusColor?: string
+    ): string {
+        return `${kind}|${patrolColor ?? ""}|${cached ? 1 : 0}|${statusColor ?? ""}|${heading != null ? 1 : 0}`;
+    }
+
+    // Cheap per-tick marker update. Previously every refreshTracking tick
+    // called setIcon() on every marker (heading changes each tick), replacing
+    // its DOM node and forcing layout+paint for the entire fleet — a major
+    // source of jank while the map is being zoomed/panned. Now setIcon only
+    // fires when the icon's structure actually changed (patrol color, status,
+    // cached state); pure heading updates are a single CSS-variable write.
+    function applyTrackIcon(
+        m: L.Marker,
+        kind: "vehicle" | "bodycam",
+        heading?: number,
+        patrolColor?: string,
+        cached = false,
+        statusColor?: string
+    ) {
+        const key = trackIconKey(kind, heading, patrolColor, cached, statusColor);
+        if ((m as any).__iconKey !== key) {
+            m.setIcon(makeTrackIcon(kind, heading, patrolColor, cached, statusColor));
+            (m as any).__iconKey = key;
+        }
+        const wrap = m.getElement()?.querySelector(".tracking-dot-wrap") as HTMLElement | null;
+        if (wrap) wrap.style.setProperty("--rot", `${heading != null ? 360 - heading : 0}deg`);
     }
 
     function createMarker(
@@ -1455,9 +1565,13 @@
         statusColor?: string
     ) {
         const offset: [number, number] = [0, -10];
-        return L.marker(toMapLatLng(coords) as any, {
+        const m = L.marker(toMapLatLng(coords) as any, {
             icon: makeTrackIcon(kind, heading, patrolColor, cached, statusColor),
         }).bindTooltip(label, { direction: "top", offset });
+        // Stamp the structural key so the first applyTrackIcon call after
+        // creation doesn't redundantly rebuild the icon it was born with.
+        (m as any).__iconKey = trackIconKey(kind, heading, patrolColor, cached, statusColor);
+        return m;
     }
 
     // Restyles one officer's existing map marker in place (icon swap only, no
@@ -1470,7 +1584,7 @@
         const patrol = getOfficerPatrol(citizenid);
         const color = patrol?.color ?? "#6b7280";
         const sColor = statusDef(officer.status).color;
-        marker.setIcon(makeTrackIcon("bodycam", officer.heading, color, false, sColor));
+        applyTrackIcon(marker, "bodycam", officer.heading, color, false, sColor);
     }
 
     function normalizeCoords(raw: any) {
@@ -1633,7 +1747,7 @@
                 const existing = bodycamMarkers.get(bc.citizenid);
                 if (existing) {
                     existing.setLatLng(latLng);
-                    existing.setIcon(makeTrackIcon("bodycam", bodycam.heading, color, false, sColor));
+                    applyTrackIcon(existing, "bodycam", bodycam.heading, color, false, sColor);
                     existing.setTooltipContent(label);
                 } else {
                     const m = createMarker("bodycam", coords, label, bodycam.heading, color, false, sColor);
@@ -1661,12 +1775,16 @@
 
             officers = freshOfficers;
 
-            // Pan to own position once per MDT open
-            if (!centeredOnSelf && map && ownCitizenId) {
+            // Pan to own position once per MDT open — user preference
+            // (Settings > Map > "Center on my position", default on).
+            // Uses the preferred default zoom so both settings play together.
+            if (!centeredOnSelf && map && ownCitizenId && readPreferences().centerOnSelf !== false) {
                 const self = freshOfficers.find(o => o.citizenid === ownCitizenId);
                 if (self) {
                     centeredOnSelf = true;
-                    map.setView(toMapLatLng(self.coords) as L.LatLngExpression, 5, { animate: false });
+                    const z = Number(readPreferences().defaultZoom);
+                    map.setView(toMapLatLng(self.coords) as L.LatLngExpression,
+                        Number.isFinite(z) && z >= 3 && z <= 10 ? z : 5, { animate: false });
                 }
             }
 
@@ -1695,7 +1813,7 @@
                 const existing = vehicleMarkers.get(key);
                 if (existing) {
                     existing.setLatLng(latLng);
-                    existing.setIcon(makeTrackIcon("vehicle", (vehicle as any).heading, undefined, cached));
+                    applyTrackIcon(existing, "vehicle", (vehicle as any).heading, undefined, cached);
                     existing.setTooltipContent(label);
                     existing.setPopupContent(buildVehiclePopupHtml(vehicle, plate, cached));
                     if (existing.isPopupOpen()) attachDashcamHandler(existing, plate);
@@ -2050,7 +2168,12 @@
             // Zoom far enough out to see the entire map at once.
             minZoom: 2,
             maxZoom: 10,
-            zoom: 5,
+            // Default zoom is a user preference (Settings > Map, 3–10);
+            // falls back to the classic 5 when unset or out of range.
+            zoom: (() => {
+                const z = Number(readPreferences().defaultZoom);
+                return Number.isFinite(z) && z >= 3 && z <= 10 ? z : 5;
+            })(),
             preferCanvas: true,
             center: [0, -1024],
             zoomControl: false,
@@ -2073,6 +2196,24 @@
         } as any);
 
         L.control.zoom({ position: "topright" }).addTo(map);
+
+        // While the user pans or zooms, tag the container with .map-busy so CSS
+        // can pause the infinite pulse animations and drop the glow box-shadows
+        // on call markers. Animated shadows/scales force a repaint every frame,
+        // which compounds with the zoom transform — on a busy server with many
+        // active calls this alone causes visible stutter. The short release
+        // delay stops flicker between chained wheel-zoom steps.
+        let busyRelease: ReturnType<typeof setTimeout> | null = null;
+        const markBusy = () => {
+            if (busyRelease) { clearTimeout(busyRelease); busyRelease = null; }
+            mapContainer?.classList.add("map-busy");
+        };
+        const releaseBusy = () => {
+            if (busyRelease) clearTimeout(busyRelease);
+            busyRelease = setTimeout(() => { mapContainer?.classList.remove("map-busy"); }, 150);
+        };
+        map.on("zoomstart movestart", markBusy);
+        map.on("zoomend moveend", releaseBusy);
 
         // Location picker for the Create Call modal (only active while picking).
         map.on("click", (e: L.LeafletMouseEvent) => {
@@ -2322,7 +2463,7 @@
                         {#if isSelfAttached}
                             <button class="call-btn call-btn-ghost" disabled={assignBusy} onclick={() => selfAttachToCall(false)}>Detach yourself</button>
                         {:else}
-                            <button class="call-btn call-btn-accent" disabled={assignBusy} onclick={() => selfAttachToCall(true)}>Attach yourself</button>
+                            <button class="call-btn call-btn-accent" disabled={assignBusy} onclick={requestSelfAttach}>Attach yourself</button>
                         {/if}
                     </div>
 
@@ -2361,6 +2502,23 @@
         {/if}
 
         <!-- ═══ Dismiss confirmation ═══ -->
+        {#if switchConfirmFrom}
+            <!-- Already attached elsewhere: confirm before switching calls -->
+            <div class="cc-backdrop" onclick={(e) => { if (e.target === e.currentTarget) switchConfirmFrom = null; }}>
+                <div class="confirm-box" role="dialog" aria-modal="true">
+                    <div class="confirm-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </div>
+                    <div class="confirm-title">Switch calls?</div>
+                    <div class="confirm-text">You're already attached to <b>{switchConfirmFrom.code || switchConfirmFrom.codename || "another call"}</b>. Attaching here will detach you from it.</div>
+                    <div class="confirm-btns">
+                        <button class="call-btn call-btn-ghost" onclick={() => switchConfirmFrom = null}>Cancel</button>
+                        <button class="call-btn call-btn-accent" onclick={confirmSwitchCall}>Yes, switch</button>
+                    </div>
+                </div>
+            </div>
+        {/if}
+
         {#if dismissConfirmId}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -2568,7 +2726,7 @@
                     <button
                         class="my-status-trigger"
                         class:disabled={statusChangePending}
-                        onclick={() => { statusPickerOpen = !statusPickerOpen; statusNoteDraft = myStatusNote; }}
+                        onclick={() => { statusPickerOpen = !statusPickerOpen; statusNoteDraft = ""; }}
                         title="Set your status"
                     >
                         <span class="my-status-dot" style="background:{statusDef(myStatusId).color}"></span>
@@ -2831,7 +2989,17 @@
         border-radius: 50%;
         opacity: 0.7;
         animation: dispPulse 1.5s ease-out infinite;
+        /* Promote to its own compositor layer: transform+opacity animate on
+           the GPU instead of repainting the marker every frame. */
+        will-change: transform, opacity;
     }
+    /* While the map is panning/zooming (.map-busy is set from zoomstart /
+       movestart): freeze the pulse rings and drop the glow shadows so the
+       compositor only has to MOVE the marker layers, not repaint them each
+       frame. Restored ~150ms after the gesture settles. */
+    :global(.map-busy .disp-ring) { animation-play-state: paused; opacity: 0.35; }
+    :global(.map-busy .disp-badge) { box-shadow: none !important; }
+    :global(.map-busy .officer-highlight-ring) { animation-play-state: paused; }
     :global(.disp-marker.sel .disp-badge) {
         transform: translate(-50%, -50%) scale(1.18);
         border-color: rgba(255, 255, 255, 0.85);
@@ -3380,7 +3548,7 @@
     }
     @keyframes zone-snap-pulse { 0%, 100% { stroke-opacity: 0.95; } 50% { stroke-opacity: 0.35; } }
     :global(.zone-label) { background: rgba(0,0,0,0.62); border: 1px solid; border-radius: 5px; padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; pointer-events: none; opacity: 0.85; transform: translateX(-50%); display: inline-block; }
-    :global(.tracking-dot-wrap) { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+    :global(.tracking-dot-wrap) { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; transform: rotate(var(--rot, 0deg)); }
     :global(.tracking-dot) { width: 12px; height: 12px; border-radius: 50%; }
     :global(.tracking-arrow) { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; }
     :global(.tracking-arrow-vehicle) { border-bottom: 8px solid #f97316; }
@@ -3631,7 +3799,7 @@
     :global(.op-availability-since) { color: rgba(255,255,255,0.25); font-size: 9px; margin-left: 5px; }
 
     /* Status dot pinned onto the bodycam map marker */
-    :global(.tracking-status-dot) { position: absolute; bottom: -2px; right: -2px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid rgba(10,10,12,0.9); box-shadow: 0 0 4px rgba(0,0,0,0.6); }
+    :global(.tracking-status-dot) { position: absolute; bottom: -2px; right: -2px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid rgba(10,10,12,0.9); box-shadow: 0 0 4px rgba(0,0,0,0.6); transform: rotate(calc(-1 * var(--rot, 0deg))); }
     .create-form { display: flex; flex-direction: column; gap: 7px; padding: 8px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
     .create-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 5px; padding: 6px 9px; color: rgba(255,255,255,0.9); font-size: 12px; outline: none; width: 100%; box-sizing: border-box; }
     .create-input:focus { border-color: rgba(255,255,255,0.2); }

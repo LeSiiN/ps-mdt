@@ -7,6 +7,7 @@
 	import { globalNotifications } from "../services/notificationService.svelte";
 	import { createSearchService } from "../services/searchService.svelte";
 	import Pagination from "../components/Pagination.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 	import PersonSearchModal from "../components/report-editor/PersonSearchModal.svelte";
 	import type { createTabService } from "../services/tabService.svelte";
 	import type { AuthService } from "../services/authService.svelte";
@@ -565,10 +566,7 @@
 
 		<div class="list-panel">
 			{#if loading && complaints.length === 0}
-				<div class="center-state">
-					<div class="loading-spinner"></div>
-					<p>Loading complaints...</p>
-				</div>
+				<SkeletonList rows={8} thumb={false} columns={[2, 1.2, 1, 0.8]} />
 			{:else if paginatedComplaints.length === 0}
 				<div class="center-state">
 					<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>

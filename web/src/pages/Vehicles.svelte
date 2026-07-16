@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { formatDate, formatDateTime } from "../utils/datetime";
 	import ImpoundFormFields from "../components/impound/ImpoundFormFields.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 	import type { ImpoundDuration, ImpoundReason, ImpoundLot } from "../interfaces/IImpound";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
@@ -99,6 +100,11 @@
 	// Impound lot view
 	let showLotView  = $state(false);
 	let lotVehicles  = $state<ImpoundRecord[]>([]);
+
+	// A busy lot rendered every held vehicle at once, so the modal just kept scrolling.
+	// Same treatment as the callsign grid: a page at a time, with a button for the rest.
+	let lotPageSize  = $state(10);
+	let lotShown     = $state(10);
 	let lotLoading   = $state(false);
 	let lotFilter    = $state("all");   // lot id or "all"
 	let lotSearch    = $state("");
@@ -106,9 +112,9 @@
 	async function loadImpoundConfig() {
 		if (impoundCfgLoaded) return;
 		try {
-			const res = await fetchNui<{ reasons: ImpoundReason[]; lots: ImpoundLot[]; durations: ImpoundDuration[]; defaultFee: number; requireFeePaid: boolean; maxFee: number; defaultDuration: string; storage: { perDay: number; maxDays: number } }>(
+			const res = await fetchNui<{ reasons: ImpoundReason[]; lots: ImpoundLot[]; durations: ImpoundDuration[]; defaultFee: number; requireFeePaid: boolean; maxFee: number; defaultDuration: string; storage: { perDay: number; maxDays: number }; lotPageSize?: number }>(
 				NUI_EVENTS.IMPOUND.GET_IMPOUND_CONFIG, {},
-				{ reasons: [], lots: [], durations: [], defaultFee: 500, requireFeePaid: true, maxFee: 50000, defaultDuration: "immediate", storage: { perDay: 0, maxDays: 0 } });
+				{ reasons: [], lots: [], durations: [], defaultFee: 500, requireFeePaid: true, maxFee: 50000, defaultDuration: "immediate", storage: { perDay: 0, maxDays: 0 }, lotPageSize: 10 });
 			impoundReasons = res?.reasons ?? [];
 			impoundLots = res?.lots ?? [];
 			impoundDurations = res?.durations ?? [];
@@ -116,6 +122,7 @@
 			impoundStorage = res?.storage ?? { perDay: 0, maxDays: 0 };
 			requireFeePaid = res?.requireFeePaid ?? true;
 			if (typeof res?.maxFee === "number") maxFee = res.maxFee;
+			if (typeof res?.lotPageSize === "number" && res.lotPageSize > 0) lotPageSize = res.lotPageSize;
 			impoundCfgLoaded = true;
 		} catch { /* leave empty */ }
 	}
@@ -254,6 +261,7 @@
 			const res = await fetchNui<{ vehicles: ImpoundRecord[] }>(
 				NUI_EVENTS.IMPOUND.GET_IMPOUND_LOT, {}, { vehicles: [] });
 			lotVehicles = res?.vehicles ?? [];
+			lotShown = lotPageSize;
 		} catch {
 			lotVehicles = [];
 		} finally {
@@ -277,6 +285,22 @@
 		});
 	});
 
+	// Narrowing the list should start you at the top of the new results, not partway
+	// into a page that no longer exists.
+	$effect(() => {
+		const _key = `${lotSearch}|${lotFilter}`;
+		void _key;
+		lotShown = lotPageSize;
+	});
+
+	let lotVisible  = $derived(lotFiltered.slice(0, lotShown));
+	let lotHasMore  = $derived(lotShown < lotFiltered.length);
+	let lotRemaining = $derived(lotFiltered.length - lotShown);
+
+	function loadMoreLot() {
+		lotShown = Math.min(lotShown + lotPageSize, lotFiltered.length);
+	}
+
 	let lotUnpaidTotal = $derived(
 		lotFiltered.filter(v => !v.fee_paid).reduce((sum, v) => sum + (v.total ?? v.fee ?? 0), 0)
 	);
@@ -298,6 +322,8 @@
 		registered?: boolean;
 		registrationReason?: string;
 		core_state?: number;
+		/** Sitting in an impound lot right now. */
+		impounded?: boolean;
 	}
 
 	interface VehicleDetails extends Vehicle {
@@ -476,7 +502,7 @@
 			} else if (statusFilter === "garaged") {
 				list = list.filter(v => v.core_state === 1);
 			} else if (statusFilter === "impounded") {
-				list = list.filter(v => v.core_state === 2 || v.status === "impounded");
+				list = list.filter(v => v.impounded || v.core_state === 2 || v.status === "impounded");
 			} else if (statusFilter === "stolen") {
 				list = list.filter(v => v.status === "stolen" || v.flags?.includes("Stolen"));
 			}
@@ -506,6 +532,7 @@
 
 	function getFlagClass(flag: string): string {
 		switch (flag) {
+			case "Impounded": return "pill pill-blue";
 			case "Stolen": return "pill pill-red";
 			case "Active Warrant": return "pill pill-red";
 			case "Bolo": return "pill pill-orange";
@@ -527,6 +554,14 @@
 			default: return "status-valid";
 		}
 	}
+
+	$effect(() => {
+		const target = tabService.pendingTarget;
+		if (target?.tab === "Vehicles" && target.id) {
+			const id = tabService.consumeTarget("Vehicles");
+			if (id) viewVehicle(String(id));
+		}
+	});
 
 	async function viewVehicle(plate: string) {
 		vehicleDetailError = null;
@@ -1223,7 +1258,7 @@
 			</div>
 			<div class="list-body">
 				{#if loading}
-					<div class="empty-state">Loading vehicles...</div>
+					<SkeletonList rows={9} thumb={false} columns={[1.4, 1.4, 1, 0.8]} />
 				{:else if filteredVehicles.length === 0}
 					<div class="empty-state">{searchQuery ? "No vehicles match your search." : "No vehicles found."}</div>
 				{:else}
@@ -1371,7 +1406,7 @@
 					{:else if lotFiltered.length === 0}
 						<div class="lot-empty">No vehicles are impounded{lotSearch ? " matching that search" : ""}.</div>
 					{:else}
-						{#each lotFiltered as v (v.id)}
+						{#each lotVisible as v (v.id)}
 							<div class="lot-row">
 								<div class="lot-main">
 									<div class="lot-line1">
@@ -1415,12 +1450,24 @@
 								</div>
 							</div>
 						{/each}
+
+						{#if lotHasMore}
+							<button class="lot-more" onclick={loadMoreLot}>
+								Load more ({lotRemaining} left)
+							</button>
+						{/if}
 					{/if}
 				</div>
 
 				<div class="modal-footer">
 					<span class="modal-hint">
-						{lotFiltered.length} vehicle{lotFiltered.length === 1 ? "" : "s"} held
+						<!-- Say what's on screen as well as what's held, or "24 vehicles held"
+						     next to 10 rows just looks like a bug. -->
+						{#if lotHasMore}
+							Showing {lotVisible.length} of {lotFiltered.length} held
+						{:else}
+							{lotFiltered.length} vehicle{lotFiltered.length === 1 ? "" : "s"} held
+						{/if}
 						{#if lotUnpaidTotal > 0}· <span class="lot-unpaid">{money(lotUnpaidTotal)} outstanding</span>{/if}
 					</span>
 					<div class="modal-footer-right">
@@ -1698,6 +1745,13 @@
 		background: rgba(245, 158, 11, 0.08);
 		color: rgba(251, 191, 36, 0.8);
 		border: 1px solid rgba(245, 158, 11, 0.1);
+	}
+
+	/* Impounded is a location, not an accusation — it reads calmly next to Stolen/Bolo. */
+	.pill-blue {
+		background: rgba(59, 130, 246, 0.1);
+		color: rgba(147, 197, 253, 0.85);
+		border: 1px solid rgba(59, 130, 246, 0.18);
 	}
 
 	.pill-grey {
@@ -2907,6 +2961,25 @@
 	.lot-body { display: flex; flex-direction: column; gap: 5px; }
 	.lot-body::-webkit-scrollbar { width: 5px; }
 	.lot-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+	.lot-more {
+		width: 100%;
+		margin-top: 4px;
+		padding: 9px;
+		border-radius: 4px;
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		background: rgba(255, 255, 255, 0.02);
+		color: rgba(255, 255, 255, 0.5);
+		font-size: 11px;
+		font-weight: 600;
+		font-family: inherit;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.lot-more:hover {
+		color: rgba(255, 255, 255, 0.9);
+		border-color: rgba(255, 255, 255, 0.16);
+	}
+
 	.lot-empty {
 		padding: 30px 0;
 		text-align: center;

@@ -317,6 +317,13 @@ local function dispatchProvider()
 end
 
 local function providerAttach(dispatchId)
+    -- ps-dispatch compares call ids with strict equality against its NUMERIC
+    -- ids. Ids that travelled through the MDT server arrive as strings
+    -- (assignToDispatch tostrings them), so a dispatcher-driven attach/detach
+    -- on provider calls silently matched nothing — the unit list never
+    -- updated, leaving "ghost" units on calls. Normalize once here; manual
+    -- 'mdt-…' ids never reach a provider.
+    dispatchId = tonumber(dispatchId) or dispatchId
     local p = dispatchProvider()
     if p == 'qs' then
         TriggerServerEvent('qs-dispatch:server:attachUnit', dispatchId)
@@ -325,9 +332,16 @@ local function providerAttach(dispatchId)
     elseif p == 'ps' then
         TriggerServerEvent('ps-dispatch:server:attach', dispatchId, buildPlayerData())
     end
+    -- Provider bookkeeping changed behind the MDT server's back — nudge it to
+    -- drop its dispatch-list cache so the next refresh shows current units.
+    TriggerServerEvent(resourceName .. ':server:touchDispatchCache')
 end
 
 local function providerDetach(dispatchId)
+    -- Same numeric normalization as providerAttach — a string id would make
+    -- the provider's strict-equality lookup miss and the unit would stay
+    -- attached forever (the "ghost units" symptom).
+    dispatchId = tonumber(dispatchId) or dispatchId
     local p = dispatchProvider()
     if p == 'qs' then
         TriggerServerEvent('qs-dispatch:server:detachUnit', dispatchId)
@@ -336,6 +350,9 @@ local function providerDetach(dispatchId)
     elseif p == 'ps' then
         TriggerServerEvent('ps-dispatch:server:detach', dispatchId, buildPlayerData())
     end
+    -- Provider bookkeeping changed behind the MDT server's back — nudge it to
+    -- drop its dispatch-list cache so the next refresh shows current units.
+    TriggerServerEvent(resourceName .. ':server:touchDispatchCache')
 end
 
 -- Real-time dispatch listeners — one per supported provider. Whichever
@@ -373,7 +390,26 @@ RegisterNUICallback("attachToDispatch", function(data, cb)
     else
         providerAttach(id)
     end
-    cb(GetRecentDispatch())
+    if AutoStatusClientEngage then AutoStatusClientEngage(id) end
+
+    -- Self-attach: set the waypoint like a dispatcher assign would (user
+    -- preference, Settings > Dispatch > "Automatic Waypoint"). No notify on
+    -- purpose — the officer is literally looking at the call on screen.
+    -- Resolved from the ONE list fetch this callback does anyway for the NUI
+    -- response — no extra round-trip (see coalescing note on GetRecentDispatch).
+    local list = GetRecentDispatch() or {}
+    if not MdtPref or MdtPref('autoWaypoint', true) ~= false then
+        for _, d in ipairs(list) do
+            if tostring(d.id) == tostring(id) then
+                local c = d.coords
+                local x = c and (tonumber(c.x) or tonumber(c[1]))
+                local y = c and (tonumber(c.y) or tonumber(c[2]))
+                if x and y then SetNewWaypoint(x, y) end
+                break
+            end
+        end
+    end
+    cb(list)
 end)
 
 RegisterNUICallback("detachFromDispatch", function(data, cb)
@@ -386,6 +422,7 @@ RegisterNUICallback("detachFromDispatch", function(data, cb)
         providerDetach(id)
         Wait(100) -- give non-1of1 servers time to update the server-side table before the cb
     end
+    if AutoStatusClientDisengage then AutoStatusClientDisengage(id) end
     cb(GetRecentDispatch())
 end)
 
@@ -418,24 +455,43 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
 
     if data.action == 'detach' then
         if not data.manual then providerDetach(data.id) end
+        if AutoStatusClientDisengage then AutoStatusClientDisengage(data.id) end
         ps.notify('Dispatch has removed you from a call', 'inform')
         return
     end
 
     if not data.manual then providerAttach(data.id) end
+    if AutoStatusClientEngage then AutoStatusClientEngage(data.id, data.coords) end
 
+    -- Waypoint + notify are both user preferences (Settings > Dispatch),
+    -- mirrored from the NUI via preferences.lua; defaults keep both on.
+    local wantWaypoint = not MdtPref or MdtPref('autoWaypoint', true) ~= false
+    local waypointSet = false
     local c = data.coords
-    if c then
+    if wantWaypoint and c then
         local x = tonumber(c.x) or tonumber(c[1])
         local y = tonumber(c.y) or tonumber(c[2])
-        if x and y then SetNewWaypoint(x, y) end
+        if x and y then
+            SetNewWaypoint(x, y)
+            waypointSet = true
+        end
     end
+
+    if MdtPref and MdtPref('assignmentNotifications', true) == false then return end
+
+    -- 10-code for the notify comes resolved from the server (both provider
+    -- and MDT-created calls). Never look it up here: a blocking
+    -- GetRecentDispatch inside this handler can race the NUI's own list
+    -- refresh through ps_lib's name-keyed callbacks (10s timeout).
+    local code = type(data.code) == 'string' and data.code ~= '' and data.code or nil
+    local what = code and ('Dispatch assigned you: %s'):format(code) or 'Dispatch assigned you to a call'
+    if waypointSet then what = what .. ' — waypoint set' end
 
     local note = type(data.note) == 'string' and data.note ~= '' and data.note or nil
     if note then
-        ps.notify('Dispatch assigned you to a call — waypoint set. Note: ' .. note, 'success')
+        ps.notify(('%s. Note: %s'):format(what, note), 'success')
     else
-        ps.notify('Dispatch assigned you to a call — waypoint set. No note provided.', 'success')
+        ps.notify(what, 'success')
     end
 end)
 

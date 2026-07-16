@@ -15,8 +15,10 @@
 		clearPendingReport,
 	} from "../stores/reportsStore";
 	import type { createTabService } from "../services/tabService.svelte";
+	import { openReportInEditor } from "../stores/reportsStore";
 	import type { MDTTab } from "../constants";
 	import Pagination from "../components/Pagination.svelte";
+	import SkeletonList from "../components/SkeletonList.svelte";
 	import type { JobType } from "../interfaces/IUser";
 
 	interface Props {
@@ -26,6 +28,15 @@
 	}
 
 	let { instanceStateService, tabService, jobType = 'leo' }: Props = $props();
+
+	// Search hits for a report — and for a warrant, which opens its report — land here.
+	$effect(() => {
+		const target = tabService?.pendingTarget;
+		if (target?.tab === "Reports" && target.id) {
+			const id = tabService?.consumeTarget("Reports");
+			if (id) openReportInEditor(String(id));
+		}
+	});
 
 	function navigateTo(tab: MDTTab) {
 		if (!tabService) return;
@@ -330,10 +341,7 @@
 			</div>
 			<div class="list-body">
 				{#if isLoading && reports.length === 0}
-					<div class="empty-state">
-						<div class="loading-spinner"></div>
-						Loading reports...
-					</div>
+					<SkeletonList rows={9} thumb={false} columns={[2.4, 1, 1]} />
 				{:else if reports.length === 0}
 					<div class="empty-state">
 						<div class="empty-content">

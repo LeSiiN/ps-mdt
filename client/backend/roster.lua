@@ -34,6 +34,18 @@ RegisterNUICallback('fireOfficer', function(data, cb)
     cb(result or { success = false })
 end)
 
+RegisterNUICallback('releaseOfficerCallsign', function(data, cb)
+    if not MDTOpen then cb({ success = false }) return end
+    local result = ps.callback('ps-mdt:server:releaseOfficerCallsign', data)
+    cb(result or { success = false })
+end)
+
+RegisterNUICallback('getCallsignAvailability', function(data, cb)
+    if not MDTOpen then cb({ success = false }) return end
+    local result = ps.callback('ps-mdt:server:getCallsignAvailability', data or {})
+    cb(result or { success = false })
+end)
+
 RegisterNUICallback('updateOfficerCallsign', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
     local result = ps.callback('ps-mdt:server:updateOfficerCallsign', data)

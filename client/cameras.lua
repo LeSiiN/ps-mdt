@@ -1434,7 +1434,7 @@ CreateThread(function()
             local veh = GetVehiclePedIsIn(ped, false)
             if veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped and GetVehicleClass(veh) == emergencyClass then
                 isCopDriver = true
-                plate = (GetVehicleNumberPlateText(veh) or ''):gsub('%s+', '')
+                plate = (GetVehicleNumberPlateText(veh) or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
             end
         end
         local key = isCopDriver and plate or false
