@@ -7,6 +7,7 @@
     import {settingsService} from "../services/settingsService.svelte";
     import {createInstanceStateService} from "../services/instanceStateService.svelte";
     import {NUI_EVENTS} from "@/constants/nuiEvents";
+    import {getTabsForJob, type MDTTab} from "../constants";
     import {fetchNui} from "@/utils/fetchNui";
     import {globalNotifications} from "../services/notificationService.svelte";
     import TopBar from "../components/TopBar.svelte";
@@ -31,7 +32,49 @@
         settingsService.loadColorConfig();
         setupInstanceCoordination();
         loadMissedHearings();
+        applyReducedMotionFromPrefs();
     });
+
+    function readPrefs(): Record<string, unknown> {
+        try { return JSON.parse(localStorage.getItem("ps-mdt-preferences") ?? "{}"); } catch { return {}; }
+    }
+
+    // Reduced motion must apply from the first frame, independent of whether
+    // the Settings page ever mounts — so it's read here at boot. Settings
+    // re-applies it live on save.
+    function applyReducedMotionFromPrefs() {
+        document.documentElement.classList.toggle("mdt-reduced-motion", readPrefs().reducedMotion === true);
+    }
+
+    // Default tab (Settings > General): applied on every MDT open. "last"
+    // (or unset) keeps the classic behavior of resuming wherever you were.
+    // Anything the player can't open — wrong job, tab_hidden_* permission —
+    // silently falls back to that same last-tab behavior.
+    //
+    // Why not listen for setVisible: VisibilityProvider unmounts this whole
+    // component while the MDT is closed and remounts it on open — a setVisible
+    // listener registered here would always arrive AFTER the event that
+    // caused the mount. The remount itself is therefore the "MDT opened"
+    // signal; we just wait for auth to finish so jobType and the tab_hidden_*
+    // permissions are real values rather than their pre-auth defaults.
+    let defaultTabApplied = false;
+    $effect(() => {
+        if (!authService.isAuthorized || defaultTabApplied) return;
+        defaultTabApplied = true;
+        applyDefaultTab();
+    });
+
+    function applyDefaultTab() {
+        if (authService.jobType === "civilian") return; // civilians have no tab bar
+        const pref = readPrefs().defaultTab;
+        if (typeof pref !== "string" || pref === "last") return;
+        const allowed = getTabsForJob(authService.jobType).some(t => t.name === pref);
+        const hidden = authService.hasRawPermission(`tab_hidden_${pref.toLowerCase()}`);
+        if (!allowed || hidden) return;
+        const active = tabService.getActiveInstance();
+        if (active) tabService.setInstanceTab(active.id, pref as MDTTab);
+        else tabService.setActiveTab(pref as MDTTab);
+    }
 
     // Global court reminder toast — shows on any tab, not just the calendar
     useNuiEvent<{ title?: string; scheduled_at?: string | number; location?: string }>(

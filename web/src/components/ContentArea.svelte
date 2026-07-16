@@ -237,7 +237,7 @@
 		{:else if activeComponent === "management"}
 			<Management {authService} />
 		{:else if activeComponent === "settings"}
-			<Settings />
+			<Settings {authService} />
 		{:else if activeComponent === "court_cases"}
 			<CourtCases {tabService} {authService} />
 		{:else if activeComponent === "calendar"}

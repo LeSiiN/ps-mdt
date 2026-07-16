@@ -456,7 +456,6 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
     if data.action == 'detach' then
         if not data.manual then providerDetach(data.id) end
         if AutoStatusClientDisengage then AutoStatusClientDisengage(data.id) end
-        ps.notify('Dispatch has removed you from a call', 'inform')
         return
     end
 

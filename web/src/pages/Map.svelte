@@ -1178,6 +1178,14 @@
         return map.unproject(p, DEFAULT_VIEW_ZOOM);
     }
 
+    // Reduced motion (Settings > Appearance): fly animations become instant
+    // jumps. flyTo animates zoom+pan in JS every frame, and each frame's
+    // transform update would fight the global transition kill-switch — the
+    // result is exactly the stutter reduced motion is meant to avoid.
+    function motionReduced(): boolean {
+        return document.documentElement.classList.contains("mdt-reduced-motion");
+    }
+
     // Fly to a map point but keep it centered in the VISIBLE area: when the
     // sidebar is open it covers the right strip, so we nudge the target left by
     // half that strip (in pixels at the destination zoom) before flying.
@@ -1186,12 +1194,20 @@
         const ll = L.latLng(target as L.LatLngExpression);
         const coveredPx = sidebarOpen ? sidebarWidth + 34 : 0;
         const p = map.project(ll, zoom).add([coveredPx / 2, 0]);
+        if (motionReduced()) {
+            map.setView(map.unproject(p, zoom), zoom, { animate: false });
+            return;
+        }
         map.flyTo(map.unproject(p, zoom), zoom, { duration, easeLinearity: 0.25 });
     }
 
     function flyBackToMap() {
         if (!map) return;
-        map.flyTo(defaultViewTarget(), DEFAULT_VIEW_ZOOM, { duration: 1.2, easeLinearity: 0.25 });
+        if (motionReduced()) {
+            map.setView(defaultViewTarget(), DEFAULT_VIEW_ZOOM, { animate: false });
+        } else {
+            map.flyTo(defaultViewTarget(), DEFAULT_VIEW_ZOOM, { duration: 1.2, easeLinearity: 0.25 });
+        }
         showBackToMap = false;
     }
 
@@ -1784,7 +1800,7 @@
                     centeredOnSelf = true;
                     const z = Number(readPreferences().defaultZoom);
                     map.setView(toMapLatLng(self.coords) as L.LatLngExpression,
-                        Number.isFinite(z) && z >= 3 && z <= 10 ? z : 5, { animate: false });
+                        Number.isFinite(z) && z >= 2 && z <= 8 ? z : 5, { animate: false });
                 }
             }
 
@@ -2168,11 +2184,11 @@
             // Zoom far enough out to see the entire map at once.
             minZoom: 2,
             maxZoom: 10,
-            // Default zoom is a user preference (Settings > Map, 3–10);
+            // Default zoom is a user preference (Settings > Map, 2–8);
             // falls back to the classic 5 when unset or out of range.
             zoom: (() => {
                 const z = Number(readPreferences().defaultZoom);
-                return Number.isFinite(z) && z >= 3 && z <= 10 ? z : 5;
+                return Number.isFinite(z) && z >= 2 && z <= 8 ? z : 5;
             })(),
             preferCanvas: true,
             center: [0, -1024],
@@ -2302,6 +2318,13 @@
         window.addEventListener("keydown", onKeyDown);
         window.addEventListener("click", handleOutsideClick);
         initializeMap();
+        // Pull our own citizenid as a fallback: the Lua push (setLocalCitizenId)
+        // fires once per MDT open and is lost if this component wasn't mounted
+        // yet — without it, the nearby-units self-filter and center-on-self
+        // have no idea who "self" is.
+        fetchNui<{ citizenid?: string }>(NUI_EVENTS.MAP.GET_LOCAL_CITIZEN_ID, {}, {})
+            .then(r => { if (!ownCitizenId && typeof r?.citizenid === "string") ownCitizenId = r.citizenid; })
+            .catch(() => { /* push path remains */ });
         // Defer the two secondary fetches so they don't pile onto the mount tick.
         setTimeout(() => loadStatusConfig(), 120);
         setTimeout(() => loadPatrols(), 180);
