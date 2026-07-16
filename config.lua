@@ -203,8 +203,8 @@ Config.Callsigns = {
         leo = {
             Min = 1,
             Max = 100,
-            Pad = 3,
-            Prefix = 'PD-',
+            Pad = 2,
+            Prefix = '1A',
             PageSize = 24,
 
             -- Restricted: needs roster_callsign_reserved.
@@ -216,7 +216,7 @@ Config.Callsigns = {
             -- Forbidden: nobody, ever.
             Blocked = {
                 -- { n = 99, why = 'Dispatch uses this on the radio' },
-                { from = 90, to = 98, why = 'Held back for future units' },
+                { from = 90, to = 100, why = 'Held back for future units' },
             },
         },
 
