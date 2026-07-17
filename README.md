@@ -336,6 +336,30 @@ Config.CivilianAccess.payImpounds = true
 
 Citizens then see their impounded vehicles in the civilian MDT with the fee itemised (impound fee + accrued storage), any hold that's in force, and a button to pay. Paying does **not** release the vehicle — an officer still does that.
 
+### Applications (civilian job applications)
+
+Civilians apply for a department in-game. Each department has its own command, so the applicant lands straight on the right form:
+
+```lua
+Config.Applications = {
+    Enabled = true,
+    Departments = {
+        { id = 'police',    command = 'applypolice', label = 'LSPD Application' },
+        { id = 'ambulance', command = 'applyems',    label = 'EMS Application' },
+        { id = 'doj',       command = 'applydoj',    label = 'DOJ Application' },
+    },
+    CooldownMs = 300000,       -- per-department anti-spam
+    NotifyOnDecision = true,   -- message the applicant on accept/reject (step 2)
+    MaxAnswerLength = 2000,
+}
+```
+
+**The questions are not configured here.** They're managed live in the MDT under **Management → Applications**, one set per department, so a department can change what it asks without a restart. Six field types are supported: short text, long text, multiple choice, yes/no, number, and link (URL) — each can be optional or required.
+
+Answers are stored as a JSON snapshot of the questions *at submission time*, so editing or deleting a question later never re-labels or corrupts an application that was already sent. The two tables (`mdt_application_questions`, `mdt_applications`) self-heal on start, so no manual migration is needed.
+
+**Reviewing** happens in the Roster tab: a **Roster / Applications** switch (shown to officers with `roster_manage_officers`) flips the panel to a list of submitted applications. Selecting one shows the applicant's answers; a reviewer accepts or rejects with an optional note. Applications are domain-scoped — police reviewers never see EMS applications and vice-versa, DOJ grouped with police. On a decision the applicant is messaged (if `NotifyOnDecision` and a mail bridge are present); a mail failure never blocks the decision.
+
 ### Rate limiting
 
 A client can send NUI events as fast as it can generate them. These caps stop one misbehaving client from flooding the database — they're generous enough that a real officer writing quickly never hits them, and apply per player, per action.

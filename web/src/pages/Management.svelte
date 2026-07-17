@@ -11,12 +11,13 @@
 	import ManagementColors from "../components/management/ManagementColors.svelte";
 	import ManagementSOP from "../components/management/ManagementSOP.svelte";
 	import ManagementVisibility from "../components/management/ManagementVisibility.svelte";
+	import ManagementApplications from "../components/management/ManagementApplications.svelte";
 	import ManagementFTO from "../components/management/ManagementFTO.svelte";
 	import type { AuthService } from "../services/authService.svelte";
 
 	let { authService }: { authService?: AuthService } = $props();
 
-	type View = "activity" | "bulletins" | "permissions" | "tracking" | "tags" | "jailfines" | "templates" | "awards" | "licenses" | "colors" | "sop" | "visibility" | "fto";
+	type View = "activity" | "bulletins" | "permissions" | "tracking" | "tags" | "jailfines" | "templates" | "awards" | "licenses" | "colors" | "sop" | "visibility" | "fto" | "applications";
 
 	const EMS_HIDDEN_TABS: View[] = ["jailfines", "tracking", "awards"];
 	const DOJ_HIDDEN_TABS: View[] = ["bulletins", "activity", "jailfines", "tracking", "licenses", "awards", "colors", "sop", "visibility", "fto", "tags", "templates"];
@@ -34,6 +35,7 @@
 		{ key: "colors", label: "Colors", permission: "management_settings" },
 		{ key: "sop", label: "SOP", permission: "sop_manage" },
 		{ key: "fto", label: "FTO", permission: "fto_manage" },
+		{ key: "applications", label: "Applications", permission: "management_settings" },
 		{ key: "visibility", label: "Visibility", permission: "management_permissions" },
 	];
 
@@ -92,6 +94,8 @@
 			<ManagementFTO jobType={authService?.jobType} />
 		{:else if view === "visibility"}
 			<ManagementVisibility jobType={authService?.jobType} />
+		{:else if view === "applications"}
+			<ManagementApplications />
 		{/if}
 	</div>
 </div>

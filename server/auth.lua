@@ -88,6 +88,41 @@ local function upsertProfileSession(src, action)
     local citizenid = ps.getIdentifier(src)
     if not citizenid then return end
 
+    -- On logout — and especially on playerDropped — the player is already gone from the
+    -- framework, so any live ps.* lookup (getMetadata, getPlayerName, getJobData) indexes
+    -- a nil player and errors. The logout branch below only needs the profile id anyway,
+    -- so we resolve just that from the DB and skip everything that touches the live player.
+    if action ~= 'login' then
+        -- Resolve the profile straight from the DB (the player row may already be gone)
+        -- and close its open session. No live lookups, no callsign work — none of it is
+        -- needed to stamp a logout time.
+        local profileId = MySQL.scalar.await(
+            'SELECT id FROM mdt_profiles WHERE citizenid = ? LIMIT 1', { citizenid })
+        if not profileId then return end
+
+        local okTx, errTx = pcall(MySQL.transaction.await, {
+            {
+                query = [[
+                    UPDATE mdt_profile_sessions
+                    SET logout_at = NOW()
+                    WHERE profile_id = ? AND logout_at IS NULL
+                    ORDER BY id DESC
+                    LIMIT 1
+                ]],
+                values = { profileId }
+            },
+            {
+                query = 'UPDATE mdt_profiles SET last_logout_at = NOW() WHERE id = ?',
+                values = { profileId }
+            },
+        })
+        if not okTx then
+            ps.warn('Failed to update logout session (transaction): ' .. tostring(errTx))
+        end
+        return
+    end
+
+    -- Login path: the player is online, so live lookups are safe.
     local fullName = ps.getPlayerName(src)
     local job = ps.getJobData and ps.getJobData(src) or nil
     local jobName = job and job.name or ps.getJobName(src)
@@ -127,52 +162,30 @@ local function upsertProfileSession(src, action)
         return
     end
 
-    if action == 'login' then
-        -- Wrap all login operations in a single transaction to prevent race conditions
-        local okTx, errTx = pcall(MySQL.transaction.await, {
-            {
-                query = [[
-                    UPDATE mdt_profile_sessions
-                    SET logout_at = NOW()
-                    WHERE profile_id = ? AND logout_at IS NULL
-                ]],
-                values = { profileId }
-            },
-            {
-                query = [[
-                    INSERT INTO mdt_profile_sessions (profile_id, citizenid, source, login_at)
-                    VALUES (?, ?, ?, NOW())
-                ]],
-                values = { profileId, citizenid, src }
-            },
-            {
-                query = 'UPDATE mdt_profiles SET last_login_at = NOW() WHERE id = ?',
-                values = { profileId }
-            },
-        })
-        if not okTx then
-            ps.warn('Failed to create login session (transaction): ' .. tostring(errTx))
-        end
-    elseif action == 'logout' then
-        local okTx, errTx = pcall(MySQL.transaction.await, {
-            {
-                query = [[
-                    UPDATE mdt_profile_sessions
-                    SET logout_at = NOW()
-                    WHERE profile_id = ? AND logout_at IS NULL
-                    ORDER BY id DESC
-                    LIMIT 1
-                ]],
-                values = { profileId }
-            },
-            {
-                query = 'UPDATE mdt_profiles SET last_logout_at = NOW() WHERE id = ?',
-                values = { profileId }
-            },
-        })
-        if not okTx then
-            ps.warn('Failed to update logout session (transaction): ' .. tostring(errTx))
-        end
+    -- Only the login path reaches here (logout returned early above).
+    local okTx, errTx = pcall(MySQL.transaction.await, {
+        {
+            query = [[
+                UPDATE mdt_profile_sessions
+                SET logout_at = NOW()
+                WHERE profile_id = ? AND logout_at IS NULL
+            ]],
+            values = { profileId }
+        },
+        {
+            query = [[
+                INSERT INTO mdt_profile_sessions (profile_id, citizenid, source, login_at)
+                VALUES (?, ?, ?, NOW())
+            ]],
+            values = { profileId, citizenid, src }
+        },
+        {
+            query = 'UPDATE mdt_profiles SET last_login_at = NOW() WHERE id = ?',
+            values = { profileId }
+        },
+    })
+    if not okTx then
+        ps.warn('Failed to create login session (transaction): ' .. tostring(errTx))
     end
 end
 
@@ -221,7 +234,10 @@ end)
 
 AddEventHandler('playerDropped', function()
     local src = source
-    upsertProfileSession(src, 'logout')
+    -- The player is already disconnected here, so even resolving their identifier can
+    -- fail depending on the framework's teardown order. Wrap it so a dropped session can
+    -- never surface as a console error on leave.
+    pcall(upsertProfileSession, src, 'logout')
 end)
 
 ps.registerCallback(tostring(GetCurrentResourceName())..':server:checkAuth', function(source)

@@ -329,6 +329,22 @@ export const NUI_EVENTS = {
 		GET_MY_IMPOUNDS: "getMyImpounds",
 		PAY_MY_IMPOUND_FEE: "payMyImpoundFee",
 	},
+	APPLICATIONS: {
+		// Applicant-facing (standalone form, no MDT)
+		GET_APPLICATION_FORM: "getApplicationForm",
+		SUBMIT_APPLICATION: "submitApplication",
+		CLOSE_APPLICATION: "closeApplication",
+		// Editor (Management → Applications)
+		GET_APPLICATION_DEPARTMENTS: "getApplicationDepartments",
+		GET_APPLICATION_QUESTIONS: "getApplicationQuestions",
+		SAVE_APPLICATION_QUESTION: "saveApplicationQuestion",
+		DELETE_APPLICATION_QUESTION: "deleteApplicationQuestion",
+		REORDER_APPLICATION_QUESTIONS: "reorderApplicationQuestions",
+		// Review (Roster → Applications)
+		GET_APPLICATIONS: "getApplications",
+		GET_APPLICATION: "getApplication",
+		DECIDE_APPLICATION: "decideApplication",
+	},
 	COLLAB: {
 		JOIN_REPORT_SESSION: "joinReportSession",
 		LEAVE_REPORT_SESSION: "leaveReportSession",
@@ -430,6 +446,7 @@ export const ALL_NUI_EVENTS = [
 	...Object.values(NUI_EVENTS.PPR),
 	...Object.values(NUI_EVENTS.FTO),
 	...Object.values(NUI_EVENTS.CIVILIAN),
+	...Object.values(NUI_EVENTS.APPLICATIONS),
 	...Object.values(NUI_EVENTS.COLLAB),
 	...Object.values(NUI_EVENTS.DOJ),
 	...Object.values(NUI_EVENTS.SOP),
