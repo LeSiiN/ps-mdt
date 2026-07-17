@@ -961,6 +961,50 @@ CREATE TABLE IF NOT EXISTS `mdt_ia_notes` (
   CONSTRAINT `FK_ia_notes_complaints` FOREIGN KEY (`complaint_id`) REFERENCES `mdt_ia_complaints` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Applications (civilian job applications)
+
+-- The questions each department asks. Managed live in the MDT, not in config — so the
+-- set can change without a restart. `type` drives how the field renders and validates.
+CREATE TABLE IF NOT EXISTS `mdt_application_questions` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `department` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `label` varchar(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `type` enum('short','long','choice','boolean','number','link') NOT NULL DEFAULT 'short',
+  -- For 'choice': a JSON array of option strings. NULL for every other type.
+  `options` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `required` tinyint(1) NOT NULL DEFAULT 0,
+  -- Manual ordering within a department, low to high.
+  `sort_order` int(10) NOT NULL DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `department` (`department`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- A submitted application. Answers are stored as a JSON snapshot of the questions AT
+-- SUBMISSION TIME, so editing or deleting a question later never corrupts or re-labels
+-- an application that was already sent.
+CREATE TABLE IF NOT EXISTS `mdt_applications` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `application_number` varchar(20) NOT NULL,
+  `department` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `applicant_citizenid` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `applicant_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `applicant_phone` varchar(20) DEFAULT NULL,
+  -- JSON: [{ label, type, answer }, ...] — a self-contained record of the form.
+  `answers` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `status` enum('pending','accepted','rejected') NOT NULL DEFAULT 'pending',
+  `reviewed_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `reviewed_by_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `review_note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `application_number` (`application_number`),
+  KEY `department` (`department`),
+  KEY `status` (`status`),
+  KEY `applicant_citizenid` (`applicant_citizenid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- PPR (Performance Planning and Review)
 
 CREATE TABLE IF NOT EXISTS `mdt_ppr` (

@@ -911,6 +911,35 @@ Config.OfficerStatus = {
 Config.PermissionDefaults = Config.PermissionDefaults or {}
 
 -- ---------------------------------------------------------------------------
+--  Applications (civilian job applications)
+-- ---------------------------------------------------------------------------
+-- Civilians apply for a department in-game via a command. Each department has its own
+-- command so the applicant lands straight on the right form. The QUESTIONS themselves
+-- are NOT configured here — they're managed live in the MDT (Management → Applications),
+-- so a department can change what it asks without a config edit or restart.
+Config.Applications = {
+    Enabled = true,
+
+    -- One command per department. `id` must match the department id used everywhere else
+    -- (the job name is the natural choice). `label` is the form's title. `description` is
+    -- the chat autocomplete hint; omit it and it defaults to "Apply to <label>".
+    Departments = {
+        { id = 'police',    command = 'applypolice', label = 'LSPD Application', description = 'Apply to join the LSPD' },
+        { id = 'ambulance', command = 'applyems',    label = 'EMS Application',  description = 'Apply to join EMS' },
+        { id = 'doj',       command = 'applydoj',    label = 'DOJ Application',  description = 'Apply to join the DOJ' },
+    },
+
+    -- Anti-spam: how long a citizen must wait between submissions to the SAME department.
+    CooldownMs = 600000,   -- 10 minutes
+
+    -- Message the applicant on accept/reject (needs lb-phone or your mail bridge).
+    NotifyOnDecision = true,
+
+    -- Hard cap on a single answer's length, mirroring other free-text guards.
+    MaxAnswerLength = 2000,
+}
+
+-- ---------------------------------------------------------------------------
 --  Rate limiting
 -- ---------------------------------------------------------------------------
 -- A client can send NUI events as fast as it can generate them. These caps stop one

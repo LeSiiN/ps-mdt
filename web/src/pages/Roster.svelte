@@ -44,6 +44,7 @@
 	import { globalNotifications } from "../services/notificationService.svelte";
 	import type { AuthService } from "../services/authService.svelte";
 	import ActivityTimeline from "../components/ActivityTimeline.svelte";
+	import RosterApplications from "./RosterApplications.svelte";
 
 	let { authService, tabService }: { authService?: AuthService; tabService?: any } = $props();
 
@@ -84,6 +85,8 @@
 	}
 
 	let officers = $state<Officer[]>([]);
+	// Toggles the whole panel between the roster and the applications review view.
+	let rosterView = $state<"roster" | "applications">("roster");
 	let activeUnits = $state<ActiveUnit[]>([]);
 	let isLoading = $state(false);
 	let searchQuery = $state("");
@@ -791,20 +794,42 @@
 
 <div class="roster-page">
 	<div class="topbar">
-		<input
-			type="text"
-			placeholder="Search by callsign, name or rank..."
-			bind:value={searchQuery}
-			class="search-input"
-		/>
-		<div class="topbar-right">
-			<span class="result-count">{filteredOfficers.length} {term.memberLower}{filteredOfficers.length !== 1 ? "s" : ""}</span>
-			<button class="btn-secondary" onclick={refreshData} disabled={isLoading}>
-				{isLoading ? "Loading..." : "Refresh"}
-			</button>
-		</div>
+		{#if canManageOfficers}
+			<!-- The primary choice on this screen, so it leads — left-aligned as a
+			     segmented control rather than tucked in among the actions on the right. -->
+			<div class="view-switch">
+				<button class="vs-btn" class:active={rosterView === "roster"} onclick={() => (rosterView = "roster")}>
+					<span class="material-icons">groups</span>
+					{term.member}s
+				</button>
+				<button class="vs-btn" class:active={rosterView === "applications"} onclick={() => (rosterView = "applications")}>
+					<span class="material-icons">assignment_ind</span>
+					Applications
+				</button>
+			</div>
+		{/if}
+
+		{#if rosterView === "roster"}
+			<input
+				type="text"
+				placeholder="Search by callsign, name or rank..."
+				bind:value={searchQuery}
+				class="search-input"
+			/>
+			<div class="topbar-right">
+				<span class="result-count">{filteredOfficers.length} {term.memberLower}{filteredOfficers.length !== 1 ? "s" : ""}</span>
+				<button class="btn-secondary" onclick={refreshData} disabled={isLoading}>
+					{isLoading ? "Loading..." : "Refresh"}
+				</button>
+			</div>
+		{/if}
 	</div>
 
+	{#if rosterView === "applications"}
+		<div class="applications-area">
+			<RosterApplications {tabService} />
+		</div>
+	{:else}
 	<div class="content-area">
 		<div class="list-panel">
 			<div class="table-header">
@@ -890,6 +915,7 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
 </div>
 
 <!-- Certification Modal (for users without boss panel access) -->
@@ -1454,6 +1480,44 @@
 
 	.search-input::placeholder {
 		color: rgba(255, 255, 255, 0.2);
+	}
+
+	.view-switch {
+		display: inline-flex;
+		gap: 3px;
+		padding: 3px;
+		border-radius: 4px;
+		background: rgba(0, 0, 0, 0.25);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		flex-shrink: 0;
+	}
+	.vs-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 13px;
+		border: none;
+		border-radius: 3px;
+		background: transparent;
+		color: rgba(255, 255, 255, 0.45);
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.vs-btn:hover { color: rgba(255, 255, 255, 0.7); }
+	.vs-btn.active {
+		background: rgba(var(--accent-rgb, 56, 189, 248), 0.15);
+		color: rgba(255, 255, 255, 0.92);
+	}
+	.vs-btn .material-icons { font-size: 14px; }
+	.applications-area {
+		flex: 1;
+		min-height: 0;
+		padding: 16px;
+		overflow: hidden;
 	}
 
 	.topbar-right {
