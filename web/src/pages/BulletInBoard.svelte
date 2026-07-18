@@ -55,6 +55,13 @@
         urgent: { label: 'Urgent', icon: 'priority_high',  color: 'rgba(220,70,60,0.95)'   },
     };
 
+    // Re-alpha an rgba() string for use as a chip background. The priority colours are
+    // authored as rgba(), so swapping the alpha keeps the hue exactly and avoids
+    // color-mix(), which CEF doesn't handle reliably.
+    function tint(rgba: string, alpha: number): string {
+        return rgba.replace(/[\d.]+\)$/, `${alpha})`);
+    }
+
     // ── State ──────────────────────────────────────────────────
 
     let posts           = $state<BulletinPost[]>([]);
@@ -264,7 +271,7 @@
                     class:active={activeCategory === cat.value}
                     onclick={() => activeCategory = cat.value}
                     style={activeCategory === cat.value && cat.value !== 'all'
-                        ? `--cat-color: ${cat.color};`
+                        ? `--cat-color: ${cat.color}; background: ${cat.color}14; border-color: ${cat.color}33;`
                         : ''}
                 >
                     <!-- Colored dot for non-"all" categories -->
@@ -524,32 +531,47 @@
                     />
                 </div>
 
-                <div class="form-group">
+                <div class="form-group form-full">
                     <span class="field-label">Category</span>
-                    <select class="form-input form-select" bind:value={modal.post.category}>
+                    <!-- Chips rather than a dropdown, following the impound form: the choice
+                         carries colour and meaning, so it should be visible at a glance
+                         instead of hidden behind a click. -->
+                    <div class="chip-row">
                         {#each categories as cat}
-                            <option value={cat.value}>{cat.label}</option>
+                            {@const on = modal.post.category === cat.value}
+                            <button
+                                type="button"
+                                class="pick-chip"
+                                class:on
+                                style={on ? `background:${cat.color}1f; border-color:${cat.color}59; color:${cat.color};` : ''}
+                                onclick={() => (modal.post.category = cat.value)}
+                            >
+                                <span class="chip-dot" style="background:{cat.color};"></span>
+                                <span class="material-icons chip-ico">{cat.icon}</span>
+                                {cat.label}
+                            </button>
                         {/each}
-                    </select>
-                    <!-- Color preview for selected category -->
-                    {#if modal.post.category}
-                        {@const selCat = getCategoryMeta(modal.post.category)}
-                        <div class="cat-select-preview">
-                            <span class="dot" style="background:{selCat.color};"></span>
-                            <span class="material-icons" style="font-size:12px;color:{selCat.color};">{selCat.icon}</span>
-                            <span style="color:{selCat.color}; font-size:10px;">{selCat.label}</span>
-                        </div>
-                    {/if}
+                    </div>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group form-full">
                     <span class="field-label">Priority</span>
-                    <select class="form-input form-select" bind:value={modal.post.priority}>
-                        <option value="low">Low</option>
-                        <option value="normal">Normal</option>
-                        <option value="high">High</option>
-                        <option value="urgent">Urgent</option>
-                    </select>
+                    <div class="chip-row">
+                        {#each ['low', 'normal', 'high', 'urgent'] as p}
+                            {@const meta = PRIORITY_META[p as BulletinPriority]}
+                            {@const on = modal.post.priority === p}
+                            <button
+                                type="button"
+                                class="pick-chip"
+                                class:on
+                                style={on ? `background:${tint(meta.color, 0.14)}; border-color:${meta.color}; color:${meta.color};` : ''}
+                                onclick={() => (modal.post.priority = p as BulletinPriority)}
+                            >
+                                <span class="material-icons chip-ico">{meta.icon}</span>
+                                {meta.label}
+                            </button>
+                        {/each}
+                    </div>
                 </div>
 
                 <div class="form-group form-full">
@@ -564,12 +586,19 @@
                 </div>
 
                 {#if canPin()}
-                    <div class="form-group form-full field-check">
-                        <input type="checkbox" id="chk-pinned" bind:checked={modal.post.pinned} />
-                        <label for="chk-pinned">
-                            <span class="material-icons">push_pin</span>
-                            Pin this post to the top
+                    <!-- Same switch the Settings tab uses for every other boolean. -->
+                    <div class="form-group form-full toggle-row">
+                        <label class="toggle">
+                            <input type="checkbox" bind:checked={modal.post.pinned} />
+                            <span class="toggle-slider"></span>
                         </label>
+                        <div class="toggle-text">
+                            <span class="toggle-title">
+                                <span class="material-icons">push_pin</span>
+                                Pin to top
+                            </span>
+                            <span class="toggle-sub">Keeps this post above all others in its category</span>
+                        </div>
                     </div>
                 {/if}
             </div>
@@ -623,221 +652,237 @@
 {/if}
 
 <style>
+    /* Aligned to the MDT's house style (Bolos, the roster table, the impound form):
+       3px radii, hairline 1px borders, 9-12px type, 42px header bars, 0.1s transitions.
+       List surfaces are flat with hairline separators rather than rounded cards. */
+
     /* ── Layout ──────────────────────────────────────────────── */
     .bulletin-page { display: flex; height: 100%; overflow: hidden; background: var(--card-dark-bg); color: rgba(255, 255, 255, 0.9); }
 
     /* ── Sidebar ─────────────────────────────────────────────── */
     .bulletin-sidebar {
-        width: 280px; min-width: 280px;
+        width: 240px; min-width: 240px;
         border-right: 1px solid rgba(255,255,255,0.06);
         display: flex; flex-direction: column; overflow: hidden;
     }
 
+    /* Matches the 42px topbar every other list view uses. */
     .sidebar-header {
-        padding: 20px 20px 16px;
-        display: flex; align-items: center; gap: 10px;
+        height: 42px; padding: 0 16px;
+        display: flex; align-items: center; gap: 8px;
         border-bottom: 1px solid rgba(255,255,255,0.06);
         flex-shrink: 0;
     }
 
-    .header-icon { font-size: 22px; color: var(--accent-70); }
-    .sidebar-header h2 { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); margin: 0; }
+    .header-icon { font-size: 16px; color: var(--accent-70); }
+    .sidebar-header h2 { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.85); margin: 0; }
 
-    .search-box { padding: 12px 16px; position: relative; flex-shrink: 0; }
-    .search-icon { position: absolute; left: 26px; top: 50%; transform: translateY(-50%); font-size: 16px; color: rgba(255,255,255,0.3); }
+    .search-box { padding: 10px 12px; position: relative; flex-shrink: 0; }
+    .search-icon { position: absolute; left: 21px; top: 50%; transform: translateY(-50%); font-size: 14px; color: rgba(255,255,255,0.25); }
     .search-box input {
-        width: 100%; padding: 8px 12px 8px 34px;
-        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 6px; color: rgba(255,255,255,0.9); font-size: 12px; outline: none; transition: border-color 0.15s;
+        width: 100%; padding: 5px 8px 5px 28px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 3px; color: rgba(255,255,255,0.8); font-size: 11px; font-family: inherit; outline: none; transition: border-color 0.1s;
     }
     .search-box input:focus { border-color: var(--accent-35); }
-    .search-box input::placeholder { color: rgba(255,255,255,0.3); }
+    .search-box input::placeholder { color: rgba(255,255,255,0.2); }
 
     .category-list {
-        flex: 1; overflow-y: auto; padding: 4px 8px;
-        scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
+        flex: 1; overflow-y: auto; padding: 2px 6px;
+        scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent;
     }
+    .category-list::-webkit-scrollbar { width: 4px; }
+    .category-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
 
     .category-item {
-        width: 100%; display: flex; align-items: center; gap: 10px;
-        padding: 10px 12px;
+        width: 100%; display: flex; align-items: center; gap: 8px;
+        padding: 6px 9px;
         border: 1px solid transparent; background: transparent;
-        border-radius: 6px; cursor: pointer; text-align: left;
-        transition: all 0.15s; margin-bottom: 2px; outline: none;
+        border-radius: 3px; cursor: pointer; text-align: left;
+        transition: all 0.1s; margin-bottom: 1px; outline: none;
         position: relative; overflow: hidden;
     }
-    .category-item:hover:not(.active) { background: rgba(255,255,255,0.04); }
-    .category-item.active {
-        background: color-mix(in srgb, var(--cat-color, var(--accent-color)) 8%, transparent);
-        border-color: color-mix(in srgb, var(--cat-color, var(--accent-color)) 20%, transparent);
-    }
+    .category-item:hover:not(.active) { background: rgba(255,255,255,0.03); }
+    /* The active tint/border come from an inline style built with 8-digit hex alpha —
+       color-mix() is unreliable in CEF, which is why the rest of this file already uses
+       the `${color}14` form. */
 
     .cat-color-dot {
-        width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
-        opacity: 0.7;
+        width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+        opacity: 0.75;
     }
 
     .cat-active-bar {
-        position: absolute; right: 0; top: 20%; bottom: 20%;
-        width: 2px; border-radius: 2px 0 0 2px; opacity: 0.6;
+        position: absolute; right: 0; top: 22%; bottom: 22%;
+        width: 2px; opacity: 0.7;
     }
 
-    .cat-icon { font-size: 18px; color: rgba(255,255,255,0.4); flex-shrink: 0; }
+    .cat-icon { font-size: 15px; color: rgba(255,255,255,0.35); flex-shrink: 0; }
 
-    .cat-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-    .cat-title { font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .cat-count { font-size: 10px; color: rgba(255,255,255,0.35); }
+    .cat-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+    .cat-title { font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cat-count { font-size: 9px; color: rgba(255,255,255,0.3); }
 
-    .sidebar-footer { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
+    .sidebar-footer { padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
 
+    /* Green is this codebase's "create" colour — Bolos' .new-btn and the modal's own
+       .primary-btn both use it. Blue read as navigation rather than as an action. */
     .create-btn {
-        width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
-        padding: 9px 14px; background: var(--accent-15); border: 1px solid var(--accent-30);
-        border-radius: 6px; color: var(--accent-80, rgba(100,160,255,0.9));
-        font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; outline: none;
+        width: 100%; display: flex; align-items: center; justify-content: center; gap: 5px;
+        padding: 6px 10px; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.12);
+        border-radius: 3px; color: rgba(52,211,153,0.75);
+        font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
+        cursor: pointer; transition: all 0.1s; outline: none;
     }
-    .create-btn:hover { background: var(--accent-20); border-color: var(--accent-45); }
-    .create-btn .material-icons { font-size: 16px; }
+    .create-btn:hover { background: rgba(16,185,129,0.13); border-color: rgba(16,185,129,0.22); color: rgba(110,231,183,0.95); }
+    .create-btn .material-icons { font-size: 14px; }
 
     /* ── Main Content ────────────────────────────────────────── */
     .bulletin-content {
-        flex: 1; overflow-y: auto; padding: 24px 32px;
-        scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
+        flex: 1; overflow-y: auto; padding: 14px 16px;
+        scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent;
     }
+    .bulletin-content::-webkit-scrollbar { width: 5px; }
+    .bulletin-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
 
     /* Category header bar */
     .content-cat-header {
-        display: flex; align-items: center; gap: 8px;
-        padding: 8px 14px; border-radius: 6px; border-left: 3px solid;
-        margin-bottom: 18px;
+        display: flex; align-items: center; gap: 7px;
+        padding: 6px 11px; border-radius: 3px; border-left: 2px solid;
+        margin-bottom: 12px;
     }
-    .content-cat-title { font-size: 13px; font-weight: 600; }
-    .content-cat-sep   { color: rgba(255,255,255,0.2); font-size: 12px; }
-    .content-cat-count { font-size: 11px; color: rgba(255,255,255,0.4); }
+    .content-cat-title { font-size: 11px; font-weight: 600; }
+    .content-cat-sep   { color: rgba(255,255,255,0.18); font-size: 11px; }
+    .content-cat-count { font-size: 10px; color: rgba(255,255,255,0.35); }
 
     .content-empty {
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        height: 100%; gap: 8px; color: rgba(255,255,255,0.4); text-align: center;
+        height: 100%; gap: 6px; color: rgba(255,255,255,0.35); text-align: center;
     }
-    .empty-icon { font-size: 48px; color: rgba(255,255,255,0.15); margin-bottom: 8px; }
-    .content-empty h3 { font-size: 16px; color: rgba(255,255,255,0.6); margin: 0; }
-    .content-empty p  { font-size: 13px; color: rgba(255,255,255,0.35); margin: 0; }
+    .empty-icon { font-size: 32px; color: rgba(255,255,255,0.12); margin-bottom: 4px; }
+    .content-empty h3 { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.5); margin: 0; }
+    .content-empty p  { font-size: 11px; color: rgba(255,255,255,0.3); margin: 0; }
 
     .section-label {
-        display: flex; align-items: center; gap: 6px;
-        font-size: 10px; font-weight: 700; text-transform: uppercase;
-        letter-spacing: 0.8px; color: rgba(255,255,255,0.3); margin-bottom: 10px;
+        display: flex; align-items: center; gap: 5px;
+        font-size: 9px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.6px; color: rgba(255,255,255,0.28); margin-bottom: 7px;
     }
-    .label-icon { font-size: 13px; color: rgba(255,255,255,0.25); }
+    .label-icon { font-size: 12px; color: rgba(255,255,255,0.22); }
 
-    .posts-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+    .posts-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 
     /* ── Post cards ──────────────────────────────────────────── */
+    /* Flat and squared like .bolo-row, not rounded cards. */
     .post-card {
         background: rgba(255,255,255,0.02);
-        border: 1px solid transparent;
-        border-radius: 10px; overflow: hidden; transition: border-color 0.15s;
+        border: 1px solid rgba(255,255,255,0.04);
+        border-radius: 3px; overflow: hidden; transition: border-color 0.1s;
         position: relative;
     }
-    .post-card:hover { border-color: rgba(255,255,255,0.06); }
+    .post-card:hover { border-color: rgba(255,255,255,0.09); }
 
     /* Left accent bar (regular posts) */
     .post-cat-bar {
         position: absolute; left: 0; top: 0; bottom: 0;
-        width: 3px; opacity: 0.5;
+        width: 2px; opacity: 0.6;
     }
 
     .post-card.pinned {
-        background: rgba(59,130,246,0.07);
-        border-color: rgba(59,130,246,0.18);
+        background: rgba(59,130,246,0.06);
+        border-color: rgba(59,130,246,0.15);
     }
-    .post-card.pinned:hover { border-color: rgba(59,130,246,0.28); }
+    .post-card.pinned:hover { border-color: rgba(59,130,246,0.25); }
 
-    .post-card.expanded { border-color: rgba(255,255,255,0.08); }
-    .post-card.pinned.expanded { border-color: rgba(59,130,246,0.30); }
+    .post-card.expanded { border-color: rgba(255,255,255,0.1); }
+    .post-card.pinned.expanded { border-color: rgba(59,130,246,0.28); }
 
     .post-header {
-        width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-        padding: 12px 16px 12px 20px;
+        width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 8px 12px 8px 16px;
         background: transparent; border: none; cursor: pointer; text-align: left; outline: none;
     }
-    .post-header-left  { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
-    .post-header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .post-header-left  { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+    .post-header-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 
+    /* Same shape as .status-pill elsewhere: 9px uppercase, 3px radius. */
     .priority-badge {
         display: inline-flex; align-items: center; gap: 3px;
-        padding: 2px 7px 2px 5px; border: 1px solid; border-radius: 4px;
-        font-size: 10px; font-weight: 600; text-transform: uppercase;
-        letter-spacing: 0.4px; flex-shrink: 0; white-space: nowrap;
+        padding: 1px 6px 1px 4px; border: 1px solid; border-radius: 3px;
+        font-size: 9px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.3px; flex-shrink: 0; white-space: nowrap;
     }
-    .prio-icon { font-size: 11px; }
+    .prio-icon { font-size: 10px; }
 
     .post-title {
-        font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.88);
+        font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.85);
         margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
-    .pin-icon    { font-size: 14px; }
-    .expand-icon { font-size: 18px; color: rgba(255,255,255,0.25); flex-shrink: 0; }
+    .pin-icon    { font-size: 13px; }
+    .expand-icon { font-size: 15px; color: rgba(255,255,255,0.22); flex-shrink: 0; }
 
     /* Meta row */
     .post-meta {
         display: flex; align-items: center; gap: 5px;
-        padding: 0 16px 10px; flex-wrap: wrap;
+        padding: 0 12px 7px 16px; flex-wrap: wrap;
     }
-    .meta-icon   { font-size: 12px; color: rgba(255,255,255,0.25); }
-    .meta-author { font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.55); }
+    .meta-icon   { font-size: 11px; color: rgba(255,255,255,0.22); }
+    .meta-author { font-size: 10px; font-weight: 500; color: rgba(255,255,255,0.5); }
     .meta-rank   {
-        font-size: 10px; color: rgba(255,255,255,0.3);
-        background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.07);
+        font-size: 9px; color: rgba(255,255,255,0.3);
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
         border-radius: 3px; padding: 1px 5px;
     }
-    .meta-sep  { color: rgba(255,255,255,0.18); font-size: 11px; }
-    .meta-date { font-size: 11px; color: rgba(255,255,255,0.30); }
+    .meta-sep  { color: rgba(255,255,255,0.15); font-size: 10px; }
+    .meta-date { font-size: 10px; color: rgba(255,255,255,0.28); }
 
     .meta-cat-tag {
         display: inline-flex; align-items: center; gap: 3px;
-        font-size: 10px; font-weight: 500;
+        font-size: 9px; font-weight: 500;
         padding: 1px 6px; border-radius: 3px; border: 1px solid;
     }
 
     /* Post body */
     .post-body {
-        padding: 14px 16px; border-top: 1px solid rgba(255,255,255,0.04);
-        color: rgba(255,255,255,0.72); font-size: 12.5px; line-height: 1.7;
+        padding: 11px 12px 11px 16px; border-top: 1px solid rgba(255,255,255,0.04);
+        color: rgba(255,255,255,0.7); font-size: 12px; line-height: 1.65;
     }
-    .post-body :global(h1), .post-body :global(h2), .post-body :global(h3) { color: rgba(255,255,255,0.9); margin: 12px 0 6px; }
-    .post-body :global(h1) { font-size: 15px; }
-    .post-body :global(h2) { font-size: 14px; }
-    .post-body :global(h3) { font-size: 13px; }
+    .post-body :global(h1), .post-body :global(h2), .post-body :global(h3) { color: rgba(255,255,255,0.88); margin: 10px 0 5px; }
+    .post-body :global(h1) { font-size: 13px; }
+    .post-body :global(h2) { font-size: 12.5px; }
+    .post-body :global(h3) { font-size: 12px; }
     .post-body :global(p)  { margin: 5px 0; }
-    .post-body :global(ul), .post-body :global(ol) { padding-left: 20px; margin: 5px 0; }
+    .post-body :global(ul), .post-body :global(ol) { padding-left: 18px; margin: 5px 0; }
     .post-body :global(li) { margin: 3px 0; }
-    .post-body :global(strong) { color: rgba(255,255,255,0.95); }
+    .post-body :global(strong) { color: rgba(255,255,255,0.93); }
 
     /* Post actions */
     .post-actions {
-        display: flex; align-items: center; gap: 6px;
-        padding: 10px 16px 12px; border-top: 1px solid rgba(255,255,255,0.04);
+        display: flex; align-items: center; gap: 5px;
+        padding: 8px 12px 9px 16px; border-top: 1px solid rgba(255,255,255,0.04);
     }
 
+    /* House button spec, matching .action-btn / .delete-btn in Bolos. */
     .action-btn {
         display: inline-flex; align-items: center; gap: 4px;
-        padding: 5px 10px; border-radius: 5px; font-size: 11px; font-weight: 500;
-        cursor: pointer; border: 1px solid; transition: all 0.15s; outline: none;
+        padding: 4px 10px; border-radius: 3px; font-size: 10px; font-weight: 500;
+        cursor: pointer; border: 1px solid; transition: all 0.1s; outline: none;
     }
-    .action-btn .material-icons { font-size: 13px; }
-    .action-btn.pin  { color: var(--accent-70); background: var(--accent-08, rgba(59,130,246,0.08)); border-color: var(--accent-20); }
+    .action-btn .material-icons { font-size: 12px; }
+    .action-btn.pin  { color: var(--accent-70); background: var(--accent-06); border-color: var(--accent-10); }
     .action-btn.pin:hover  { background: var(--accent-15); }
-    .action-btn.edit { color: rgba(255,255,255,0.65); background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); }
-    .action-btn.edit:hover { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.07); }
-    .action-btn.delete { color: rgba(220,70,60,0.85); background: rgba(220,70,60,0.06); border-color: rgba(220,70,60,0.18); margin-left: auto; }
-    .action-btn.delete:hover { background: rgba(220,70,60,0.12); }
+    .action-btn.edit { color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.06); }
+    .action-btn.edit:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.06); }
+    .action-btn.delete { color: rgba(248,113,113,0.6); background: rgba(239,68,68,0.05); border-color: rgba(239,68,68,0.1); margin-left: auto; }
+    .action-btn.delete:hover { background: rgba(239,68,68,0.12); color: rgba(248,113,113,0.9); }
 
     /* ════ Modals ════════════════════════════════════════════ */
+    /* No backdrop-filter: CEF paints it as a solid black block rather than blurring, so a
+       plain darker scrim is used instead — same as the impound and application forms. */
     .modal-backdrop {
-        position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-        backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100;
+        position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+        display: flex; align-items: center; justify-content: center; z-index: 100;
     }
     .modal {
         background: var(--card-dark-bg, #1a1c22); border: 1px solid rgba(255,255,255,0.06);
@@ -864,36 +909,24 @@
     .modal-body {
         flex: 1; overflow-y: auto; padding: 14px 16px;
         display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start;
-        scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
+        scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent;
     }
 
     .form-group { display: flex; flex-direction: column; gap: 4px; }
     .form-full  { grid-column: 1 / -1; }
 
     .field-label { font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.6px; }
-    .required    { color: rgba(220,70,60,0.85); }
+    .required    { color: rgba(248,113,113,0.85); }
 
     .form-input {
         background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 3px;
         padding: 5px 8px; color: rgba(255,255,255,0.8); font-size: 11px; font-family: inherit; outline: none; transition: border-color 0.1s;
     }
-    .form-input:focus { border-color: rgba(255,255,255,0.12); }
+    .form-input:focus { border-color: var(--accent-35); }
     .form-input::placeholder { color: rgba(255,255,255,0.2); }
-    .form-select  { padding-right: 22px; cursor: pointer; }
-    .form-select option { background: #1a1c22; }
     textarea.form-input { resize: vertical; min-height: 120px; line-height: 1.6; }
 
-    .cat-select-preview {
-        display: flex; align-items: center; gap: 5px; padding: 3px 0;
-    }
-    .cat-select-preview .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-
-    .field-hint  { font-size: 10px; color: rgba(255,255,255,0.25); }
-
-    .field-check { display: flex; align-items: center; gap: 8px; }
-    .field-check input[type="checkbox"] { accent-color: var(--accent-60); width: 14px; height: 14px; cursor: pointer; }
-    .field-check label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: rgba(255,255,255,0.6); cursor: pointer; }
-    .field-check label .material-icons { font-size: 14px; color: var(--accent-60); }
+    .field-hint  { font-size: 9px; color: rgba(255,255,255,0.25); }
 
     .confirm-text { font-size: 11px; color: rgba(255,255,255,0.6); margin: 0; line-height: 1.6; grid-column: 1 / -1; }
 
@@ -919,15 +952,75 @@
 
     .delete-btn {
         display: flex; align-items: center; gap: 4px;
-        background: rgba(220,70,60,0.06); border: 1px solid rgba(220,70,60,0.18); border-radius: 3px;
-        padding: 4px 12px; color: rgba(220,70,60,0.85); font-size: 10px; font-weight: 600; cursor: pointer; outline: none; transition: all 0.1s;
+        background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15); border-radius: 3px;
+        padding: 4px 12px; color: rgba(248,113,113,0.8); font-size: 10px; font-weight: 600; cursor: pointer; outline: none; transition: all 0.1s;
     }
-    .delete-btn:hover:not(:disabled) { background: rgba(220,70,60,0.12); }
+    .delete-btn:hover:not(:disabled) { background: rgba(239,68,68,0.12); color: rgba(248,113,113,1); }
     .delete-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── Chip pickers ─────────────────────────────────────────── */
+    /* Same construction as the impound form's hold-period chips. */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 4px; }
+    .pick-chip {
+        display: inline-flex; align-items: center; gap: 5px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 3px;
+        color: rgba(255,255,255,0.5);
+        font-size: 10px; font-weight: 600;
+        padding: 4px 9px;
+        cursor: pointer; transition: all 0.1s; outline: none;
+        font-family: inherit;
+    }
+    .pick-chip:hover:not(.on) { color: rgba(255,255,255,0.85); border-color: rgba(255,255,255,0.15); }
+    /* The `on` colours arrive as an inline style built from the category/priority colour,
+       so each chip lights up in its own hue. */
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; opacity: 0.85; }
+    .chip-ico { font-size: 12px; }
+
+    /* ── Pin toggle ───────────────────────────────────────────── */
+    /* Lifted from the Settings tab so booleans look the same everywhere in the MDT. */
+    .toggle-row { flex-direction: row; align-items: center; gap: 10px; }
+    .toggle {
+        position: relative; display: inline-block;
+        width: 32px; height: 18px; flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+        position: absolute; cursor: pointer;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 18px;
+        transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .toggle-slider:hover { border-color: rgba(255,255,255,0.12); }
+    .toggle-slider::before {
+        content: ""; position: absolute;
+        height: 12px; width: 12px; left: 2px; bottom: 2px;
+        background: rgba(255,255,255,0.4);
+        border-radius: 50%;
+        transition: transform 0.2s ease, background 0.2s ease;
+    }
+    .toggle input:checked + .toggle-slider {
+        background: rgba(var(--accent-rgb), 0.35);
+        border-color: rgba(var(--accent-rgb), 0.3);
+    }
+    .toggle input:checked + .toggle-slider::before {
+        transform: translateX(14px);
+        background: rgba(255,255,255,0.85);
+    }
+    .toggle-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .toggle-title {
+        display: flex; align-items: center; gap: 5px;
+        font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.75);
+    }
+    .toggle-title .material-icons { font-size: 13px; color: rgba(255,255,255,0.4); }
+    .toggle-sub { font-size: 9px; color: rgba(255,255,255,0.28); }
 
     /* ── Spinners ─────────────────────────────────────────────── */
     .spinner {
-        width: 24px; height: 24px;
+        width: 22px; height: 22px;
         border: 2px solid rgba(255,255,255,0.06); border-left-color: var(--accent-60);
         border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 8px;
     }
