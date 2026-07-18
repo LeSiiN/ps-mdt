@@ -263,6 +263,8 @@ export const NUI_EVENTS = {
 	CAMERA: {
 		GET_CAMERAS: "getCameras",
 		VIEW_CAMERA: "viewCamera",
+		// Pushed from the client when a camera goes down (or comes back).
+		CAMERA_STATUS_CHANGED: "cameraStatusChanged",
 	},
 	BODYCAM: {
 		GET_BODYCAMS: "getBodycams",

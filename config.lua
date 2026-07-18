@@ -98,6 +98,8 @@ Config.Commands = {
         --   bind keyboard F5 "mdtstatus enroute"
         --   bind keyboard F6 "mdtstatus onscene"
         --   bind keyboard F7 "mdtstatus active"
+        -- Notes will show the status but with the note given
+        --   bind keyboard F9 "mdtstatus busy Talking"
         -- (Run once; FiveM persists binds. `unbind keyboard F5` removes it.)
     },
 }
@@ -911,6 +913,44 @@ Config.OfficerStatus = {
 Config.PermissionDefaults = Config.PermissionDefaults or {}
 
 -- ---------------------------------------------------------------------------
+--  Camera tampering
+-- ---------------------------------------------------------------------------
+-- Cameras can be shot out. Detection works off the shooter's last bullet impact
+-- position rather than an entity, so it covers BOTH player-placed cameras (which spawn a
+-- prop) and virtual cameras mapped onto existing world models, with one code path and no
+-- dependency on any other resource.
+--
+-- Officers cannot toggle cameras from the MDT by design — a camera goes down because
+-- someone put a bullet in it, and comes back on its own after a cooldown.
+Config.CameraTamper = {
+    Enabled = true,
+
+    -- How close a bullet impact must land to count as a hit on the camera, in metres.
+    -- Generous enough to feel fair, tight enough that stray rounds don't kill cameras.
+    HitRadius = 2.0,
+
+    -- How long a camera stays down after being shot.
+    OfflineMs = 3600000,   -- 60 minutes
+
+    -- Only count impacts from actual firearms (melee/explosions ignored).
+    RequireFirearm = true,
+
+    -- Fire `ps-mdt:server:cameraTampered` so a server can route the alert into whatever
+    -- dispatch it runs. The MDT itself doesn't call into another resource.
+
+    EmitEvent = true,
+
+    -- Client-side gap between two reported shots. CEventGunShot fires per round, so this
+    -- keeps sustained automatic fire from reporting every single one. Short enough that a
+    -- follow-up shot at a camera still counts.
+    ReportCooldownMs = 250,
+
+    -- Server-side throttle on impact reports, per player, as a second line of defence.
+    ReportsPerWindow = 12,
+    ReportWindowMs = 1000,
+}
+
+-- ---------------------------------------------------------------------------
 --  Applications (civilian job applications)
 -- ---------------------------------------------------------------------------
 -- Civilians apply for a department in-game via a command. Each department has its own
@@ -930,7 +970,7 @@ Config.Applications = {
     },
 
     -- Anti-spam: how long a citizen must wait between submissions to the SAME department.
-    CooldownMs = 600000,   -- 10 minutes
+    CooldownMs = 300000,   -- 5 minutes
 
     -- Message the applicant on accept/reject (needs lb-phone or your mail bridge).
     NotifyOnDecision = true,
@@ -989,13 +1029,13 @@ Config.DepartmentBanking = {
     -- replaced with the real values, anything else is passed through as written. That
     -- covers scripts that want the arguments in a different order, or extra ones.
     Export = {
-        resource = 'qb-banking',
-        method   = 'AddMoney',
-        args     = { 'account', 'amount', 'reason' },
-
-        -- Renewed-Banking:
-        --   resource = 'Renewed-Banking', method = 'addAccountMoney',
-        --   args = { 'account', 'amount' }
+        --Renewed-Banking:
+        resource = 'Renewed-Banking', method = 'addAccountMoney',
+        args = { 'account', 'amount' }
+        --
+        -- resource = 'qb-banking',
+        -- method   = 'AddMoney',
+        -- args     = { 'account', 'amount', 'reason' },
         --
         -- okokBanking:
         --   resource = 'okokBanking', method = 'AddMoney',

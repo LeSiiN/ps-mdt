@@ -3,9 +3,63 @@
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
+	import { useNuiEvent } from "../utils/useNuiEvent";
+
+	// CEF doesn't render native `title` tooltips at all, and the camera list clips its
+	// overflow, so the tooltip is appended to <body>, positioned fixed and follows the
+	// cursor. Same approach used on the map and the sidebar.
+	function tip(node: HTMLElement, text: string | undefined) {
+		let el: HTMLDivElement | null = null;
+		let cur = text;
+		function place(e: MouseEvent) {
+			if (!el) return;
+			const t = el.getBoundingClientRect();
+			let x = e.clientX + 14;
+			let y = e.clientY + 16;
+			if (x + t.width > window.innerWidth - 4) x = e.clientX - t.width - 14;
+			if (y + t.height > window.innerHeight - 4) y = e.clientY - t.height - 16;
+			el.style.left = `${Math.max(4, x)}px`;
+			el.style.top = `${Math.max(4, y)}px`;
+		}
+		function show(e: MouseEvent) {
+			if (!cur || el) return;
+			el = document.createElement("div");
+			el.textContent = cur;
+			el.style.cssText =
+				"position:fixed;z-index:99999;max-width:260px;background:#111113;color:rgba(255,255,255,0.92);padding:6px 9px;border-radius:4px;font-size:11px;line-height:1.45;border:1px solid rgba(255,255,255,0.12);box-shadow:0 8px 24px rgba(0,0,0,0.6);pointer-events:none;";
+			document.body.appendChild(el);
+			place(e);
+		}
+		function move(e: MouseEvent) { if (el) place(e); }
+		function hide() { if (el) { el.remove(); el = null; } }
+		node.addEventListener("mouseenter", show);
+		node.addEventListener("mousemove", move);
+		node.addEventListener("mouseleave", hide);
+		return {
+			update(v: string | undefined) { cur = v; if (el && !v) hide(); },
+			destroy() {
+				hide();
+				node.removeEventListener("mouseenter", show);
+				node.removeEventListener("mousemove", move);
+				node.removeEventListener("mouseleave", hide);
+			},
+		};
+	}
 	import { globalNotifications } from "../services/notificationService.svelte";
 
 	let cameras = $state<Camera[]>([]);
+
+	// A camera going down (shot out) or coming back is pushed from the server, so an open
+	// list flips status live instead of waiting for the next visit to the tab.
+	useNuiEvent<{ camId: string; isOnline: boolean }>(
+		NUI_EVENTS.CAMERA.CAMERA_STATUS_CHANGED,
+		(data) => {
+			if (!data?.camId) return;
+			cameras = cameras.map((c) =>
+				c.id === data.camId ? { ...c, isOnline: data.isOnline } : c,
+			);
+		},
+	);
 	let isLoading = $state(false);
 	let searchQuery = $state("");
 	let groupedCameras = $state<Record<string, Camera[]>>({});
@@ -278,12 +332,22 @@
 								<span class="col-id">
 									<span class="id-tag">{camera.id}</span>
 								</span>
-								<span class="col-label">{camera.label}</span>
+								<span class="col-label">
+									{#if !camera.isOnline}
+										<span
+											class="damage-warn"
+											use:tip={"This camera was damaged and is offline. It will come back online once repaired."}
+										>
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+										</span>
+									{/if}
+									{camera.label}
+								</span>
 								<span class="col-status">
 									{#if camera.isOnline}
 										<span class="pill pill-green">Online</span>
 									{:else}
-										<span class="pill pill-grey">Offline</span>
+										<span class="pill pill-red">Offline</span>
 									{/if}
 								</span>
 								<span class="col-viewers">
@@ -521,10 +585,21 @@
 		border: 1px solid rgba(16, 185, 129, 0.1);
 	}
 
-	.pill-grey {
-		background: rgba(255, 255, 255, 0.03);
-		color: rgba(255, 255, 255, 0.4);
-		border: 1px solid rgba(255, 255, 255, 0.05);
+	.pill-red {
+		background: rgba(239, 68, 68, 0.08);
+		color: rgba(248, 113, 113, 0.85);
+		border: 1px solid rgba(239, 68, 68, 0.15);
+	}
+
+	/* Amber triangle ahead of the name, so a damaged camera is spottable while scanning
+	   the list rather than only from the status column. */
+	.damage-warn {
+		display: inline-flex;
+		align-items: center;
+		vertical-align: -2px;
+		margin-right: 5px;
+		color: rgba(251, 146, 60, 0.95);
+		cursor: help;
 	}
 
 	.viewer-count {

@@ -336,6 +336,34 @@ Config.CivilianAccess.payImpounds = true
 
 Citizens then see their impounded vehicles in the civilian MDT with the fee itemised (impound fee + accrued storage), any hold that's in force, and a button to pay. Paying does **not** release the vehicle — an officer still does that.
 
+### Camera tampering
+
+Cameras can be shot out. A downed camera drops off the live feed list in the MDT (no View button) and comes back on its own after a cooldown.
+
+```lua
+Config.CameraTamper = {
+    Enabled = true,
+    HitRadius = 2.0,        -- metres from the bullet impact to the camera
+    OfflineMs = 600000,     -- 10 minutes down
+    RequireFirearm = true,
+    EmitEvent = true,       -- fires ps-mdt:server:cameraTampered
+    ReportsPerWindow = 12,  -- per-player throttle on impact reports
+    ReportWindowMs = 1000,
+}
+```
+
+**Officers cannot toggle cameras from the MDT by design** — a camera goes down because someone put a bullet in it.
+
+Detection reads the shooter's last bullet impact position rather than watching an entity, so it covers player-placed cameras (which spawn a prop) *and* virtual cameras mapped onto existing world models through one code path. Impacts are validated server-side, so camera positions never reach the client: a client only reports where its own bullet landed, and implausible claims (an impact far from the shooter) are rejected.
+
+To route the alert into a dispatch system, listen for the event rather than expecting the MDT to call your resource:
+
+```lua
+AddEventHandler('ps-mdt:server:cameraTampered', function(data)
+    -- data: camId, label, coords, offlineMs, suspectSource, suspectCitizenId, suspectName
+end)
+```
+
 ### Applications (civilian job applications)
 
 Civilians apply for a department in-game. Each department has its own command, so the applicant lands straight on the right form:
