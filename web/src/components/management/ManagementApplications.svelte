@@ -197,6 +197,7 @@
 		Changes take effect immediately — the next applicant sees the updated form.
 	</p>
 
+	<div class="editor-scroll">
 	{#if loading}
 		<div class="empty">Loading…</div>
 	{:else if questions.length === 0}
@@ -235,7 +236,9 @@
 			{/each}
 		</div>
 	{/if}
+	</div>
 
+	<div class="editor-foot">
 	{#if editing}
 		<div class="editor-card">
 			<div class="editor-title">{editing.id ? "Edit question" : "New question"}</div>
@@ -300,6 +303,7 @@
 			<span class="material-icons">add</span> Add question
 		</button>
 	{/if}
+	</div>
 </div>
 
 <style>
@@ -309,6 +313,27 @@
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
+		height: 100%;
+		min-height: 0;
+	}
+	/* The question list scrolls on its own so a long list (past ~10 questions) stays
+	   usable and the add/editor controls below never scroll out of reach. */
+	.editor-scroll {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+	}
+	.editor-scroll::-webkit-scrollbar { width: 5px; }
+	.editor-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+	.editor-foot {
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		padding-top: 4px;
+		border-top: 1px solid rgba(255, 255, 255, 0.05);
 	}
 	.head {
 		display: flex;

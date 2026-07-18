@@ -43,9 +43,12 @@
 	let detail = $state<AppDetail | null>(null);
 	let detailLoading = $state(false);
 
-	// Lightbox for the applicant portrait — same pattern as the impound form.
-	let lightboxOpen = $state(false);
+	// Lightbox for any image — the applicant portrait or an image-link answer.
+	let lightboxSrc = $state<string | null>(null);
 	let imageBroken = $state(false);
+	function openImageLightbox(src: string) {
+		if (src && src.trim() !== "") lightboxSrc = src;
+	}
 
 	let note = $state("");
 	let deciding = $state(false);
@@ -83,7 +86,7 @@
 		detail = null;
 		note = "";
 		actionError = "";
-		lightboxOpen = false;
+		lightboxSrc = null;
 		imageBroken = false;
 		detailLoading = true;
 		try {
@@ -190,7 +193,7 @@
 						<button
 							class="dh-avatar dh-avatar-img"
 							type="button"
-							onclick={() => (lightboxOpen = true)}
+							onclick={() => detail?.applicant_image && openImageLightbox(detail.applicant_image)}
 							title="Click to enlarge"
 						>
 							<img
@@ -239,9 +242,27 @@
 								<span class="a-label">{a.label}</span>
 							</div>
 							{#if a.type === "link" && a.answer}
-								<a class="a-value a-link" href={a.answer} target="_blank" rel="noopener noreferrer">
-									<span class="material-icons">link</span>{a.answer}
-								</a>
+								<!-- Image links load inline and enlarge on click. If the URL isn't an
+								     image it collapses to a plain "open" link. -->
+								<div class="a-image-wrap">
+									<button
+										type="button"
+										class="a-image"
+										onclick={() => openImageLightbox(a.answer)}
+										title="Click to enlarge"
+									>
+										<img
+											src={a.answer}
+											alt={a.label}
+											onerror={(e) => {
+												const img = e.currentTarget as HTMLImageElement;
+												img.style.display = "none";
+												(img.parentElement as HTMLElement).classList.add("failed");
+											}}
+										/>
+										<span class="a-image-zoom material-icons">zoom_in</span>
+									</button>
+								</div>
 							{:else if a.type === "boolean"}
 								<div class="a-bool" class:yes={a.answer === "Yes"}>
 									<span class="material-icons">{a.answer === "Yes" ? "check_circle" : "cancel"}</span>
@@ -289,15 +310,15 @@
 	</div>
 </div>
 
-{#if lightboxOpen && detail?.applicant_image && !imageBroken}
+{#if lightboxSrc}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="lightbox-overlay" onclick={() => (lightboxOpen = false)}>
+	<div class="lightbox-overlay" onclick={() => (lightboxSrc = null)}>
 		<div class="lightbox-card" onclick={(e) => e.stopPropagation()}>
-			<button class="lightbox-close" aria-label="Close" onclick={() => (lightboxOpen = false)}>
+			<button class="lightbox-close" aria-label="Close" onclick={() => (lightboxSrc = null)}>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 			</button>
-			<img class="lightbox-img" src={detail.applicant_image} alt={detail.applicant_name} />
+			<img class="lightbox-img" src={lightboxSrc} alt="Preview" />
 		</div>
 	</div>
 {/if}
@@ -588,15 +609,48 @@
 		padding-left: 27px;
 	}
 	.a-value.empty { font-style: italic; color: rgba(255, 255, 255, 0.28); }
-	.a-link {
+	/* Image-link answers render as a thumbnail that enlarges on click, with a small
+	   fallback "open link" beneath in case the URL isn't an image. */
+	.a-image-wrap { display: flex; flex-direction: column; gap: 6px; padding-left: 27px; }
+	.a-image {
+		position: relative;
+		width: 180px;
+		height: 120px;
+		padding: 0;
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 5px;
+		overflow: hidden;
+		background: rgba(0, 0, 0, 0.3);
+		cursor: pointer;
+		align-self: flex-start;
+	}
+	.a-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+	.a-image-zoom {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		background: rgba(0, 0, 0, 0.4);
+		color: #fff;
+		font-size: 22px;
+		opacity: 0;
+		transition: opacity 0.12s;
+	}
+	.a-image:hover .a-image-zoom { opacity: 1; }
+	/* When the image fails to load we hide the <img>; mark the button so it doesn't sit
+	   as an empty black box. */
+	.a-image.failed { width: auto; height: auto; border: none; background: none; }
+	.a-open {
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
-		color: rgba(96, 165, 250, 0.9);
+		font-size: 11px;
+		color: rgba(96, 165, 250, 0.85);
 		text-decoration: none;
+		align-self: flex-start;
 	}
-	.a-link:hover { color: rgba(147, 197, 253, 1); text-decoration: underline; }
-	.a-link .material-icons { font-size: 14px; }
+	.a-open:hover { color: rgba(147, 197, 253, 1); text-decoration: underline; }
+	.a-open .material-icons { font-size: 13px; }
 
 	/* Yes/No answers get an icon so the verdict is readable at a glance. */
 	.a-bool {

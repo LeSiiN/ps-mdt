@@ -51,6 +51,12 @@
 	};
 	let accentRgb = $derived(DOMAIN_ACCENT[department] ?? "96, 165, 250");
 
+	// Shared lightbox for image-link previews.
+	let lightboxSrc = $state<string | null>(null);
+	function openLightbox(src: string) {
+		if (src && src.trim() !== "") lightboxSrc = src;
+	}
+
 	// Load the form whenever it's shown for a department.
 	$effect(() => {
 		if (show && department) {
@@ -206,7 +212,7 @@
 								<input
 									class="form-input"
 									type="text"
-									placeholder="https://…"
+									placeholder="https://… (image link)"
 									bind:value={answers[String(q.id)]}
 								/>
 								{#if typeof answers[String(q.id)] === "string" && !isValidLink(answers[String(q.id)] as string)}
@@ -214,6 +220,22 @@
 										<span class="material-icons">error_outline</span>
 										Enter a full URL starting with http(s)://
 									</span>
+								{:else if typeof answers[String(q.id)] === "string" && (answers[String(q.id)] as string).trim() !== ""}
+									<!-- Live preview so the applicant sees the image loaded immediately.
+									     Clicking enlarges it. Falls back to a plain link if it isn't an image. -->
+									<button
+										type="button"
+										class="img-preview"
+										onclick={() => openLightbox(answers[String(q.id)] as string)}
+										title="Click to enlarge"
+									>
+										<img
+											src={answers[String(q.id)] as string}
+											alt="Preview"
+											onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
+										/>
+										<span class="img-zoom material-icons">zoom_in</span>
+									</button>
 								{/if}
 							{:else if q.type === "choice"}
 								<select class="form-input form-select" bind:value={answers[String(q.id)]}>
@@ -262,6 +284,19 @@
 	</div>
 {/if}
 
+{#if lightboxSrc}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="lightbox-overlay" onclick={() => (lightboxSrc = null)}>
+		<div class="lightbox-card" onclick={(e) => e.stopPropagation()}>
+			<button class="lightbox-close" aria-label="Close" onclick={() => (lightboxSrc = null)}>
+				<span class="material-icons">close</span>
+			</button>
+			<img class="lightbox-img" src={lightboxSrc} alt="Preview" />
+		</div>
+	</div>
+{/if}
+
 <style>
 	/* Built to match the on-site impound form: solid translucent scrim (no
 	   backdrop-filter — CEF paints blur as a black block), a roomy panel that reads at
@@ -276,15 +311,21 @@
 		z-index: 1200;
 	}
 	.modal {
-		background: rgba(26, 28, 33, 0.97);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		/* A dark base with a faint department-coloured wash layered on top, so the whole
+		   form reads in the department's colour rather than just the icons. */
+		background:
+			linear-gradient(rgba(var(--accent-rgb, 56, 189, 248), 0.05), rgba(var(--accent-rgb, 56, 189, 248), 0.02)),
+			rgba(26, 28, 33, 0.97);
+		border: 1px solid rgba(var(--accent-rgb, 56, 189, 248), 0.3);
 		border-radius: 6px;
 		width: min(600px, 94vw);
 		max-height: 88vh;
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
-		box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+		box-shadow:
+			0 24px 70px rgba(0, 0, 0, 0.65),
+			0 0 0 1px rgba(var(--accent-rgb, 56, 189, 248), 0.06);
 	}
 
 	.modal-header {
@@ -292,7 +333,8 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 13px 20px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+		background: rgba(var(--accent-rgb, 56, 189, 248), 0.08);
+		border-bottom: 1px solid rgba(var(--accent-rgb, 56, 189, 248), 0.2);
 	}
 	.mh-left { display: flex; align-items: center; gap: 12px; }
 	.mh-icon {
@@ -338,8 +380,8 @@
 		flex-direction: column;
 		gap: 8px;
 		padding: 12px 14px;
-		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid rgba(255, 255, 255, 0.05);
+		background: rgba(var(--accent-rgb, 56, 189, 248), 0.03);
+		border: 1px solid rgba(var(--accent-rgb, 56, 189, 248), 0.1);
 		border-radius: 5px;
 	}
 	.q-head { display: flex; align-items: center; gap: 9px; }
@@ -391,7 +433,7 @@
 	.form-input::placeholder { color: rgba(255, 255, 255, 0.2); }
 	.form-input option { background: #1a1d23; }
 	.form-select { cursor: pointer; }
-	textarea.form-input { resize: vertical; line-height: 1.45; }
+	textarea.form-input { resize: vertical; line-height: 1.45; min-height: 84px; }
 
 	.field-warn {
 		display: flex;
@@ -455,7 +497,8 @@
 		align-items: center;
 		gap: 12px;
 		padding: 13px 20px;
-		border-top: 1px solid rgba(255, 255, 255, 0.09);
+		background: rgba(var(--accent-rgb, 56, 189, 248), 0.05);
+		border-top: 1px solid rgba(var(--accent-rgb, 56, 189, 248), 0.15);
 	}
 	.modal-footer-right { display: flex; gap: 8px; }
 	.modal-hint { font-size: 11px; color: rgba(255, 255, 255, 0.35); }
@@ -488,4 +531,59 @@
 		background: rgba(var(--accent-rgb, 56, 189, 248), 0.25);
 	}
 	.submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+	/* Image-link preview: a compact thumbnail that loads the linked image immediately and
+	   opens the lightbox on click. */
+	.img-preview {
+		position: relative;
+		margin-top: 2px;
+		width: 120px;
+		height: 80px;
+		padding: 0;
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 4px;
+		overflow: hidden;
+		background: rgba(0, 0, 0, 0.3);
+		cursor: pointer;
+		align-self: flex-start;
+	}
+	.img-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+	.img-zoom {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		background: rgba(0, 0, 0, 0.45);
+		color: #fff;
+		font-size: 20px;
+		opacity: 0;
+		transition: opacity 0.12s;
+	}
+	.img-preview:hover .img-zoom { opacity: 1; }
+
+	.lightbox-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.85);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+	}
+	.lightbox-card { position: relative; max-width: 90vw; max-height: 90vh; padding-top: 40px; }
+	.lightbox-close {
+		position: absolute;
+		top: 0;
+		right: 0;
+		display: grid;
+		place-items: center;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 4px;
+		color: rgba(255, 255, 255, 0.7);
+		cursor: pointer;
+		padding: 5px;
+	}
+	.lightbox-close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+	.lightbox-close .material-icons { font-size: 16px; }
+	.lightbox-img { max-width: 90vw; max-height: calc(90vh - 40px); object-fit: contain; display: block; border-radius: 4px; }
 </style>
