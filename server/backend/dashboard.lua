@@ -676,9 +676,6 @@ ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
         bulletins        = computeBulletins(),
         activeBolos      = computeActiveBolos(src),
         activeUnits      = computeActiveUnits(),
-        -- The frontend already reads usageMetrics off this payload but the server
-        -- never sent it, so the numbers (and the impound tile) stayed empty.
-        usageMetrics     = computeUsageMetrics(),
         recentDispatches = computeRecentDispatches(src),
         usageMetrics     = computeUsageMetrics(),
     }
