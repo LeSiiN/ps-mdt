@@ -22,6 +22,9 @@ RegisterNUICallback('viewCamera', function(data, cb)
     local result = ps.callback(resourceName .. ':server:viewCamera', cameraId)
 
     if result and result.success then
+        -- The MDT has to close for the feed to be visible; remember to bring it back when
+        -- the view ends, so the operator returns to the tab they came from.
+        MdtReopenAfterCamera = MDTOpen == true
         CloseMDT(true)
         cb({ success = true })
     else

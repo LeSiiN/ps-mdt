@@ -13,6 +13,14 @@ local function isBodycamOn(citizenid)
     return bodycamPower[citizenid] ~= false
 end
 
+--- Read-only accessor for other modules (the map/tracking payload needs to know whether
+--- an officer's bodycam is actually recording). The power table itself stays file-local.
+---@param citizenid string
+---@return boolean
+function IsOfficerBodycamOn(citizenid)
+    return isBodycamOn(citizenid)
+end
+
 local function getBodycamConfig()
     return Config and Config.Bodycam or {}
 end

@@ -112,6 +112,10 @@
         status?: string;
         statusNote?: string;
         statusUpdatedAt?: number; // ms epoch
+        // Bodycam feed reference, keyed the same way as the Bodycams tab (server id),
+        // plus the live power state so the popup can offer or withhold the feed.
+        bodycamId?: string;
+        bodycamOnline?: boolean;
     };
 
     type Patrol = {
@@ -959,6 +963,22 @@
             ${sSince ? `<span class="op-availability-since">${sSince}</span>` : ""}
         `;
 
+        // Bodycam feed, mirroring the vehicle popup's dashcam action. Three states rather
+        // than two: a camera that is switched off is a different thing from an officer
+        // who has no bodycam id at all, and saying so saves a pointless click.
+        const bodycamId = officer.bodycamId;
+        const bodycamOnline = officer.bodycamOnline !== false;
+        const bodycamAction = !bodycamId
+            ? `<div class="veh-note">No bodycam available</div>`
+            : bodycamOnline
+                ? `<button class="op-bodycam-btn" data-bodycam="${bodycamId}">
+                       <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+                       View Bodycam
+                   </button>`
+                : `<div class="veh-note veh-note--off">
+                       <span class="bc-dot"></span>Bodycam switched off — no feed
+                   </div>`;
+
         return `
             <div class="op-wrap">
                 <div class="op-header" style="--op-color:${color}">
@@ -974,6 +994,7 @@
                         <span class="op-label">Heading</span>
                         ${heading}
                     </div>
+                    <div class="veh-actions">${bodycamAction}</div>
                 </div>
             </div>
         `;
@@ -1040,6 +1061,34 @@
         }
     }
 
+    // Open an officer's bodycam feed. Same callback the Bodycams tab uses; the server
+    // re-checks permission and current power state, so a stale popup can't force a feed.
+    async function viewOfficerBodycam(bodycamId: string) {
+        if (!bodycamId) return;
+        try {
+            const res: any = await fetchNui(NUI_EVENTS.BODYCAM.VIEW_BODYCAM, bodycamId);
+            if (res && res.success === false) {
+                globalNotifications.error(res.message || "No bodycam feed available");
+            }
+        } catch {
+            globalNotifications.error("No bodycam feed available");
+        }
+    }
+
+    // The officer popup is a standalone L.popup rather than a marker popup, and its
+    // content is replaced on every tracking refresh — so the button has to be re-wired
+    // after each setContent, not once on open.
+    function attachOfficerBodycamHandler(popup: L.Popup, bodycamId?: string) {
+        if (!bodycamId) return;
+        const btn = popup.getElement()?.querySelector(".op-bodycam-btn") as HTMLButtonElement | null;
+        if (!btn) return;
+        btn.onclick = (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            viewOfficerBodycam(bodycamId);
+        };
+    }
+
     // Leaflet stops click propagation inside popups, so wire the button up via
     // the popup's DOM once it's open (and after any content refresh).
     function attachDashcamHandler(marker: L.Marker, plate: string) {
@@ -1092,6 +1141,7 @@
             .setContent(buildOfficerPopupHtml(officer))
             .addTo(map);
 
+            attachOfficerBodycamHandler(highlightPopup, officer.bodycamId);
             highlightPopup.on("remove", () => { clearOfficerHighlight(); });
 
             // Glide over on first selection, kept centered in the visible area.
@@ -1102,6 +1152,7 @@
         if (highlightPopup) {
             highlightPopup.setLatLng(latlng);
             highlightPopup.setContent(buildOfficerPopupHtml(officer));
+            attachOfficerBodycamHandler(highlightPopup, officer.bodycamId);
         }
     }
 
@@ -1748,6 +1799,11 @@
                     status: (bodycam as any).status,
                     statusNote: (bodycam as any).statusNote,
                     statusUpdatedAt: (bodycam as any).statusUpdatedAt,
+                    // This object is rebuilt field by field, so anything omitted here is
+                    // silently dropped from the payload — the popup's bodycam action
+                    // depends on both of these surviving the copy.
+                    bodycamId: (bodycam as any).bodycamId,
+                    bodycamOnline: (bodycam as any).bodycamOnline,
                 };
                 freshOfficers.push(bc);
                 seenBodycams.add(bc.citizenid);
@@ -3687,6 +3743,36 @@
         margin-top: 2px; padding-top: 6px;
         border-top: 1px solid rgba(255,255,255,0.05);
         font-size: 9px; color: rgba(255,255,255,0.35); text-align: center;
+    }
+
+    /* Officer bodycam action. Same shape as the vehicle dashcam button but in the
+       officer-blue accent, so the two read as siblings rather than the same thing. */
+    :global(.op-bodycam-btn) {
+        display: flex; align-items: center; justify-content: center; gap: 6px;
+        width: 100%; padding: 6px 8px;
+        background: rgba(56,189,248,0.14);
+        color: rgba(147,197,253,0.95);
+        border: 1px solid rgba(56,189,248,0.32);
+        border-radius: 6px;
+        font-size: 11px; font-weight: 600; cursor: pointer;
+        transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    :global(.op-bodycam-btn:hover) {
+        background: rgba(56,189,248,0.26);
+        border-color: rgba(56,189,248,0.5);
+        color: #fff;
+    }
+    :global(.op-bodycam-btn svg) { flex-shrink: 0; }
+
+    /* A switched-off bodycam gets a red note rather than a disabled button: there is
+       nothing to click, and the reason is worth stating. */
+    :global(.veh-note--off) {
+        display: flex; align-items: center; justify-content: center; gap: 5px;
+        color: rgba(248,113,113,0.8);
+    }
+    :global(.bc-dot) {
+        width: 5px; height: 5px; border-radius: 50%;
+        background: rgba(248,113,113,0.9); flex-shrink: 0;
     }
 
     /* Selected officer card highlight */
