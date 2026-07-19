@@ -1332,14 +1332,41 @@ ps.registerCallback(resourceName .. ':server:getCitizenTimeline', function(sourc
     local limit = (Config.Pagination and Config.Pagination.CitizenTimeline) or 25
     local offset = (page - 1) * limit
 
-    local rows = MySQL.query.await([[
-        SELECT id, actor_citizenid, actor_name, action, entity_type, entity_id, details,
-               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
-        FROM mdt_audit_logs
-        WHERE actor_citizenid = ?
-        ORDER BY created_at DESC, id DESC
-        LIMIT ? OFFSET ?
-    ]], { citizenid, limit + 1, offset }) or {}
+    -- Optional free-text filter. It has to run in SQL rather than on the client, because
+    -- the client only ever holds the pages it has already pulled — filtering there would
+    -- silently miss everything further back.
+    local search = payload.search
+    if type(search) ~= 'string' then search = nil end
+    if search then
+        search = search:gsub('^%s+', ''):gsub('%s+$', '')
+        if search == '' then search = nil end
+    end
+
+    local rows
+    if search then
+        -- The visible text of an entry comes from the action name and, when present, the
+        -- action_label inside details — so both have to be searchable, along with the
+        -- entity reference an officer might remember instead.
+        local like = '%' .. search .. '%'
+        rows = MySQL.query.await([[
+            SELECT id, actor_citizenid, actor_name, action, entity_type, entity_id, details,
+                   DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+            FROM mdt_audit_logs
+            WHERE actor_citizenid = ?
+              AND (action LIKE ? OR entity_type LIKE ? OR entity_id LIKE ? OR details LIKE ?)
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+        ]], { citizenid, like, like, like, like, limit + 1, offset }) or {}
+    else
+        rows = MySQL.query.await([[
+            SELECT id, actor_citizenid, actor_name, action, entity_type, entity_id, details,
+                   DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+            FROM mdt_audit_logs
+            WHERE actor_citizenid = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+        ]], { citizenid, limit + 1, offset }) or {}
+    end
 
     local hasMore = #rows > limit
     if hasMore then rows[#rows] = nil end
