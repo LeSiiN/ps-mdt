@@ -31,6 +31,7 @@
 	let autoStatusNotifications = $state(true);
 	let autoWaypoint = $state(true);
 	let assignmentNotifications = $state(true);
+	let bodycamAutoDuty = $state(true);
 
 	let saveStatus: string | null = $state(null);
 	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -39,7 +40,7 @@
 	// topbar can show an "Unsaved changes" hint.
 	let savedSnapshot = $state("");
 	function snapshot(): string {
-		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, centerOnSelf, patrolZoneNotifications, autoStatusNotifications, autoWaypoint, assignmentNotifications, defaultTab, reducedMotion });
+		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, centerOnSelf, patrolZoneNotifications, autoStatusNotifications, autoWaypoint, assignmentNotifications, bodycamAutoDuty, defaultTab, reducedMotion });
 	}
 	let isDirty = $derived(savedSnapshot !== "" && snapshot() !== savedSnapshot);
 
@@ -108,6 +109,7 @@
 				notificationSounds: d.notificationSounds !== false,
 				autoWaypoint: d.autoWaypoint !== false,
 				assignmentNotifications: d.assignmentNotifications !== false,
+				bodycamAutoDuty: d.bodycamAutoDuty !== false,
 			}),
 		}).catch(() => {});
 	}
@@ -169,6 +171,7 @@
 			if (data.autoStatusNotifications !== undefined) autoStatusNotifications = data.autoStatusNotifications;
 			if (data.autoWaypoint !== undefined) autoWaypoint = data.autoWaypoint;
 			if (data.assignmentNotifications !== undefined) assignmentNotifications = data.assignmentNotifications;
+			if (data.bodycamAutoDuty !== undefined) bodycamAutoDuty = data.bodycamAutoDuty;
 			if (typeof data.defaultTab === "string") defaultTab = data.defaultTab;
 			if (data.reducedMotion !== undefined) reducedMotion = data.reducedMotion;
 		} catch {
@@ -188,6 +191,7 @@
 				autoStatusNotifications,
 				autoWaypoint,
 				assignmentNotifications,
+				bodycamAutoDuty,
 				defaultTab,
 				reducedMotion,
 			};
@@ -384,6 +388,16 @@
 					</div>
 					<label class="toggle">
 						<input type="checkbox" bind:checked={assignmentNotifications} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Bodycam Follows Duty</span>
+						<span class="setting-desc">Switch your bodycam on when you go on duty and off when you go off. Manual changes are always logged.</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={bodycamAutoDuty} />
 						<span class="toggle-slider"></span>
 					</label>
 				</div>

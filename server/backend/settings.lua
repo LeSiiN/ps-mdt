@@ -47,6 +47,11 @@ local ACTION_CATEGORIES = {
     icu_deleted = 'icu',
     camera_viewed = 'cameras',
     bodycam_viewed = 'bodycams',
+    -- NOTE: bodycam_on / bodycam_off are deliberately NOT mapped to a category.
+    -- Unmapped actions are always tracked, and that is the point: an officer may switch
+    -- their bodycam off, but the record of it must not itself be switchable off. Adding
+    -- them here would let the paper trail be disabled from Settings.
+    -- Same reasoning for camera_tampered.
     -- ── Patrol management ────────────────────────────────────────────────────
     patrol_created          = 'patrols',
     patrol_deleted          = 'patrols',
