@@ -1,10 +1,5 @@
 local resourceName = tostring(GetCurrentResourceName())
 
--- Set by the NUI callbacks that open a feed from inside the MDT, consumed by
--- stopCameraView. Global rather than file-local because it's written in
--- client/backend/cameras.lua and client/backend/bodycams.lua and read here.
-MdtReopenAfterCamera = false
-
 -- Camera viewing state
 local currentCamera = nil
 local isViewingCamera = false
@@ -84,19 +79,6 @@ local function stopCameraView(notifyServer)
         end
 
         currentCameraData = nil
-
-        -- Opening a feed from inside the MDT closes it, because the tablet can't be on
-        -- screen while a camera is. Put it back afterwards so the operator lands where
-        -- they left off instead of having to reopen and navigate back. The NUI stays
-        -- mounted while hidden, so the tab they were on is still selected.
-        if MdtReopenAfterCamera then
-            MdtReopenAfterCamera = false
-            -- Let the fade-in finish first, otherwise the tablet animates up over a
-            -- black screen.
-            SetTimeout(300, function()
-                if OpenMDT and not MDTOpen then OpenMDT() end
-            end)
-        end
 
         ps.debug('Camera view stopped')
     else
