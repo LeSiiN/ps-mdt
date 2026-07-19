@@ -3,6 +3,7 @@
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
+	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { globalNotifications } from "../services/notificationService.svelte";
 
 	let bodycams = $state<Bodycam[]>([]);
@@ -40,6 +41,11 @@
 			return;
 		}
 
+		// One request at a time. A toggle refreshes the list, and a viewer being cut off
+		// refreshes it too — firing both at once just queues a second identical round trip
+		// behind the first.
+		if (isLoading) return;
+
 		try {
 			isLoading = true;
 			const response = await fetchNui<GetBodycamsResponse>(
@@ -60,6 +66,7 @@
 	}
 
 	onMount(() => {
+		loadMyBodycam();
 		if (isEnvBrowser()) {
 			bodycams = [
 				{
@@ -119,6 +126,41 @@
 	function viewBodycam(bodycam: any) {
 		fetchNui(NUI_EVENTS.BODYCAM.VIEW_BODYCAM, bodycam.id);
 	}
+
+	// ── Own bodycam ───────────────────────────────────────────────────────────
+	// An officer controls only their own camera; the server keys the state to the caller
+	// and never accepts a target, so there is no "turn off someone else's" path.
+	let myBodycamOn = $state(true);
+	let togglingOwn = $state(false);
+
+	async function loadMyBodycam() {
+		try {
+			const res = await fetchNui<{ success: boolean; isOnline?: boolean }>(
+				NUI_EVENTS.BODYCAM.GET_MY_BODYCAM, {},
+			);
+			if (res?.success) myBodycamOn = res.isOnline !== false;
+		} catch { /* keep the current value */ }
+	}
+
+	async function toggleOwnBodycam() {
+		if (togglingOwn) return;
+		togglingOwn = true;
+		try {
+			const res = await fetchNui<{ success: boolean; isOnline?: boolean }>(
+				NUI_EVENTS.BODYCAM.TOGGLE_BODYCAM, { on: !myBodycamOn },
+			);
+			if (res?.success) {
+				myBodycamOn = res.isOnline !== false;
+				await loadBodycams();
+			}
+		} catch { /* leave state untouched */ }
+		togglingOwn = false;
+	}
+
+	// A bodycam going dark elsewhere should be reflected without a manual refresh.
+	useNuiEvent<{ id: string }>(NUI_EVENTS.BODYCAM.BODYCAM_POWER_OFF, () => {
+		loadBodycams();
+	});
 </script>
 
 <div class="bodycams-page">
@@ -130,6 +172,16 @@
 			class="search-input"
 		/>
 		<div class="topbar-right">
+			<!-- The whole control is the switch: clicking anywhere on it flips your own
+			     bodycam. Shaped like the toggles in Settings so it reads as a switch and not
+			     as a status badge. -->
+			<button class="own-toggle" class:on={myBodycamOn} disabled={togglingOwn} onclick={toggleOwnBodycam}>
+				<span class="own-track"><span class="own-knob"></span></span>
+				<span class="own-text">
+					<span class="own-label">My bodycam</span>
+					<span class="own-state">{myBodycamOn ? "Recording" : "Not recording"}</span>
+				</span>
+			</button>
 			<span class="result-count">{filteredBodycams.length} officer{filteredBodycams.length !== 1 ? "s" : ""}</span>
 			<button
 				class="btn-secondary"
@@ -178,7 +230,7 @@
 							{#if bodycam.isOnline}
 								<span class="pill pill-green">Online</span>
 							{:else}
-								<span class="pill pill-grey">Offline</span>
+								<span class="pill pill-red">Offline</span>
 							{/if}
 						</span>
 						<span class="col-viewers">
@@ -383,11 +435,77 @@
 		border: 1px solid rgba(16, 185, 129, 0.1);
 	}
 
-	.pill-grey {
-		background: rgba(255, 255, 255, 0.03);
-		color: rgba(255, 255, 255, 0.4);
-		border: 1px solid rgba(255, 255, 255, 0.05);
+	/* Offline is a red state here, same as a downed camera — it means the officer's
+	   camera is not recording, which is worth noticing rather than greying out. */
+	.pill-red {
+		background: rgba(239, 68, 68, 0.08);
+		color: rgba(248, 113, 113, 0.85);
+		border: 1px solid rgba(239, 68, 68, 0.15);
 	}
+
+	/* Own bodycam switch. Off is the loud state — a camera that isn't recording is the
+	   thing worth noticing, so it carries the red. */
+	.own-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 11px 4px 8px;
+		border-radius: 3px;
+		background: rgba(239, 68, 68, 0.07);
+		border: 1px solid rgba(239, 68, 68, 0.2);
+		cursor: pointer;
+		transition: all 0.12s;
+		text-align: left;
+	}
+	.own-toggle:hover:not(:disabled) { background: rgba(239, 68, 68, 0.13); }
+	.own-toggle.on {
+		background: rgba(16, 185, 129, 0.06);
+		border-color: rgba(16, 185, 129, 0.16);
+	}
+	.own-toggle.on:hover:not(:disabled) { background: rgba(16, 185, 129, 0.12); }
+	.own-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	/* Same switch shape the Settings tab uses, scaled down for the toolbar. */
+	.own-track {
+		position: relative;
+		width: 26px;
+		height: 15px;
+		flex-shrink: 0;
+		border-radius: 15px;
+		background: rgba(239, 68, 68, 0.3);
+		border: 1px solid rgba(239, 68, 68, 0.35);
+		transition: background 0.15s ease, border-color 0.15s ease;
+	}
+	.own-toggle.on .own-track {
+		background: rgba(16, 185, 129, 0.35);
+		border-color: rgba(16, 185, 129, 0.35);
+	}
+	.own-knob {
+		position: absolute;
+		top: 1px;
+		left: 1px;
+		width: 11px;
+		height: 11px;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.85);
+		transition: transform 0.15s ease;
+	}
+	.own-toggle.on .own-knob { transform: translateX(11px); }
+
+	.own-text { display: flex; flex-direction: column; line-height: 1.25; }
+	.own-label {
+		font-size: 8px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: rgba(255, 255, 255, 0.35);
+	}
+	.own-state {
+		font-size: 10px;
+		font-weight: 600;
+		color: rgba(248, 113, 113, 0.9);
+	}
+	.own-toggle.on .own-state { color: rgba(52, 211, 153, 0.9); }
 
 	.viewer-count {
 		color: rgba(255, 255, 255, 0.6);

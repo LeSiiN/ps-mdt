@@ -98,8 +98,6 @@ Config.Commands = {
         --   bind keyboard F5 "mdtstatus enroute"
         --   bind keyboard F6 "mdtstatus onscene"
         --   bind keyboard F7 "mdtstatus active"
-        -- Notes will show the status but with the note given
-        --   bind keyboard F9 "mdtstatus busy Talking"
         -- (Run once; FiveM persists binds. `unbind keyboard F5` removes it.)
     },
 }
@@ -839,11 +837,25 @@ Config.ManagementPermissions = {
 
 -- Bodycam Settings (override defaults if needed, remove to use built-in defaults)
 Config.Bodycam = {
+    -- Duty event wiring
     DutyEvent = 'QBCore:Server:OnJobUpdate',
     DutyEventMode = 'qbcore',
     MultiJobDutyEvent = 'ps-multijob:server:dutyChanged',
     DutyResource = 'qb-core',
     MultiJobResource = 'ps-multijob',
+
+    -- Officers control their own bodycam. Turning it off is deliberately NOT blocked —
+    -- it is recorded instead. Every change lands in mdt_bodycam_log with who, when and
+    -- why, readable in the MDT. Accountability rather than a lock.
+    Command = 'bodycam',
+
+    -- Default for the "switch automatically with duty" preference in Settings, used
+    -- until a player saves their own choice.
+    AutoDutyDefault = true,
+
+    -- Tell the officer when their bodycam changes state.
+    NotifyOfficer = true,
+
 }
 
 -- Officer Status (Map tab) ---------------------------------------------------
@@ -930,14 +942,13 @@ Config.CameraTamper = {
     HitRadius = 2.0,
 
     -- How long a camera stays down after being shot.
-    OfflineMs = 3600000,   -- 60 minutes
+    OfflineMs = 600000,   -- 10 minutes
 
     -- Only count impacts from actual firearms (melee/explosions ignored).
     RequireFirearm = true,
 
     -- Fire `ps-mdt:server:cameraTampered` so a server can route the alert into whatever
     -- dispatch it runs. The MDT itself doesn't call into another resource.
-
     EmitEvent = true,
 
     -- Client-side gap between two reported shots. CEventGunShot fires per round, so this
@@ -1029,13 +1040,13 @@ Config.DepartmentBanking = {
     -- replaced with the real values, anything else is passed through as written. That
     -- covers scripts that want the arguments in a different order, or extra ones.
     Export = {
-        --Renewed-Banking:
-        resource = 'Renewed-Banking', method = 'addAccountMoney',
-        args = { 'account', 'amount' }
-        --
-        -- resource = 'qb-banking',
-        -- method   = 'AddMoney',
-        -- args     = { 'account', 'amount', 'reason' },
+        resource = 'qb-banking',
+        method   = 'AddMoney',
+        args     = { 'account', 'amount', 'reason' },
+
+        -- Renewed-Banking:
+        --   resource = 'Renewed-Banking', method = 'addAccountMoney',
+        --   args = { 'account', 'amount' }
         --
         -- okokBanking:
         --   resource = 'okokBanking', method = 'AddMoney',

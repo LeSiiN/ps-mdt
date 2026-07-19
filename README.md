@@ -336,6 +336,26 @@ Config.CivilianAccess.payImpounds = true
 
 Citizens then see their impounded vehicles in the civilian MDT with the fee itemised (impound fee + accrued storage), any hold that's in force, and a button to pay. Paying does **not** release the vehicle — an officer still does that.
 
+### Bodycams
+
+Officers control their own bodycam with `/bodycam`, or the toggle in the Bodycams tab. **Switching it off is deliberately not blocked — it is recorded.** Every state change lands in the audit log with who, when and why, and shows up on the officer's activity timeline in the Roster — no separate history view needed.
+
+```lua
+Config.Bodycam = {
+    Command = 'bodycam',
+    AutoDutyDefault = true,       -- default for the Settings preference
+    NotifyOfficer = true,
+}
+```
+
+An officer can only ever change their own camera: the server keys the state to the caller's citizenid and accepts no target, so there is no path to switching off someone else's.
+
+Settings has a **Bodycam Follows Duty** preference: on by default, it switches the camera on at duty start and off at duty end, logged as `duty_on` / `duty_off` rather than `manual`. Turning a bodycam off cuts any live viewer immediately.
+
+History is stored in the existing `mdt_audit_logs` table rather than a table of its own — the audit log already carries actor, name, timestamp and a details blob, so the callsign and reason ride along in `details`. Because the Roster's activity timeline already reads that table by `actor_citizenid`, bodycam entries appear there automatically; entries carry an `action_label` so they read as "Bodycam deactivated manually" rather than a raw action name. No new table, no migration, no extra view.
+
+Note that `bodycam_on` / `bodycam_off` are intentionally left out of `Config.AuditTracking`'s category map. Unmapped actions are always recorded, which is the point: the record of a bodycam being switched off must not itself be switchable off from Settings.
+
 ### Camera tampering
 
 Cameras can be shot out. A downed camera drops off the live feed list in the MDT (no View button) and comes back on its own after a cooldown.

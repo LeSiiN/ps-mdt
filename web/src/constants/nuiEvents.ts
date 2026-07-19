@@ -269,6 +269,10 @@ export const NUI_EVENTS = {
 	BODYCAM: {
 		GET_BODYCAMS: "getBodycams",
 		VIEW_BODYCAM: "viewBodycam",
+		// Officer-controlled power + history
+		TOGGLE_BODYCAM: "toggleBodycam",
+		GET_MY_BODYCAM: "getMyBodycam",
+		BODYCAM_POWER_OFF: "bodycamPowerOff",
 	},
 	MAP: {
 		GET_TRACKING:       "getTracking",

@@ -28,6 +28,32 @@
 	let loading = $state(false);
 	let loadedFor = $state<string | null>(null);
 
+	// Filtering happens server-side: the component only holds the pages it has already
+	// pulled, so filtering here would quietly miss everything further back.
+	let search = $state("");
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function onSearchInput() {
+		// One request per pause in typing rather than one per keystroke.
+		if (searchTimer !== undefined) clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => {
+			page = 1;
+			entries = [];
+			hasMore = false;
+			load(1, false);
+		}, 250);
+	}
+
+	function clearSearch() {
+		if (!search) return;
+		search = "";
+		if (searchTimer !== undefined) clearTimeout(searchTimer);
+		page = 1;
+		entries = [];
+		hasMore = false;
+		load(1, false);
+	}
+
 	// "warrant_request_created" -> "Warrant request created"
 	function pretty(action: string): string {
 		const s = action.replace(/_/g, " ");
@@ -62,7 +88,7 @@
 				hasMore: boolean;
 			}>(
 				NUI_EVENTS.CITIZEN.GET_CITIZEN_TIMELINE,
-				{ citizenid, page: targetPage },
+				{ citizenid, page: targetPage, search: search.trim() || undefined },
 				{ entries: [], hasMore: false },
 			);
 			const rows = Array.isArray(res?.entries) ? res.entries : [];
@@ -81,6 +107,7 @@
 		const cid = citizenid;
 		if (cid && cid !== loadedFor) {
 			loadedFor = cid;
+			search = "";
 			page = 1;
 			entries = [];
 			hasMore = false;
@@ -89,12 +116,27 @@
 	});
 </script>
 
+<div class="act-search">
+	<span class="material-icons act-search-icon">search</span>
+	<input
+		type="text"
+		placeholder="Search activity..."
+		bind:value={search}
+		oninput={onSearchInput}
+	/>
+	{#if search}
+		<button class="act-search-clear" aria-label="Clear search" onclick={clearSearch}>
+			<span class="material-icons">close</span>
+		</button>
+	{/if}
+</div>
+
 {#if loading && entries.length === 0}
 	<p class="act-hint">Loading...</p>
 {:else if entries.length === 0}
 	<div class="no-tags">
 		<span class="material-icons no-tags-icon">history</span>
-		<p>No recorded activity for this officer.</p>
+		<p>{search ? "No activity matches that search." : "No recorded activity for this officer."}</p>
 	</div>
 {:else}
 	<div class="act-list">
@@ -118,6 +160,53 @@
 {/if}
 
 <style>
+	/* Same construction as the other inline search fields in the MDT (bulletin board,
+	   camera list): bordered box, icon inset on the left, 11px type, 3px radius. */
+	.act-search {
+		position: relative;
+		display: flex;
+		align-items: center;
+		margin-bottom: 8px;
+	}
+	.act-search-icon {
+		position: absolute;
+		left: 8px;
+		font-size: 14px;
+		color: rgba(255, 255, 255, 0.25);
+		pointer-events: none;
+	}
+	.act-search input {
+		width: 100%;
+		padding: 5px 26px 5px 28px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 11px;
+		font-family: inherit;
+		outline: none;
+		box-sizing: border-box;
+		transition: border-color 0.1s;
+	}
+	.act-search input:focus { border-color: rgba(var(--accent-rgb), 0.35); }
+	.act-search input::placeholder { color: rgba(255, 255, 255, 0.2); }
+	.act-search-clear {
+		position: absolute;
+		right: 5px;
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		border: none;
+		border-radius: 3px;
+		background: transparent;
+		color: rgba(255, 255, 255, 0.3);
+		cursor: pointer;
+	}
+	.act-search-clear:hover { color: rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0.05); }
+	.act-search-clear .material-icons { font-size: 13px; }
+
 	/* Mirrors .ia-history-* in Roster.svelte for a consistent boss-panel look. */
 	.act-list {
 		display: flex;

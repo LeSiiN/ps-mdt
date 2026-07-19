@@ -316,6 +316,21 @@ end
 
 -- HEAVY: scans all on-duty players of the given domain + their vehicles. Do not
 -- call this per client request — it's wrapped by getTrackingSnapshot() which caches it.
+-- Bodycam reference for an officer entry. There are two code paths that build this list
+-- (QBCore and the generic fallback) and they must stay identical, so the shared bits live
+-- here rather than being written out twice.
+--
+-- Written as an explicit comparison: `IsOfficerBodycamOn and IsOfficerBodycamOn(cid) or
+-- true` would collapse a legitimate `false` into `true`, reporting a switched-off bodycam
+-- as recording.
+local function bodycamFields(playerId, citizenid)
+    local on = true
+    if IsOfficerBodycamOn then
+        on = IsOfficerBodycamOn(citizenid) == true
+    end
+    return tostring(playerId), on
+end
+
 local function getAllTrackers(matchFn, domain)
     matchFn = matchFn or IsPoliceJob
     domain = domain or 'police'
@@ -339,6 +354,7 @@ local function getAllTrackers(matchFn, domain)
 
             local coords = GetEntityCoords(ped)
             local veh = GetVehiclePedIsIn(ped, false)
+            local bcId, bcOn = bodycamFields(src, data.citizenid)
             bodycams[#bodycams + 1] = {
                 citizenid = data.citizenid,
                 name      = data.charinfo.firstname .. ' ' .. data.charinfo.lastname,
@@ -347,6 +363,9 @@ local function getAllTrackers(matchFn, domain)
                 coords    = { x = coords.x, y = coords.y, z = coords.z },
                 heading   = GetEntityHeading(ped),
                 inVehicle = veh and veh ~= 0,
+                -- Feeds are keyed by server id, same as the Bodycams tab.
+                bodycamId     = bcId,
+                bodycamOnline = bcOn,
             }
 
             if veh and veh ~= 0 and not seenVehicles[veh] then
@@ -374,14 +393,18 @@ local function getAllTrackers(matchFn, domain)
 
             local coords = GetEntityCoords(ped)
             local veh = GetVehiclePedIsIn(ped, false)
+            local officerCid = ps.getIdentifier and ps.getIdentifier(playerId) or nil
+            local bcId, bcOn = bodycamFields(playerId, officerCid)
             bodycams[#bodycams + 1] = {
-                citizenid = ps.getIdentifier and ps.getIdentifier(playerId) or nil,
+                citizenid = officerCid,
                 name      = (ps.getPlayerName and ps.getPlayerName(playerId)) or GetPlayerName(playerId) or 'Unknown',
                 callsign  = ps.getMetadata and ps.getMetadata(playerId, 'callsign') or nil,
                 rank      = ps.getJobGradeName and ps.getJobGradeName(playerId) or 'Officer',
                 coords    = { x = coords.x, y = coords.y, z = coords.z },
                 heading   = GetEntityHeading(ped),
                 inVehicle = veh and veh ~= 0,
+                bodycamId     = bcId,
+                bodycamOnline = bcOn,
             }
 
             if veh and veh ~= 0 and not seenVehicles[veh] then
