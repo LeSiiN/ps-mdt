@@ -72,6 +72,20 @@ RegisterNetEvent(resourceName .. ':client:autoStatusNotify', function(data)
     if text and text ~= '' then ps.notify(text, 'inform') end
 end)
 
+-- ── ps-dispatch bridge ───────────────────────────────────────────────────────
+-- Attaching through ps-dispatch ITSELF (its call menu, or the respond
+-- keybind) never touches an MDT code path, so the automatic status system
+-- would silently miss those attaches. The restyled ps-dispatch fires these
+-- local events on self attach/detach; older ps-dispatch versions simply
+-- never emit them and nothing changes.
+RegisterNetEvent('ps-dispatch:client:selfAttach', function(id)
+    AutoStatusClientEngage(id)
+end)
+
+RegisterNetEvent('ps-dispatch:client:selfDetach', function(id)
+    AutoStatusClientDisengage(id)
+end)
+
 -- Server-driven watch control: a table starts (or replaces) the watcher,
 -- anything falsy stops it. Only the server starts watches, and only after it
 -- actually engaged the automation — so no watch runs for an officer whose

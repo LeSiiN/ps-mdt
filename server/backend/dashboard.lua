@@ -544,7 +544,9 @@ function GetDispatchInfoById(id)
     for _, call in ipairs(buildSanitizedDispatches()) do
         if tostring(call.id) == id then
             local code = type(call.code) == 'string' and call.code ~= '' and call.code or nil
-            return { code = code, coords = call.coords }
+            local street = type(call.street) == 'string' and call.street ~= '' and call.street or nil
+            local message = type(call.message) == 'string' and call.message ~= '' and call.message or nil
+            return { code = code, coords = call.coords, street = street, message = message }
         end
     end
     return nil
@@ -676,6 +678,9 @@ ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
         bulletins        = computeBulletins(),
         activeBolos      = computeActiveBolos(src),
         activeUnits      = computeActiveUnits(),
+        -- The frontend already reads usageMetrics off this payload but the server
+        -- never sent it, so the numbers (and the impound tile) stayed empty.
+        usageMetrics     = computeUsageMetrics(),
         recentDispatches = computeRecentDispatches(src),
         usageMetrics     = computeUsageMetrics(),
     }
@@ -1048,16 +1053,62 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
         end
 
         if targetSrc then
+            local info = GetDispatchInfoById(dispatchId) or {}
+
+            -- Assignment as a real dispatch alert: the officer gets a full
+            -- alert card (map thumbnail, 10-code, dispatcher note) through
+            -- ps-dispatch's SendTargetedAlert export instead of a plain
+            -- notify. Self-gating: on ps-dispatch builds without the export
+            -- the pcall fails, alertSent stays false and the client falls
+            -- back to its classic notify — no config switch needed.
+            local alertSent = false
+            -- Alert cards are a ps-dispatch bonus, not a requirement: the MDT
+            -- also runs on qs-dispatch/cd_dispatch or with no dispatch
+            -- resource at all. Checking the resource state first keeps the
+            -- common standalone case free of a thrown-and-caught error, and
+            -- the pcall still covers ps-dispatch builds that predate the
+            -- SendTargetedAlert export. Either way the classic notify below
+            -- takes over whenever alertSent stays false.
+            if action == 'attach' and GetResourceState('ps-dispatch') == 'started' then
+                -- pcall returns (ok, ...) — the previous version assigned only
+                -- `ok`, so a rejected payload still counted as "sent" and
+                -- suppressed the fallback notify. Both are checked now.
+                local ok, sent = pcall(function()
+                    return exports['ps-dispatch']:SendTargetedAlert({ targetSrc }, {
+                        -- Headline is the actual call, not a generic label.
+                        message = info.message or ('Call #' .. tostring(dispatchId)),
+                        code = info.code or 'ASSIGN',
+                        codeName = 'mdtassign',
+                        icon = 'fas fa-headset',
+                        priority = 2,
+                        coords = data.coords and { x = data.coords.x, y = data.coords.y, z = 0 } or nil,
+                        street = info.street,
+                        information = noteText,
+                        -- The dispatcher already set this unit's waypoint, so
+                        -- the alert shows an assignment confirmation instead
+                        -- of a respond prompt.
+                        assigned = true,
+                        alertTime = 12,
+                    })
+                end)
+                alertSent = ok and sent == true
+                if not ok then
+                    ps.debug('SendTargetedAlert failed:', tostring(sent))
+                end
+            end
+
             TriggerClientEvent(resourceName .. ':client:dispatchAssign', targetSrc, {
                 id = dispatchId,
                 action = action,
                 coords = data.coords, -- {x, y} for waypoint (attach only)
                 note = noteText,      -- included in the assignment notify
                 manual = manualCall ~= nil, -- skip provider attach for manual calls
+                -- The alert card replaces the text notify when it went out.
+                alertSent = alertSent,
                 -- 10-code for the notify, resolved from the cached sanitized
                 -- list — works for provider AND manual calls, and spares the
                 -- client a blocking list round-trip.
-                code = (GetDispatchInfoById(dispatchId) or {}).code,
+                code = info.code,
             })
             hit = hit + 1
         else
