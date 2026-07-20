@@ -79,6 +79,64 @@ local function getOnDutyOfficers()
 end
 
 -- Get all bodycams for on-duty officers
+-- Helper function to create bodycam for officer
+local function createOfficerBodycam(playerId, playerData)
+    local bodycamId = tostring(playerId)
+    local officerName = playerData.charinfo.firstname .. ' ' .. playerData.charinfo.lastname
+
+    bodycamInstances[bodycamId] = {
+        id = bodycamId,
+        officerName = officerName,
+        callsign = (playerData.metadata and playerData.metadata.callsign) or 'Unknown',
+        rank = (playerData.job and playerData.job.grade and playerData.job.grade.name) or 'Officer',
+        playerId = playerId,
+        citizenid = playerData.citizenid,
+        createdAt = os.time()
+    }
+
+    ps.debug('Created bodycam for officer:', officerName, 'ID:', bodycamId)
+end
+
+-- Helper function to remove bodycam for officer
+local function removeOfficerBodycam(playerId)
+    local bodycamId = tostring(playerId)
+
+    if bodycamInstances[bodycamId] then
+        bodycamInstances[bodycamId] = nil
+        ps.debug('Removed bodycam for officer going off duty:', playerId)
+    end
+end
+
+-- Bodycam ids are the officer's server id as a STRING (see
+-- createOfficerBodycam). Callers pass whatever their UI happened to hold —
+-- the Bodycams tab sends the string, the dispatch map popup a number — and in
+-- Lua a numeric key never matches a string one, so normalize every lookup.
+local function normalizeBodycamId(id)
+    if type(id) == 'table' then id = id.id or id.bodycamId end
+    if id == nil or id == '' then return nil end
+    return tostring(id)
+end
+
+-- The registry is filled lazily (by getBodycams, i.e. opening the Bodycams
+-- tab) and on duty CHANGES. An officer already on duty when the viewer joined
+-- — or when the resource restarted — therefore has no entry yet, and viewing
+-- them failed with "Bodycam not found" until someone opened that tab once.
+-- Rebuild on demand instead.
+local function resolveBodycam(bodycamId)
+    if not bodycamId then return nil end
+    if bodycamInstances[bodycamId] then return bodycamInstances[bodycamId] end
+
+    for _, player in pairs(getOnDutyOfficers() or {}) do
+        local pd = player.PlayerData
+        if pd and tostring(pd.source) == bodycamId then
+            createOfficerBodycam(pd.source, pd)
+            ps.debug('resolveBodycam: rebuilt missing instance for', bodycamId)
+            return bodycamInstances[bodycamId]
+        end
+    end
+    return nil
+end
+
 ps.registerCallback(resourceName .. ':server:getBodycams', function(source)
     local src = source
     ps.debug('getBodycams called by source:', src)
@@ -188,9 +246,17 @@ ps.registerCallback(resourceName .. ':server:viewBodycam', function(source, body
         return { success = false, error = "Unauthorized" }
     end
 
-    local bodycamData = bodycamInstances[bodycamId]
+    bodycamId = normalizeBodycamId(bodycamId)
+    local bodycamData = resolveBodycam(bodycamId)
     if not bodycamData then
         return { success = false, error = "Bodycam not found" }
+    end
+
+    -- A switched-off bodycam has nothing to show; say so instead of opening a
+    -- live feed the officer believes is off. The toggle stays logged either
+    -- way (see setBodycamPower) — this is only about what a viewer sees.
+    if not isBodycamOn(bodycamData.citizenid) then
+        return { success = false, error = "This officer's bodycam is switched off" }
     end
 
     local targetSource = bodycamData.playerId
@@ -264,6 +330,8 @@ end)
 RegisterNetEvent(resourceName .. ':server:deactivateBodycam', function(bodycamId)
     local playerId = source
     if not CheckAuth(playerId) then return end
+    bodycamId = normalizeBodycamId(bodycamId)
+    if not bodycamId then return end
     ps.debug('Deactivating bodycam for player:', playerId, 'Bodycam ID:', bodycamId)
 
     if bodycamViewers[bodycamId] then
@@ -285,34 +353,6 @@ RegisterNetEvent(resourceName .. ':server:deactivateBodycam', function(bodycamId
         ps.debug('No viewer table found for bodycam:', bodycamId)
     end
 end)
-
--- Helper function to create bodycam for officer
-local function createOfficerBodycam(playerId, playerData)
-    local bodycamId = tostring(playerId)
-    local officerName = playerData.charinfo.firstname .. ' ' .. playerData.charinfo.lastname
-
-    bodycamInstances[bodycamId] = {
-        id = bodycamId,
-        officerName = officerName,
-        callsign = (playerData.metadata and playerData.metadata.callsign) or 'Unknown',
-        rank = (playerData.job and playerData.job.grade and playerData.job.grade.name) or 'Officer',
-        playerId = playerId,
-        citizenid = playerData.citizenid,
-        createdAt = os.time()
-    }
-
-    ps.debug('Created bodycam for officer:', officerName, 'ID:', bodycamId)
-end
-
--- Helper function to remove bodycam for officer
-local function removeOfficerBodycam(playerId)
-    local bodycamId = tostring(playerId)
-
-    if bodycamInstances[bodycamId] then
-        bodycamInstances[bodycamId] = nil
-        ps.debug('Removed bodycam for officer going off duty:', playerId)
-    end
-end
 
 -- Listen for QBCore duty status changes
 local function handleDutyChange(playerId, job, onDuty, employeeData)

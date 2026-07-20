@@ -238,6 +238,11 @@ local function sanitizeDispatch(call)
         description = call.description,
         camId       = call.camId,
         firstColor  = call.firstColor,
+        -- What the caller actually reported (911 text etc.) and any note a
+        -- dispatcher pinned to the call inside ps-dispatch. Both were dropped
+        -- here before, so assignments could never carry them along.
+        information = call.information,
+        dispatchNote = call.dispatchNote,
     }
     if call.coords then
         if type(call.coords) == 'vector3' or type(call.coords) == 'vector4' then
@@ -546,7 +551,12 @@ function GetDispatchInfoById(id)
             local code = type(call.code) == 'string' and call.code ~= '' and call.code or nil
             local street = type(call.street) == 'string' and call.street ~= '' and call.street or nil
             local message = type(call.message) == 'string' and call.message ~= '' and call.message or nil
-            return { code = code, coords = call.coords, street = street, message = message }
+            local information = type(call.information) == 'string' and call.information ~= '' and call.information or nil
+            local dispatchNote = type(call.dispatchNote) == 'string' and call.dispatchNote ~= '' and call.dispatchNote or nil
+            return {
+                code = code, coords = call.coords, street = street, message = message,
+                information = information, dispatchNote = dispatchNote,
+            }
         end
     end
     return nil
@@ -1083,7 +1093,20 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
                         priority = 2,
                         coords = data.coords and { x = data.coords.x, y = data.coords.y, z = 0 } or nil,
                         street = info.street,
-                        information = noteText,
+                        -- Caller's own report stays in `information`; every
+                        -- dispatcher instruction (the note written for this
+                        -- assignment plus any note already pinned to the call
+                        -- in ps-dispatch) goes into the tagged dispatch note,
+                        -- so the unit sees WHAT happened and WHAT to do.
+                        information = info.information,
+                        dispatchNote = (function()
+                            local parts = {}
+                            if noteText and noteText ~= '' then parts[#parts + 1] = noteText end
+                            if info.dispatchNote and info.dispatchNote ~= noteText then
+                                parts[#parts + 1] = info.dispatchNote
+                            end
+                            return #parts > 0 and table.concat(parts, ' · ') or nil
+                        end)(),
                         -- The dispatcher already set this unit's waypoint, so
                         -- the alert shows an assignment confirmation instead
                         -- of a respond prompt.

@@ -837,6 +837,16 @@ Config.ManagementPermissions = {
 
 -- Bodycam Settings (override defaults if needed, remove to use built-in defaults)
 Config.Bodycam = {
+    -- Where the bodycam lens sits, relative to the officer (metres, in the
+    -- ped's own local space: side = right, forward = ahead, height = up from
+    -- the ped's feet). Separate values while seated, since a driver sits
+    -- lower and closer to the windscreen than a standing officer.
+    -- Remove the whole Position block to use the built-in defaults.
+    Position = {
+        onFoot  = { side = 0.0, forward = 0.12, height = 0.45, pitch = -8.0 },
+        vehicle = { side = 0.0, forward = -0.02, height = 0.45, pitch = -4.0 },
+    },
+
     -- Duty event wiring
     DutyEvent = 'QBCore:Server:OnJobUpdate',
     DutyEventMode = 'qbcore',
