@@ -676,6 +676,9 @@ ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
         bulletins        = computeBulletins(),
         activeBolos      = computeActiveBolos(src),
         activeUnits      = computeActiveUnits(),
+        -- The frontend already reads usageMetrics off this payload but the server
+        -- never sent it, so the numbers (and the impound tile) stayed empty.
+        usageMetrics     = computeUsageMetrics(),
         recentDispatches = computeRecentDispatches(src),
         usageMetrics     = computeUsageMetrics(),
     }
@@ -1048,16 +1051,43 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
         end
 
         if targetSrc then
+            local info = GetDispatchInfoById(dispatchId) or {}
+
+            -- Assignment as a real dispatch alert: the officer gets a full
+            -- alert card (map thumbnail, 10-code, dispatcher note) through
+            -- ps-dispatch's SendTargetedAlert export instead of a plain
+            -- notify. Self-gating: on ps-dispatch builds without the export
+            -- the pcall fails, alertSent stays false and the client falls
+            -- back to its classic notify — no config switch needed.
+            local alertSent = false
+            if action == 'attach' then
+                alertSent = pcall(function()
+                    exports['ps-dispatch']:SendTargetedAlert({ targetSrc }, {
+                        message = 'Dispatch Assignment',
+                        code = info.code or 'ASSIGN',
+                        codeName = 'mdtassign',
+                        icon = 'fas fa-headset',
+                        priority = 2,
+                        coords = data.coords and { x = data.coords.x, y = data.coords.y, z = 0 } or nil,
+                        street = info.street,
+                        information = noteText or ('Assigned to call ' .. info.code) or ('Assigned to call #' .. tostring(dispatchId)),
+                        alertTime = 20,
+                    })
+                end)
+            end
+
             TriggerClientEvent(resourceName .. ':client:dispatchAssign', targetSrc, {
                 id = dispatchId,
                 action = action,
                 coords = data.coords, -- {x, y} for waypoint (attach only)
                 note = noteText,      -- included in the assignment notify
                 manual = manualCall ~= nil, -- skip provider attach for manual calls
+                -- The alert card replaces the text notify when it went out.
+                alertSent = alertSent,
                 -- 10-code for the notify, resolved from the cached sanitized
                 -- list — works for provider AND manual calls, and spares the
                 -- client a blocking list round-trip.
-                code = (GetDispatchInfoById(dispatchId) or {}).code,
+                code = info.code,
             })
             hit = hit + 1
         else

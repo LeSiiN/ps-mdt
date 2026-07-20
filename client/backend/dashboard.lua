@@ -476,6 +476,10 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
         end
     end
 
+    -- The targeted alert card (sent server-side via ps-dispatch) already
+    -- carries code, note and location — a second text notify would be noise.
+    if data.alertSent then return end
+
     if MdtPref and MdtPref('assignmentNotifications', true) == false then return end
 
     -- 10-code for the notify comes resolved from the server (both provider
