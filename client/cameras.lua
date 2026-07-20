@@ -401,6 +401,25 @@ local function getDashcamOffset(veh)
     return nil
 end
 
+-- Bodycam placement. Offsets resolve in the PED'S LOCAL SPACE, so the lens
+-- stays glued to the officer on slopes, during animations and while seated.
+-- The previous implementation added a world-axis forward vector to the ped's
+-- ROOT coords — root is at FOOT level, so the camera sat around hip height,
+-- and once the officer got into a car it ended up inside the seat and
+-- dashboard geometry, which is the odd placement seen in vehicles.
+local function getBodycamOffset(inVehicle)
+    local cfg = (Config.Bodycam and Config.Bodycam.Position) or {}
+    local part = (inVehicle and cfg.vehicle or cfg.onFoot) or {}
+    return {
+        side    = part.side    or 0.0,
+        -- Seated peds sit closer to the windscreen, so less forward push is
+        -- needed to clear the body without poking through the glass.
+        forward = part.forward or (inVehicle and 0.12 or 0.24),
+        height  = part.height  or (inVehicle and 0.56 or 0.62),
+        pitch   = part.pitch   or (inVehicle and -4.0 or -8.0),
+    }
+end
+
 updateCameraControls = function()
     if not isViewingCamera or not currentCamera then
         return
@@ -410,20 +429,19 @@ updateCameraControls = function()
     if currentCameraData and currentCameraData.isBodycam and currentCameraData.targetSource then
         local targetPed = GetPlayerPed(GetPlayerFromServerId(currentCameraData.targetSource))
         if targetPed and targetPed ~= 0 and DoesEntityExist(targetPed) then
-            local forward = GetEntityForwardVector(targetPed)
-            local pedCoords = GetEntityCoords(targetPed)
+            local veh = GetVehiclePedIsIn(targetPed, false)
+            local inVehicle = veh and veh ~= 0 and DoesEntityExist(veh)
+            local off = getBodycamOffset(inVehicle)
 
-            local camX = pedCoords.x + forward.x * 0.3
-            local camY = pedCoords.y + forward.y * 0.3
-            local camZ = pedCoords.z + 0.4
+            local pos = GetOffsetFromEntityInWorldCoords(targetPed, off.side, off.forward, off.height)
+            -- A seated ped's heading follows the seat and swings hard during
+            -- entry/exit animations; the vehicle's heading is stable and is
+            -- what a chest-mounted camera actually faces while driving.
+            local yaw = inVehicle and GetEntityHeading(veh) or GetEntityHeading(targetPed)
 
-            SetCamCoord(currentCamera, camX, camY, camZ)
-
-            local heading = GetEntityHeading(targetPed)
-            local camZ_rot = heading
-
-            SetCamRot(currentCamera, -10.0, 0.0, camZ_rot, 2)
-            SetFocusPosAndVel(camX, camY, camZ, 0, 0, 0)
+            SetCamCoord(currentCamera, pos.x, pos.y, pos.z)
+            SetCamRot(currentCamera, off.pitch, 0.0, yaw, 2)
+            SetFocusPosAndVel(pos.x, pos.y, pos.z, 0, 0, 0)
         end
     end
 
