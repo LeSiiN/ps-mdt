@@ -544,7 +544,9 @@ function GetDispatchInfoById(id)
     for _, call in ipairs(buildSanitizedDispatches()) do
         if tostring(call.id) == id then
             local code = type(call.code) == 'string' and call.code ~= '' and call.code or nil
-            return { code = code, coords = call.coords }
+            local street = type(call.street) == 'string' and call.street ~= '' and call.street or nil
+            local message = type(call.message) == 'string' and call.message ~= '' and call.message or nil
+            return { code = code, coords = call.coords, street = street, message = message }
         end
     end
     return nil
@@ -1060,20 +1062,39 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
             -- the pcall fails, alertSent stays false and the client falls
             -- back to its classic notify — no config switch needed.
             local alertSent = false
-            if action == 'attach' then
-                alertSent = pcall(function()
-                    exports['ps-dispatch']:SendTargetedAlert({ targetSrc }, {
-                        message = 'Dispatch Assignment',
+            -- Alert cards are a ps-dispatch bonus, not a requirement: the MDT
+            -- also runs on qs-dispatch/cd_dispatch or with no dispatch
+            -- resource at all. Checking the resource state first keeps the
+            -- common standalone case free of a thrown-and-caught error, and
+            -- the pcall still covers ps-dispatch builds that predate the
+            -- SendTargetedAlert export. Either way the classic notify below
+            -- takes over whenever alertSent stays false.
+            if action == 'attach' and GetResourceState('ps-dispatch') == 'started' then
+                -- pcall returns (ok, ...) — the previous version assigned only
+                -- `ok`, so a rejected payload still counted as "sent" and
+                -- suppressed the fallback notify. Both are checked now.
+                local ok, sent = pcall(function()
+                    return exports['ps-dispatch']:SendTargetedAlert({ targetSrc }, {
+                        -- Headline is the actual call, not a generic label.
+                        message = info.message or ('Call #' .. tostring(dispatchId)),
                         code = info.code or 'ASSIGN',
                         codeName = 'mdtassign',
                         icon = 'fas fa-headset',
                         priority = 2,
                         coords = data.coords and { x = data.coords.x, y = data.coords.y, z = 0 } or nil,
                         street = info.street,
-                        information = noteText or ('Assigned to call ' .. info.code) or ('Assigned to call #' .. tostring(dispatchId)),
-                        alertTime = 20,
+                        information = noteText,
+                        -- The dispatcher already set this unit's waypoint, so
+                        -- the alert shows an assignment confirmation instead
+                        -- of a respond prompt.
+                        assigned = true,
+                        alertTime = 12,
                     })
                 end)
+                alertSent = ok and sent == true
+                if not ok then
+                    ps.debug('SendTargetedAlert failed:', tostring(sent))
+                end
             end
 
             TriggerClientEvent(resourceName .. ':client:dispatchAssign', targetSrc, {
