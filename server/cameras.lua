@@ -1526,6 +1526,24 @@ AddEventHandler('onResourceStart', function(startedResource)
         local count = 0
         for _ in pairs(loadedCameras) do count = count + 1 end
 
+        local restored = 0
+        for camId, camera in pairs(loadedCameras) do
+            if camera.isOnline == false then
+                camera.isOnline = true
+                if camera.saveToDatabase then
+                    pcall(function() camera:saveToDatabase() end)
+                end
+                restored = restored + 1
+                TriggerClientEvent(GetCurrentResourceName() .. ':client:cameraStatusChanged', -1, {
+                    camId = camId,
+                    isOnline = true,
+                })
+            end
+        end
+        if restored > 0 then
+            ps.info(('Camera restart: brought %d offline camera(s) back online'):format(restored))
+        end
+
         -- Live restart: players may already be online, so spawn deferred props now.
         if GetNumPlayerIndices() > 0 then
             SpawnPendingCameras()
@@ -1583,8 +1601,38 @@ end)
 -- accessors are the only surface the tamper logic in server/backend/camera_tamper.lua
 -- needs. Everything else about a camera stays encapsulated here.
 
+--- The point a bullet has to hit for a camera to count as shot out.
+---
+--- Prop-backed cameras are shot at their PROP: `coords` is where the model
+--- physically stands, and that is the thing in the world a player can aim at.
+---
+--- Virtual cameras have no prop, so `coords` describes nothing anyone can see
+--- — on a camera placed by dragging the view around it is often a leftover
+--- from wherever the placer happened to stand. What a player actually sees
+--- and shoots at is the lens, i.e. the feed position. Matching those against
+--- `coords` meant hitting the visible camera did nothing while the real
+--- target sat somewhere else entirely.
+---@param camera table
+---@return vector3|nil
+local function cameraHitCoords(camera)
+    if camera.spawnsModel == false then
+        local feed = camera.feedCoords
+        if feed then return vector3(feed.x, feed.y, feed.z) end
+    end
+    return camera.coords
+end
+
+--- Same resolution, exposed for the tamper module so its audit entry and
+--- dispatch alert report where the camera actually is rather than a stored
+--- position a virtual camera never occupied.
+---@param camera table
+---@return vector3|nil
+function CameraHitCoords(camera)
+    return cameraHitCoords(camera)
+end
+
 --- Nearest ONLINE static camera within `radius` metres of `coords`.
---- Works for prop-backed and virtual cameras alike — both carry coords.
+--- Prop cameras are matched on their prop, virtual ones on their feed.
 ---@param coords vector3
 ---@param radius number
 ---@return string|nil camId, table|nil camera
@@ -1600,10 +1648,13 @@ function FindOnlineCameraNear(coords, radius)
     for camId, camera in pairs(spawnedCameras) do
         -- Only static cameras have a fixed position worth shooting at; bodycams and
         -- dashcams move with their owner and are handled separately.
-        if camera.camType == Camera.types.static and camera.isOnline ~= false and camera.coords then
-            local dist = #(coords - camera.coords)
-            if not bestDist or dist < bestDist then
-                bestId, bestCam, bestDist = camId, camera, dist
+        if camera.camType == Camera.types.static and camera.isOnline ~= false then
+            local target = cameraHitCoords(camera)
+            if target then
+                local dist = #(coords - target)
+                if not bestDist or dist < bestDist then
+                    bestId, bestCam, bestDist = camId, camera, dist
+                end
             end
         end
     end
