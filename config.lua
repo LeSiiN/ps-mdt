@@ -151,13 +151,48 @@ Config.Fuel = 'LegacyFuel' -- Fuel resource name for vehicle fuel management
 -- phone resource once and both features use it, so they can never drift apart.
 -- Leave Resource = '' to use charinfo.phone for display and disable court SMS/mail.
 Config.Phone = {
-    Resource     = 'lb-phone',                    -- phone script resource name ('' = charinfo.phone only, no SMS/mail)
-    NumberExport = 'GetEquippedPhoneNumber',      -- export returning a citizen's number for a citizenid
-    UseCharinfoFallback = true,                   -- if the export returns nothing, fall back to charinfo.phone
+    -- Which phone script does your server run? Set this one value:
+    --
+    --   'lb-phone'          lb-phone
+    --   'jpr-phonesystem'   JPR Phone System
+    --   'yseries'           YSeries (teamsgg)
+    --   'none'              no phone script — court SMS and e-mails are off,
+    --                       phone numbers come from the character's charinfo
+    --   'custom'            something else — see the Custom block at the end
+    --
+    -- Nothing else needs changing to switch: how each script has to be called
+    -- is handled in server/backend/phone.lua.
+    Provider = 'lb-phone',
 
-    -- Court messaging (uses the same Resource above)
-    SmsSenderNumber = 'SA-COURT',                 -- "from" number shown on reminder SMS (any string lb-phone accepts)
-    MailSender      = 'San Andreas Judicial System', -- sender shown in the recipient's inbox
+    -- Use the character's charinfo.phone when the phone script has no number
+    -- for them. Leave this on — JPR Phone cannot look up another player's
+    -- number at all, so with it off court SMS have no address to send to.
+    UseCharinfoFallback = true,
+
+    -- Shown as the sender on court messages.
+    SmsSenderNumber = 'SA-COURT',                    -- "from" on reminder SMS
+    MailSender      = 'San Andreas Judicial System', -- sender in the inbox
+
+    -- Worth knowing per script:
+    --   JPR Phone — its SMS export runs on the player's client, so reminder
+    --     SMS only reach players who are ONLINE. Its e-mails do reach offline
+    --     players, so keep Config.Court.Email enabled.
+    --   YSeries — reminders arrive as a phone notification, which is
+    --     addressed by server id and therefore reaches ONLINE players only;
+    --     its e-mails reach everyone, so keep Config.Court.Email enabled.
+    --     E-mails and number lookups need no setup.
+
+    -- ── Only for Provider = 'custom' ─────────────────────────────────────────
+    -- Everything above is enough for the built-in options. This is for a phone
+    -- script that is not listed; leave it untouched otherwise. The field
+    -- reference is at the top of server/backend/phone.lua, next to the
+    -- built-in definitions you can copy from.
+    Custom = {
+        Resource = '',
+        Number = { kind = 'none' },
+        Sms    = { kind = 'none' },
+        Mail   = { kind = 'none' },
+    },
 }
 
 
@@ -648,8 +683,17 @@ Config.PlateCheck = {
         bolo         = { enabled = true,  severity = 'critical' },
         stolen       = { enabled = true,  severity = 'critical' },
         warrants     = { enabled = true,  severity = 'critical' }, -- owner wanted
+        -- Registered owner has no driver licence. Only an explicit `false` in
+        -- their metadata counts — a missing entry is treated as unknown, not
+        -- as unlicensed, so characters whose framework never wrote the key do
+        -- not all light up. (Compare Config.PlateScanForDriversLicense, which
+        -- does the same for the Wolfknight radar integration.)
         driverLicense = { enabled = true, severity = 'warning' },
-        impounds     = { enabled = true,  severity = 'warning', minCount = 5, criticalCount = 10 },
+        -- Impound HISTORY, not a yes/no: how often this vehicle has ended up
+        -- in a lot. Below minCount it stays quiet (one impound says nothing),
+        -- from criticalCount it counts as critical — as does a vehicle whose
+        -- record says it is currently held, since it should not be driving.
+        impounds     = { enabled = true,  severity = 'warning', minCount = 2, criticalCount = 5 },
         insurance    = { enabled = true,  severity = 'warning'  }, -- needs Config.VehicleInsurance
         registration = { enabled = true,  severity = 'warning'  }, -- needs Config.VehicleRegistration
         unregistered = { enabled = false, severity = 'warning'  }, -- plate has no vehicle record at all
