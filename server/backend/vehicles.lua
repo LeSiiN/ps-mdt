@@ -187,6 +187,20 @@ local function resolveRegistrationBatch(plates)
     return out
 end
 
+-- Exposed for platecheck.lua: it needs the same insurance/registration
+-- answers the vehicle list uses, and duplicating the export-lookup machinery
+-- (timeouts, callback vs return style, fail-open) would be two places to keep
+-- in sync. Both take a list of upper-cased plates and return a map keyed by
+-- plate, exactly as the list builder consumes them.
+function MdtResolveInsurance(plates)
+    return resolveInsuranceBatch(plates)
+end
+
+function MdtResolveRegistration(plates)
+    return resolveRegistrationBatch(plates)
+end
+
+
 local function getVehicleShared(model)
     if not Core or not Core.Shared or not Core.Shared.Vehicles then
         return nil

@@ -27,6 +27,11 @@
 	let defaultTab = $state("last");
 	let reducedMotion = $state(false);
 
+	// Plate checks (radar / ANPR)
+	let plateCheckAlerts = $state(true);
+	let plateCheckIgnoreImpounds = $state(false);
+	let plateCheckCriticalOnly = $state(false);
+
 	// Dispatch
 	let autoStatusNotifications = $state(true);
 	let autoWaypoint = $state(true);
@@ -40,7 +45,7 @@
 	// topbar can show an "Unsaved changes" hint.
 	let savedSnapshot = $state("");
 	function snapshot(): string {
-		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, centerOnSelf, patrolZoneNotifications, autoStatusNotifications, autoWaypoint, assignmentNotifications, bodycamAutoDuty, defaultTab, reducedMotion });
+		return JSON.stringify({ notificationSounds, uiZoom, defaultZoom, centerOnSelf, patrolZoneNotifications, autoStatusNotifications, autoWaypoint, assignmentNotifications, bodycamAutoDuty, defaultTab, reducedMotion , plateCheckAlerts, plateCheckIgnoreImpounds, plateCheckCriticalOnly });
 	}
 	let isDirty = $derived(savedSnapshot !== "" && snapshot() !== savedSnapshot);
 
@@ -110,6 +115,11 @@
 				autoWaypoint: d.autoWaypoint !== false,
 				assignmentNotifications: d.assignmentNotifications !== false,
 				bodycamAutoDuty: d.bodycamAutoDuty !== false,
+				// Plate-check alerts are decided server-side, so these travel
+				// on to the server from preferences.lua.
+				plateCheckAlerts: d.plateCheckAlerts !== false,
+				plateCheckIgnoreImpounds: d.plateCheckIgnoreImpounds === true,
+				plateCheckCriticalOnly: d.plateCheckCriticalOnly === true,
 			}),
 		}).catch(() => {});
 	}
@@ -169,6 +179,9 @@
 			if (data.centerOnSelf !== undefined) centerOnSelf = data.centerOnSelf;
 			if (data.patrolZoneNotifications !== undefined) patrolZoneNotifications = data.patrolZoneNotifications;
 			if (data.autoStatusNotifications !== undefined) autoStatusNotifications = data.autoStatusNotifications;
+			if (data.plateCheckAlerts !== undefined) plateCheckAlerts = data.plateCheckAlerts;
+			if (data.plateCheckIgnoreImpounds !== undefined) plateCheckIgnoreImpounds = data.plateCheckIgnoreImpounds;
+			if (data.plateCheckCriticalOnly !== undefined) plateCheckCriticalOnly = data.plateCheckCriticalOnly;
 			if (data.autoWaypoint !== undefined) autoWaypoint = data.autoWaypoint;
 			if (data.assignmentNotifications !== undefined) assignmentNotifications = data.assignmentNotifications;
 			if (data.bodycamAutoDuty !== undefined) bodycamAutoDuty = data.bodycamAutoDuty;
@@ -189,6 +202,9 @@
 				centerOnSelf,
 				patrolZoneNotifications,
 				autoStatusNotifications,
+				plateCheckAlerts,
+				plateCheckIgnoreImpounds,
+				plateCheckCriticalOnly,
 				autoWaypoint,
 				assignmentNotifications,
 				bodycamAutoDuty,
@@ -403,7 +419,7 @@
 				</div>
 			</div>
 
-			<div class="settings-card settings-card--full">
+			<div class="settings-card">
 				<div class="card-head">
 					<span class="material-icons card-icon">map</span>
 					<span class="card-label">Map</span>
@@ -429,6 +445,43 @@
 					</div>
 					<label class="toggle">
 						<input type="checkbox" bind:checked={centerOnSelf} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+			</div>
+
+			<div class="settings-card">
+				<div class="card-head">
+					<span class="material-icons card-icon">pin_invoke</span>
+					<span class="card-label">Plate Checks</span>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Plate Check Alerts</span>
+						<span class="setting-desc">Receive dispatch alerts when a scanned plate is flagged</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={plateCheckAlerts} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Ignore Impound History</span>
+						<span class="setting-desc">Stay quiet when a repeat impound record is the only thing flagged</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={plateCheckIgnoreImpounds} />
+						<span class="toggle-slider"></span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<div class="setting-info">
+						<span class="setting-label">Critical Hits Only</span>
+						<span class="setting-desc">Only BOLOs, stolen vehicles and wanted owners — skip paperwork flags</span>
+					</div>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={plateCheckCriticalOnly} />
 						<span class="toggle-slider"></span>
 					</label>
 				</div>
@@ -524,7 +577,10 @@
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 12px;
-		align-items: start;
+		/* Cards in a row share a height instead of ending wherever their
+		   content happens to stop. With the pairs balanced to at most one row
+		   of difference, that reads as a tidy grid rather than a ragged one. */
+		align-items: stretch;
 	}
 
 	.settings-card {

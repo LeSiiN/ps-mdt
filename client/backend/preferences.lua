@@ -21,6 +21,32 @@ AddEventHandler('onClientResourceStart', function(res)
     SendNUIMessage({ type = 'requestClientPrefs' })
 end)
 
+-- Preferences the SERVER has to know about, because the decision they affect
+-- is made there. Everything else stays client-local.
+local SERVER_PREFS = { 'plateCheckAlerts', 'plateCheckIgnoreImpounds', 'plateCheckCriticalOnly' }
+
+local lastServerPush = nil
+
+--- Forward the server-side subset, but only when it actually changed. The
+--- NUI re-pushes the whole bundle on every save and on resource start, and
+--- an unconditional relay would put an avoidable event on the wire each time.
+local function syncServerPrefs()
+    local payload, signature = {}, {}
+    for _, name in ipairs(SERVER_PREFS) do
+        local value = prefs[name]
+        if value ~= nil then
+            payload[name] = value
+            signature[#signature + 1] = name .. '=' .. tostring(value)
+        end
+    end
+    if #signature == 0 then return end
+
+    local joined = table.concat(signature, ',')
+    if joined == lastServerPush then return end
+    lastServerPush = joined
+    TriggerServerEvent('ps-mdt:server:setClientPrefs', payload)
+end
+
 RegisterNUICallback('clientPrefs', function(data, cb)
     if type(data) == 'table' then
         for k, v in pairs(data) do
@@ -28,6 +54,7 @@ RegisterNUICallback('clientPrefs', function(data, cb)
                 prefs[k] = v
             end
         end
+        syncServerPrefs()
     end
     cb({})
 end)
