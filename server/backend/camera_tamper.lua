@@ -58,6 +58,9 @@ RegisterNetEvent(resourceName .. ':server:reportWeaponImpact', function(impact)
     if not ok then return end
 
     local label = camera.camLabel or camId
+    -- Where the camera really is: the prop for prop-backed cameras, the feed
+    -- position for virtual ones (whose stored coords describe nothing).
+    local at = (CameraHitCoords and CameraHitCoords(camera)) or camera.coords
     local citizenid = ps.getIdentifier and ps.getIdentifier(src) or nil
     local playerName = ps.getPlayerName and ps.getPlayerName(src) or (GetPlayerName(src) or 'Unknown')
 
@@ -66,7 +69,7 @@ RegisterNetEvent(resourceName .. ':server:reportWeaponImpact', function(impact)
     if ps.auditLog then
         pcall(ps.auditLog, src, 'camera_tampered', 'camera', camId, {
             label = label,
-            coords = { x = camera.coords.x, y = camera.coords.y, z = camera.coords.z },
+            coords = at and { x = at.x, y = at.y, z = at.z } or nil,
         })
     end
 
@@ -76,7 +79,7 @@ RegisterNetEvent(resourceName .. ':server:reportWeaponImpact', function(impact)
         TriggerEvent(resourceName .. ':server:cameraTampered', {
             camId = camId,
             label = label,
-            coords = camera.coords,
+            coords = at,
             offlineMs = cfg().OfflineMs or 600000,
             suspectSource = src,
             suspectCitizenId = citizenid,
