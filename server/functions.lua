@@ -760,30 +760,18 @@ end)
 -- returned when the phone resource yields nothing and Config.Phone.UseCharinfoFallback
 -- is not disabled. Returns nil only when neither source produces a number.
 function GetCitizenPhoneNumber(citizenid, fallback)
+    -- Delegates to the phone abstraction (server/backend/phone.lua), which
+    -- performs whichever call shape Config.Phone describes. Kept as a global
+    -- because half the MDT already calls it by this name.
+    if PhoneNumberFor then return PhoneNumberFor(citizenid, fallback) end
+
+    -- phone.lua not loaded (or load order changed): charinfo is still better
+    -- than nothing.
     local cfg = (Config and Config.Phone) or {}
-
-    local function withFallback(num)
-        if num ~= nil and tostring(num) ~= '' then return tostring(num) end
-        if cfg.UseCharinfoFallback ~= false and fallback ~= nil and tostring(fallback) ~= '' then
-            return tostring(fallback)
-        end
-        return nil
+    if cfg.UseCharinfoFallback ~= false and fallback ~= nil and tostring(fallback) ~= '' then
+        return tostring(fallback)
     end
-
-    if not citizenid or citizenid == '' then return withFallback(nil) end
-
-    local res = cfg.Resource
-    if not res or res == '' then return withFallback(nil) end
-    if GetResourceState(res) ~= 'started' then return withFallback(nil) end
-
-    local exportName = cfg.NumberExport
-    if not exportName or exportName == '' then exportName = 'GetEquippedPhoneNumber' end
-
-    local ok, num = pcall(function()
-        return exports[res][exportName](exports[res], citizenid)
-    end)
-    if ok then return withFallback(num) end
-    return withFallback(nil)
+    return nil
 end
 
 -- Convenience export so other resources can reuse the same resolution.
@@ -1152,27 +1140,13 @@ end)
 --- @return boolean sent
 function SendCitizenMail(citizenid, sender, subject, message)
     if not citizenid then return false end
+    if not PhoneSendMail then return false end
 
-    local cfg = (Config and Config.Phone) or {}
-    local res = cfg.Resource
-    if not res or res == '' then return false end
-    if GetResourceState(res) ~= 'started' then return false end
-
-    local number = GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid) or nil
-    if not number or tostring(number) == '' then return false end
-
-    local ok, email = pcall(function() return exports[res]:GetEmailAddress(number) end)
-    if not ok or not email or tostring(email) == '' then return false end
-
-    local sent = pcall(function()
-        exports[res]:SendMail({
-            to      = email,
-            sender  = sender or 'Los Santos Police Department',
-            subject = subject or '',
-            message = message or '',
-        })
-    end)
-    return sent and true or false
+    -- The whole number -> e-mail -> SendMail dance used to live here, hard
+    -- wired to lb-phone's shape. It is now described in Config.Phone and
+    -- performed by server/backend/phone.lua, so this and the court scheduler
+    -- speak to whichever phone script is configured.
+    return PhoneSendMail(citizenid, subject or '', message or '', sender)
 end
 
 exports('GetCitizenPhoneNumber', function(citizenid, fallback)

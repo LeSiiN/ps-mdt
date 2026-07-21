@@ -125,14 +125,12 @@ local function phoneResource()
     return res
 end
 
--- Resolve a player's equipped phone number from their citizenid (works offline).
--- Number resolution is centralised in functions.lua (config-based); phoneResource()
--- is still used for the send-side export.
+-- Resolve a player's phone number from their citizenid (works offline).
+-- Resolution is centralised in server/backend/phone.lua so display and
+-- messaging can never disagree about which script owns the number.
 local function getPhoneNumberFor(citizenid)
-    local res = phoneResource()
-    if not citizenid then return nil, res end
-    local num = GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid) or nil
-    return num, res
+    if not citizenid then return nil end
+    return GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid) or nil
 end
 
 -- Format a "YYYY-MM-DD HH:MM:SS" timestamp according to Config.DateTime.
@@ -158,37 +156,22 @@ local function formatScheduled(scheduled_at)
     return datePart .. ' ' .. timePart
 end
 
--- Send a reminder SMS from the configured court number to one attendee.
+-- Send a reminder SMS to one attendee. The call shape lives in Config.Phone
+-- (see server/backend/phone.lua), so this no longer assumes lb-phone's
+-- argument order — or that the export is even server-side.
 local function sendHearingSms(citizenid, body)
     local cfg = courtCfg()
     if not (cfg.Sms and cfg.Sms.enabled) then return false end
-    local to, res = getPhoneNumberFor(citizenid)
-    if not to then return false end
-    local from = (Config and Config.Phone and Config.Phone.SmsSenderNumber) or 'COURT'
-    local ok = pcall(function()
-        exports[res]:SendMessage(from, to, body)
-    end)
-    return ok and true or false
+    return PhoneSendSms(citizenid, body)
 end
 
--- Send an invite e-mail to one attendee (resolves their mail address via lb-phone).
+-- Send an invite e-mail to one attendee. Address resolution (lb-phone needs a
+-- number -> e-mail hop, JPR Phone takes the citizenid directly) is handled by
+-- the phone module according to config.
 local function sendHearingMail(citizenid, subject, message)
     local cfg = courtCfg()
     if not (cfg.Email and cfg.Email.enabled) then return false end
-    local number, res = getPhoneNumberFor(citizenid)
-    if not number then return false end
-    local mok, email = pcall(function() return exports[res]:GetEmailAddress(number) end)
-    if not mok or not email or tostring(email) == '' then return false end
-    local sender = (Config and Config.Phone and Config.Phone.MailSender) or 'Court'
-    local sok = pcall(function()
-        exports[res]:SendMail({
-            to = email,
-            sender = sender,
-            subject = subject,
-            message = message,
-        })
-    end)
-    return sok and true or false
+    return PhoneSendMail(citizenid, subject, message)
 end
 
 -- Body for the lead-time reminder SMS.
