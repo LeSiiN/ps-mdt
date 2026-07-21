@@ -596,6 +596,75 @@ Config.MedicalJobs = {
     'ambulance',
 }
 
+-- ── Plate checks (ANPR / radar) ──────────────────────────────────────────────
+-- Lets a plate scanner ask the MDT what it knows about a plate, and pushes a
+-- ps-dispatch alert to the scanning officer when something is worth stopping
+-- for. Hook it up from your radar resource:
+--
+--     exports['ps-mdt']:PlateCheckAlert(source, plate, coords)  -- look up + alert
+--     local res = exports['ps-mdt']:CheckPlate(plate)           -- look up only
+--
+-- The lookup works without ps-dispatch; only the alert is skipped then.
+Config.PlateCheck = {
+    -- Chat command for manual checks and testing. false disables it.
+    command = 'checkplate',
+
+    -- Job types allowed to run plate checks. CheckAuth (the MDT's general
+    -- access gate) also accepts EMS and DOJ, which have no business querying
+    -- plates — so this narrows it to police only by default. Add job types to
+    -- widen it, or set to false to allow everyone CheckAuth accepts.
+    allowedJobTypes = { Config.PoliceJobType },
+
+    -- Write an entry to mdt_audit_logs so who ran which plate stays
+    -- reviewable. Only scans that actually ALERT are logged: a continuous
+    -- radar passes hundreds of plates a minute and logging each one would
+    -- bury the interesting queries and out-write the rest of the MDT.
+    audit = true,
+    auditEveryScan = false, -- true: log every single scan (write-heavy)
+
+    -- ── Built for continuous scanning ────────────────────────────────────
+    -- Repeat lookups of the same plate are answered from memory for this
+    -- long instead of hitting the database again. Concurrent lookups of one
+    -- plate additionally share a single query.
+    -- Rough sizing: one entry per distinct plate seen within cacheSeconds,
+    -- shared across ALL officers. On a busy 500-slot server with 30 units
+    -- scanning, 2000 is comfortable (a few hundred KB); raise cacheSeconds
+    -- before raising the cap if the database is the bottleneck.
+    cacheSeconds = 60,
+    cacheMaxEntries = 2000,
+
+    -- Do not alert the same officer about the same plate again within this
+    -- many seconds. 0 disables the cooldown.
+    alertCooldown = 120,
+
+    -- Hard ceiling on plate alerts per officer per minute, so a street full
+    -- of flagged cars stays readable. 0 disables the ceiling.
+    maxAlertsPerMinute = 6,
+
+    -- Which flags are looked for, and how urgent a hit is.
+    -- 'critical' -> priority 1 alert (red card + urgent sound)
+    -- 'warning'  -> routine alert
+    checks = {
+        bolo         = { enabled = true,  severity = 'critical' },
+        stolen       = { enabled = true,  severity = 'critical' },
+        warrants     = { enabled = true,  severity = 'critical' }, -- owner wanted
+        impounds     = { enabled = true,  severity = 'warning', minCount = 5, criticalCount = 10 },
+        insurance    = { enabled = true,  severity = 'warning'  }, -- needs Config.VehicleInsurance
+        registration = { enabled = true,  severity = 'warning'  }, -- needs Config.VehicleRegistration
+        unregistered = { enabled = false, severity = 'warning'  }, -- plate has no vehicle record at all
+    },
+
+    alert = {
+        enabled = true,
+        -- Stay silent on clean plates. Leave this true unless the scanner is
+        -- manually triggered: a ping on every passing car is noise within
+        -- minutes, and officers stop reading the alerts entirely.
+        silentWhenClean = true,
+        code = '10-28',   -- shown on the alert card
+        alertTime = 12,   -- seconds on screen
+    },
+}
+
 Config.Uploads = {
     MaxBytes = 5242880, -- 5 MB
     RateLimitPerMinute = 10, -- Max uploads per player per minute (0 = unlimited)

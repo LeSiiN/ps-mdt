@@ -452,6 +452,79 @@ Config.DepartmentBanking = {
 
 The department is recorded **with the impound**, not looked up when the fee is paid — an owner can settle the bill days later with nobody from that shift online. A failed deposit is logged loudly but never reverses the citizen's payment: that's a bookkeeping problem, not a transaction to roll back.
 
+## MDT plate checks
+
+Adds an automatic lookup against the MDT database (BOLO, reported stolen,
+owner's warrants, impound history, insurance/registration) to any radar or
+ANPR script. Hits are delivered to the scanning officer as a ps-dispatch
+alert.
+
+### Client (in your radar script)
+
+```lua
+-- Send each plate at most once per COOLDOWN. Without this guard a scanner
+-- running every frame fires hundreds of events per minute — the bottleneck
+-- is the network, not the database.
+local COOLDOWN = 120000 -- ms, mirrors Config.PlateCheck.alertCooldown
+local seen = {}
+
+--- Call this whenever your radar reads or locks a plate.
+function CheckPlateWithMDT(plate)
+    if type(plate) ~= 'string' or plate == '' then return end
+    plate = plate:gsub('%s+', ''):upper()
+
+    local now = GetGameTimer()
+    if seen[plate] and (now - seen[plate]) < COOLDOWN then return end
+
+    -- Prune while writing so the table doesn't grow over a long shift.
+    for known, at in pairs(seen) do
+        if (now - at) >= COOLDOWN then seen[known] = nil end
+    end
+    seen[plate] = now
+
+    TriggerServerEvent('myradar:checkPlate', plate, GetEntityCoords(PlayerPedId()))
+end
+```
+
+### Server (in your radar script)
+
+```lua
+RegisterNetEvent('myradar:checkPlate', function(plate, coords)
+    local src = source
+    if type(plate) ~= 'string' or #plate > 16 then return end
+
+    -- CreateThread because the export runs database queries: this keeps the
+    -- event handler from blocking. ps-mdt does the job check, caches the
+    -- result and throttles the alerts itself — nothing else is needed here.
+    CreateThread(function()
+        exports['ps-mdt']:PlateCheckAlert(src, plate, coords)
+    end)
+end)
+```
+
+### Lookup without an alert
+
+If the radar shows the hits in its own UI:
+
+```lua
+CreateThread(function()
+    local result = exports['ps-mdt']:CheckPlate(plate, src) -- src applies the job check
+    -- result.denied   -> player is not allowed to run plates
+    -- result.hits     -> { { key, label, detail, severity }, ... }
+    -- result.severity -> 'critical' | 'warning' | nil
+    -- result.model    -> "Karin Sultan", result.owner -> owner name
+end)
+```
+
+### After changing records
+
+Results are cached for up to `Config.PlateCheck.cacheSeconds`. To make a
+freshly created BOLO take effect immediately:
+
+```lua
+exports['ps-mdt']:InvalidatePlateCache(plate) -- no argument clears everything
+```
+
 ### Audit log retention
 
 The audit log grows with every report, search, impound and login, and nothing used to remove rows from it. That's fine for a week and a problem after a year: the Activity page runs a `COUNT(*)` over the whole table on every page load, and InnoDB keeps no cached row count, so it slows down in step with the table.
