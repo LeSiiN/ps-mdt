@@ -457,10 +457,39 @@ exports('CheckPlate', MdtCheckPlate)
 local alertedAt = {}
 local alertBudget = {}
 
+-- src -> per-officer plate-check preferences, mirrored from the MDT's
+-- Settings tab. The alert decision happens here on the server, so the
+-- preference has to travel: NUI -> client/backend/preferences.lua -> here.
+-- Absent entries mean "never opened the MDT", which uses the defaults below.
+local playerPrefs = {}
+
+RegisterNetEvent('ps-mdt:server:setClientPrefs', function(data)
+    local src = source
+    if type(data) ~= 'table' then return end
+    if not CheckAuth(src) then return end
+
+    local stored = playerPrefs[src] or {}
+    for _, name in ipairs({ 'plateCheckAlerts', 'plateCheckIgnoreImpounds', 'plateCheckCriticalOnly' }) do
+        if type(data[name]) == 'boolean' then stored[name] = data[name] end
+    end
+    playerPrefs[src] = stored
+end)
+
+---@param src number
+---@param name string
+---@param default boolean
+---@return boolean
+local function playerPref(src, name, default)
+    local stored = playerPrefs[src]
+    if not stored or stored[name] == nil then return default end
+    return stored[name]
+end
+
 AddEventHandler('playerDropped', function()
     local src = source
     alertedAt[src] = nil
     alertBudget[src] = nil
+    playerPrefs[src] = nil
 end)
 
 --- Has this officer already been told about this plate recently?
@@ -545,8 +574,31 @@ function MdtPlateCheckAlert(src, plate, coords)
     local result = cachedLookup(normalized, candidates)
     local cfg = (Config.PlateCheck or {}).alert or {}
 
+    -- Per-officer filters (MDT > Settings > Plate Checks). They only ever
+    -- suppress an alert; the lookup itself and its result are unaffected, so
+    -- a radar showing hits in its own UI still sees everything.
+    local hitsForMe = result.hits
+    if playerPref(src, 'plateCheckCriticalOnly', false) then
+        local filtered = {}
+        for _, hit in ipairs(hitsForMe) do
+            if hit.severity == 'critical' then filtered[#filtered + 1] = hit end
+        end
+        hitsForMe = filtered
+    end
+    if playerPref(src, 'plateCheckIgnoreImpounds', false) then
+        -- Drop impound history, then check what is LEFT: a car that is also
+        -- stolen or wanted still alerts, only the "seen the lot a few times"
+        -- case goes quiet.
+        local filtered = {}
+        for _, hit in ipairs(hitsForMe) do
+            if hit.key ~= 'impounds' then filtered[#filtered + 1] = hit end
+        end
+        hitsForMe = filtered
+    end
+
     local wantAlert = cfg.enabled ~= false
-        and not (#result.hits == 0 and cfg.silentWhenClean ~= false)
+        and playerPref(src, 'plateCheckAlerts', true)
+        and not (#hitsForMe == 0 and cfg.silentWhenClean ~= false)
         and not onAlertCooldown(src, normalized)
 
     if wantAlert and not takeAlertBudget(src) then
@@ -558,6 +610,8 @@ function MdtPlateCheckAlert(src, plate, coords)
     -- interesting queries and write more rows than the rest of the MDT
     -- combined. Set auditEveryScan = true if a complete query trail matters
     -- more than the write volume.
+    -- The audit trail records the FULL result, not the officer's filtered
+    -- view: what the database answered is the fact worth keeping.
     local root = Config.PlateCheck or {}
     if root.audit and ps.auditLog and (wantAlert or root.auditEveryScan) then
         -- auditLog performs a blocking insert; never make the scanner wait.
@@ -583,10 +637,15 @@ function MdtPlateCheckAlert(src, plate, coords)
 
     rememberAlert(src, normalized)
 
-    local critical = result.severity == 'critical'
+    -- Everything shown on the card reflects what this officer asked to see.
+    local shown = { plate = result.plate, hits = hitsForMe }
+    local critical = false
+    for _, hit in ipairs(hitsForMe) do
+        if hit.severity == 'critical' then critical = true break end
+    end
     local ok, err = pcall(function()
         return exports['ps-dispatch']:SendTargetedAlert({ src }, {
-            message = #result.hits > 0 and 'Plate Hit' or 'Plate Clear',
+            message = #hitsForMe > 0 and 'Plate Hit' or 'Plate Clear',
             code = cfg.code or '10-28',
             codeName = 'platecheck',
             icon = 'fas fa-magnifying-glass',
@@ -598,14 +657,14 @@ function MdtPlateCheckAlert(src, plate, coords)
             plate = normalized,
             vehicle = result.model,
             name = result.owner,
-            information = #result.hits > 0 and summarize(result) or 'No flags on this plate',
+            information = #hitsForMe > 0 and summarize(shown) or 'No flags on this plate',
             -- Radio phrasing: a plate "comes back" clear or flagged. This is
             -- an answer to a query, not a job — so it gets its own footer
             -- instead of the assignment strip, and no respond prompt.
             footer = {
-                icon = #result.hits > 0 and 'fas fa-triangle-exclamation' or 'fas fa-circle-check',
-                text = #result.hits > 0
-                    and ('Plate comes back flagged · %d'):format(#result.hits)
+                icon = #hitsForMe > 0 and 'fas fa-triangle-exclamation' or 'fas fa-circle-check',
+                text = #hitsForMe > 0
+                    and ('Plate comes back flagged · %d'):format(#hitsForMe)
                     or 'Plate comes back clear',
                 sub = 'MDT records',
                 tone = critical and 'alert' or 'info',
