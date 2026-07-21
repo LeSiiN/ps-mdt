@@ -47,7 +47,16 @@ jobs:
             MAJOR="$(echo "${BASE}" | cut -d. -f1)"
             MINOR="$(echo "${BASE}" | cut -d. -f2)"
             PATCH="$(echo "${BASE}" | cut -d. -f3 | cut -d- -f1)"
-            NEXT_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+            PATCH=$((PATCH + 1))
+            if [ "${PATCH}" -gt 9 ]; then
+              PATCH=0
+              MINOR=$((MINOR + 1))
+              if [ "${MINOR}" -gt 9 ]; then
+                MINOR=0
+                MAJOR=$((MAJOR + 1))
+              fi
+            fi
+            NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
           fi
           VERSION="${NEXT_TAG#v}"
           echo "tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
