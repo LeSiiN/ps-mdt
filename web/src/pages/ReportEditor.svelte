@@ -248,7 +248,9 @@
 			...r,
 			evidence: r.evidence.map((e) => ({
 				...e,
-				images: e.images.filter((img) =>
+				// Entries are either a plain URL string or an object carrying one;
+				// without the annotation the narrowed branch inferred `never`.
+				images: e.images.filter((img: string | { url?: string }) =>
 					typeof img === "string"
 						? !img.startsWith("data:")
 						: !img.url?.startsWith("data:")
@@ -1021,7 +1023,6 @@
 					onLinkEvidenceCase={linkEvidenceToCase}
 					onCreateCaseFromEvidence={createCaseForEvidence}
 					onNavigateToCases={tabService ? () => navigateTo("Cases") : undefined}
-					onNavigateToEvidence={tabService ? () => navigateTo("Evidence") : undefined}
 				/>
 			{/if}
 			</div>

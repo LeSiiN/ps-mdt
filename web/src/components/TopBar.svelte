@@ -6,12 +6,11 @@
 		DEFAULT_TIME,
 		DEFAULT_DATE,
 		TIMING,
-		APP_INFO,
+		getAppInfo,
 	} from "../constants";
 	import { formatTime, formatDate } from "../utils/datetime";
 	import { useNuiEvent } from "@/utils/useNuiEvent";
 
-	let info = $derived(APP_INFO[authService.jobType] || APP_INFO.leo);
 	import type { AuthService } from "../services/authService.svelte";
 
 	import type { TabService } from "../services/tabService.svelte";
@@ -24,6 +23,10 @@
 	}
 
 	let { authService, tabService, onOpacityStyleChange }: Props = $props();
+
+	// Below the props on purpose: a $derived reading authService before it is
+	// declared only worked because deriveds evaluate lazily, on first render.
+	let info = $derived(getAppInfo(authService.jobType));
 
 	// ── Global search ──
 	// A plate could be a vehicle, a BOLO or a report; a name could be a citizen or a

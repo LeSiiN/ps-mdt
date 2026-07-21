@@ -1136,7 +1136,6 @@
 <PersonSearchModal
 	show={showOfficerSearch}
 	title="Search Officers"
-	searchQuery={officerSearchQuery}
 	searchResults={searchService.state.results}
 	onClose={() => {
 		showOfficerSearch = false;
@@ -1314,9 +1313,6 @@
 	}
 
 	.list-item:hover .remove-btn,
-	.chip:hover .remove-btn {
-		opacity: 1;
-	}
 
 	.remove-btn:hover {
 		background: rgba(239, 68, 68, 0.1);

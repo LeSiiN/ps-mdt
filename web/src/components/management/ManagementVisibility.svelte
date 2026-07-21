@@ -13,7 +13,7 @@
 
 	const HIDEABLE_GROUPS = NAV_GROUPS.filter(g => g.id !== "dashboard" && g.id !== "bottom");
 
-	let jobTabs = $derived(new Set(getTabsForJob(jobType).map(t => t.name)));
+	let jobTabs = $derived(new Set<string>(getTabsForJob(jobType).map(t => t.name)));
 
 	let visibleGroups = $derived(
 		HIDEABLE_GROUPS.map(g => ({

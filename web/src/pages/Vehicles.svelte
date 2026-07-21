@@ -327,6 +327,8 @@
 	}
 
 	interface VehicleDetails extends Vehicle {
+		// mdt_vehicle_points, delivered as `points` by the vehicles backend.
+		points?: number;
 		brand?: string;
 		information?: string;
 		stolen?: boolean;
@@ -345,7 +347,9 @@
 	let vehicleList: Vehicle[] = $state([]);
 	let searchQuery = $state("");
 	let loading = $state(false);
-	let selectedVehicle: VehicleDetails | null = $state(null);
+	// Type on the rune, not the variable: with the annotation on the left the
+	// checker collapses the value to `never` and every field access fails.
+	let selectedVehicle = $state<VehicleDetails | null>(null);
 	let vehicleDetailLoading = $state(false);
 	let vehicleDetailError = $state<string | null>(null);
 	let editingNotes = $state(false);

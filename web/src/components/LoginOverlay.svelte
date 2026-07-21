@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { APP_INFO } from "../constants";
+	import { getAppInfo } from "../constants";
 	import type { AuthService } from "../services/authService.svelte";
 
 	interface Props {
@@ -8,7 +8,7 @@
 
 	let { authService }: Props = $props();
 
-	let info = $derived(APP_INFO[authService.jobType] || APP_INFO.leo);
+	let info = $derived(getAppInfo(authService.jobType));
 </script>
 
 <div class="login-overlay">

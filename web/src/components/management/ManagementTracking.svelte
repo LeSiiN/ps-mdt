@@ -101,13 +101,15 @@
 		trackingConfig = updated;
 	}
 
-	if (isEnvBrowser()) {
-		for (const cat of TRACKING_CATEGORIES) {
-			trackingConfig[cat.key] = cat.key !== "searches";
-		}
-	}
-
 	onMount(() => {
+		// Seeding $state from the component's top-level scope is not reactive;
+		// Svelte warns because the write happens before the component is
+		// initialised. Inside onMount it behaves like any other update.
+		if (isEnvBrowser()) {
+			for (const cat of TRACKING_CATEGORIES) {
+				trackingConfig[cat.key] = cat.key !== "searches";
+			}
+		}
 		loadTrackingConfig();
 	});
 </script>

@@ -105,17 +105,19 @@
 
 	import type { JobType } from "../interfaces/IUser";
 	import type { AuthService } from "../services/authService.svelte";
+	// Called by the suspect-photo upload below; without this import that
+	// handler threw a ReferenceError the moment anyone picked a file.
+	import { compressImage } from "../services/uploadService";
 
 	let { tabService, jobType = 'leo', authService }: { tabService: ReturnType<typeof createTabService>; jobType?: JobType; authService?: AuthService } =
 		$props();
 
-	let canManageLicenses = $derived(!isEMS && (authService?.hasPermission('citizens_edit_licenses') ?? true));
-
 	const isEMS = $derived(jobType === 'ems');
+	let canManageLicenses = $derived(!isEMS && (authService?.hasPermission('citizens_edit_licenses') ?? true));
 	let searchQuery = $state("");
 	let citizens: Citizen[] = $state([]);
 	let loading = $state(true);
-	let selectedProfile: CitizenProfile | null = $state(null);
+	let selectedProfile = $state<CitizenProfile | null>(null);
 	let copyNotice = $state("");
 	let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -423,8 +425,8 @@
 	async function viewProfile(citizenId: string) {
 		if (isEnvBrowser()) {
 			const mockProfiles: Record<string, CitizenProfile> = {
-				'ABC12345': { citizenid: 'ABC12345', firstName: 'Marcus', lastName: 'Rodriguez', gender: 'Male', dob: '1990-05-15', phone: '555-0142', fingerprint: 'FP-8291-AXKF', image: '', occupations: ['Mechanic', 'Taxi Driver'], properties: 2, vehicles: 3, arrests: 1, flags: ['Active Warrant', 'Violent'], notes: 'Known associate of local gangs. Exercise caution during traffic stops.', licenses: { driver: true, weapon: false }, customLicenses: [{ id: 1, name: 'Hunting License', active: true }, { id: 2, name: 'Boating License', active: false }, { id: 3, name: 'Pilot License', active: false }], ownedVehicles: [{ plate: '03ROY490', vehicle: 'Exemplar' }, { plate: 'FAST001', vehicle: 'Sultan' }, { plate: 'LOW99X', vehicle: 'Bati 801' }], propertiesList: [{ property_name: '4 Integrity Way, Apt 30' }, { property_name: '1561 San Vitas Street' }], weapons: [{ id: 1, serial: 'WPN-4821', scratched: 0, weaponModel: 'weapon_pistol' }, { id: 2, serial: 'WPN-9012', scratched: 1, weaponModel: 'weapon_smg' }], evidence: [{ id: 1, title: 'Shell Casings', type: 'Physical', report_id: 42, notes: 'Found at scene near Vespucci' }, { id: 2, title: 'CCTV Footage', type: 'Digital', case_id: 7 }], linkedReports: [{ id: 42, title: 'Armed Robbery - Fleeca Bank', type: 'Incident' }, { id: 55, title: 'Traffic Violation - Speeding', type: 'Citation' }], activeBolos: [{ id: 1, type: 'Person', reportId: '42', notes: 'Armed and dangerous, last seen near Legion Square' }] },
-				'DEF67890': { citizenid: 'DEF67890', firstName: 'Sarah', lastName: 'Chen', gender: 'Female', dob: '1995-11-22', phone: '555-0299', fingerprint: 'FP-1122-BXYZ', image: '', occupations: ['Doctor'], properties: 1, vehicles: 1, arrests: 0, flags: [], licenses: { driver: true, weapon: true }, customLicenses: [{ id: 1, name: 'Hunting License', active: false }, { id: 2, name: 'Boating License', active: true }, { id: 3, name: 'Pilot License', active: true }], ownedVehicles: [{ plate: 'MED001', vehicle: 'Schafter' }], propertiesList: [{ property_name: 'Eclipse Towers, Apt 5' }], weapons: [], evidence: [], linkedReports: [], activeBolos: [] },
+				'ABC12345': { citizenid: 'ABC12345', firstName: 'Marcus', lastName: 'Rodriguez', gender: 'Male', dob: '1990-05-15', phone: '555-0142', fingerprint: 'FP-8291-AXKF', image: '', occupations: ['Mechanic', 'Taxi Driver'], properties: 2, vehicles: 3, arrests: 1, flags: ['Active Warrant', 'Violent'], notes: 'Known associate of local gangs. Exercise caution during traffic stops.', licenses: { driver: true, weapon: false }, customLicenses: [{ id: 1, name: 'Hunting License', active: true }, { id: 2, name: 'Boating License', active: false }, { id: 3, name: 'Pilot License', active: false }], ownedVehicles: [{ plate: '03ROY490', vehicle: 'Exemplar' }, { plate: 'FAST001', vehicle: 'Sultan' }, { plate: 'LOW99X', vehicle: 'Bati 801' }], propertiesList: [{ id: 1, property_name: '4 Integrity Way, Apt 30' }, { id: 2, property_name: '1561 San Vitas Street' }], weapons: [{ id: 1, serial: 'WPN-4821', scratched: 0, weaponModel: 'weapon_pistol' }, { id: 2, serial: 'WPN-9012', scratched: 1, weaponModel: 'weapon_smg' }], evidence: [{ id: 1, title: 'Shell Casings', type: 'Physical', report_id: 42, notes: 'Found at scene near Vespucci' }, { id: 2, title: 'CCTV Footage', type: 'Digital', case_id: 7 }], linkedReports: [{ id: 42, title: 'Armed Robbery - Fleeca Bank', type: 'Incident' }, { id: 55, title: 'Traffic Violation - Speeding', type: 'Citation' }], activeBolos: [{ id: 1, type: 'Person', reportId: '42', notes: 'Armed and dangerous, last seen near Legion Square' }] },
+				'DEF67890': { citizenid: 'DEF67890', firstName: 'Sarah', lastName: 'Chen', gender: 'Female', dob: '1995-11-22', phone: '555-0299', fingerprint: 'FP-1122-BXYZ', image: '', occupations: ['Doctor'], properties: 1, vehicles: 1, arrests: 0, flags: [], licenses: { driver: true, weapon: true }, customLicenses: [{ id: 1, name: 'Hunting License', active: false }, { id: 2, name: 'Boating License', active: true }, { id: 3, name: 'Pilot License', active: true }], ownedVehicles: [{ plate: 'MED001', vehicle: 'Schafter' }], propertiesList: [{ id: 1, property_name: 'Eclipse Towers, Apt 5' }], weapons: [], evidence: [], linkedReports: [], activeBolos: [] },
 				'GHI11223': { citizenid: 'GHI11223', firstName: 'James', lastName: 'Wilson', gender: 'Male', dob: '1988-03-08', phone: '555-0377', fingerprint: 'FP-3344-CDEF', image: '', occupations: [], properties: 0, vehicles: 2, arrests: 5, flags: ['Flight Risk'], licenses: { driver: false, weapon: false }, customLicenses: [{ id: 1, name: 'Hunting License', active: false }, { id: 2, name: 'Boating License', active: false }, { id: 3, name: 'Pilot License', active: false }], ownedVehicles: [{ plate: 'RUN4IT', vehicle: 'Comet' }, { plate: 'GHOST7', vehicle: 'Elegy' }], propertiesList: [], weapons: [{ id: 3, serial: 'WPN-5577', scratched: 0, weaponModel: 'weapon_assaultrifle' }], evidence: [], linkedReports: [{ id: 12, title: 'Evading Police', type: 'Incident' }], activeBolos: [] },
 			};
 			selectedProfile = mockProfiles[citizenId] || null;
@@ -1976,7 +1978,6 @@
 
 	.pstats-row { display: flex; align-items: center; padding: 0 20px; height: 44px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.06); gap: 0; }
 	.tags-detail-row { align-items: flex-start; }
-	.tags-detail-row .dlabel { padding-top: 3px; }
 	.ptags-list { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
 	.ptags-empty { font-size: 11px; color: rgba(255,255,255,0.25); }
 	.flag.tag-pill { display: inline-flex; align-items: center; gap: 3px; }
@@ -2180,7 +2181,6 @@
 	.prop-owner-row { border-bottom: none; }
 
 	.prop-coords-row { display: flex; align-items: center; gap: 6px; padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,0.04); color: rgba(255,255,255,0.2); font-size: 10px; font-family: monospace; }
-	.prop-coords-row svg { color: rgba(255,255,255,0.15); flex-shrink: 0; }
 
 	/* Issue License button */
 	.issue-license-btn { display: flex; align-items: center; gap: 3px; margin-left: auto; background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.1); border-radius: 3px; padding: 2px 8px; color: rgba(147,197,253,0.7); font-size: 9px; font-weight: 600; cursor: pointer; transition: all 0.12s; text-transform: none; letter-spacing: 0; }

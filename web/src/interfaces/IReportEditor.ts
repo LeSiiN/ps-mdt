@@ -68,6 +68,8 @@ export interface ReportCharge {
     citizenid: string;
     suspectName: string;
     charge: string;
+    /** Alternative label used by some payloads; the UI falls back to it. */
+    title?: string;
     count: number;
     time: number;
     fine: number;

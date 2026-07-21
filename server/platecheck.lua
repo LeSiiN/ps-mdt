@@ -186,50 +186,66 @@ local function runPlateQueries(normalized, candidates)
                pv.mdt_vehicle_boloactive  AS boloactive,
                pv.mdt_vehicle_information AS information,
                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
-               JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))  AS lastname
+               JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))  AS lastname,
+               JSON_EXTRACT(p.metadata, '$.licences.driver')          AS driver_licence
         FROM player_vehicles pv
         LEFT JOIN players p ON p.citizenid = pv.citizenid
         WHERE pv.plate IN (?, ?)
         LIMIT 1
     ]], { c1, c2 })
 
+    if not vehicle then
+        vehicle = MySQL.single.await([[
+            SELECT pv.id, pv.plate, pv.vehicle, pv.citizenid, pv.state AS core_state,
+                   pv.mdt_vehicle_stolen      AS stolen,
+                   pv.mdt_vehicle_boloactive  AS boloactive,
+                   pv.mdt_vehicle_information AS information,
+                   JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
+                   JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))  AS lastname,
+                   JSON_EXTRACT(p.metadata, '$.licences.driver')          AS driver_licence
+            FROM player_vehicles pv
+            LEFT JOIN players p ON p.citizenid = pv.citizenid
+            WHERE REPLACE(pv.plate, ' ', '') = ?
+            LIMIT 1
+        ]], { normalized })
+    end
+
     local vehicleId = vehicle and vehicle.id or -1
     local ownerCid = vehicle and vehicle.citizenid or nil
 
-    -- Query 2: every remaining fact as scalar sub-selects, so BOLO, impound
-    -- history and the owner's warrants cost one round trip together instead
-    -- of three. Each sub-select is an indexed lookup on a single row.
+    local c3 = (vehicle and type(vehicle.plate) == 'string' and vehicle.plate ~= '')
+        and vehicle.plate:gsub('^%s+', ''):gsub('%s+$', '')
+        or c1
+
     local facts = MySQL.single.await([[
         SELECT
             (SELECT COUNT(*) FROM mdt_bolos
               WHERE type = 'vehicle' AND status = 'active'
-                AND subject_id IN (?, ?))                                     AS bolo_count,
+                AND subject_id IN (?, ?, ?))                                  AS bolo_count,
             (SELECT notes FROM mdt_bolos
               WHERE type = 'vehicle' AND status = 'active'
-                AND subject_id IN (?, ?) LIMIT 1)                             AS bolo_notes,
+                AND subject_id IN (?, ?, ?) LIMIT 1)                          AS bolo_notes,
             (SELECT COUNT(*) FROM mdt_impound
-              WHERE vehicleid = ? OR plate IN (?, ?))                         AS impound_total,
+              WHERE vehicleid = ? OR plate IN (?, ?, ?))                      AS impound_total,
             (SELECT MAX(`time`) FROM mdt_impound
-              WHERE vehicleid = ? OR plate IN (?, ?))                         AS impound_last,
+              WHERE vehicleid = ? OR plate IN (?, ?, ?))                      AS impound_last,
             (SELECT COUNT(*) FROM mdt_impound
               WHERE status = 'active'
-                AND (vehicleid = ? OR plate IN (?, ?)))                       AS impound_held,
+                AND (vehicleid = ? OR plate IN (?, ?, ?)))                    AS impound_held,
             (SELECT COUNT(*) FROM mdt_reports_warrants
               WHERE citizenid = ? AND expirydate >= NOW())                    AS warrant_count
     ]], {
-        c1, c2,
-        c1, c2,
-        vehicleId, c1, c2,
-        vehicleId, c1, c2,
-        vehicleId, c1, c2,
+        c1, c2, c3,
+        c1, c2, c3,
+        vehicleId, c1, c2, c3,
+        vehicleId, c1, c2, c3,
+        vehicleId, c1, c2, c3,
         ownerCid or '',
     }) or {}
 
     if vehicle then
         result.found = true
-        -- "sultan" is a spawn name, not something an officer says on the
-        -- radio. VehicleDisplayName resolves it to "Karin Sultan" from the
-        -- shared vehicle data, exactly like every other MDT screen.
+        if c3 and c3 ~= '' then result.plate = c3 end
         result.spawnName = vehicle.vehicle
         result.model = VehicleDisplayName and VehicleDisplayName(vehicle.vehicle) or vehicle.vehicle
         result.ownerCitizenid = vehicle.citizenid
@@ -249,6 +265,14 @@ local function runPlateQueries(normalized, candidates)
             local total = tonumber(facts.warrant_count)
             addHit('warrants', 'Owner wanted',
                 ('%d active warrant%s'):format(total, total == 1 and '' or 's'), 'critical')
+        end
+
+        if checkEnabled('driverLicense') and ownerCid then
+            local licence = vehicle.driver_licence
+            local text = licence ~= nil and tostring(licence):lower() or nil
+            if text and text ~= 'null' and not isTruthy(licence) then
+                addHit('driverLicense', 'Owner has no driver licence', nil, 'warning')
+            end
         end
 
         -- Impound HISTORY rather than a yes/no. One impound is unremarkable;

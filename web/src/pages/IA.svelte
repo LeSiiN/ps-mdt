@@ -613,7 +613,6 @@
 <PersonSearchModal
 	show={showInvestigatorSearch}
 	title="Search Officers"
-	searchQuery={investigatorSearchQuery}
 	searchResults={searchService.state.results}
 	onClose={() => {
 		showInvestigatorSearch = false;
@@ -626,7 +625,6 @@
 <PersonSearchModal
 	show={showOfficerSearchForEdit}
 	title="Search Officer"
-	searchQuery=""
 	searchResults={searchService.state.results}
 	onClose={() => {
 		showOfficerSearchForEdit = false;

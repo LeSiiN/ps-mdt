@@ -7,7 +7,10 @@
 		secondaryInfo: string;
 		notes?: string;
 		type?: string;
-		typeOptions?: typeof VICTIM_TYPES | typeof OFFICER_TYPES;
+		// A list of selectable labels. OFFICER_TYPES is an object, so callers
+		// pass Object.values(...) — `.length` and {#each} need an array, and
+		// handing the object straight in left the dropdown unrendered.
+		typeOptions?: readonly string[];
 		onRemove: (id: string) => void;
 		onUpdate: (id: string, field: string, value: any) => void;
 		actions?: Snippet;

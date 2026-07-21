@@ -422,8 +422,6 @@
 		padding-top: 8px;
 		border-top: 1px solid rgba(255, 255, 255, 0.04);
 	}
-	.link-row { display: flex; gap: 6px; align-items: center; }
-	.link-row .field-input { flex: 1; max-width: 100px; }
 	.image-actions { display: flex; gap: 6px; align-items: center; }
 	.image-count { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
 	.action-btn {
@@ -465,23 +463,6 @@
 		transition: transform 0.2s ease;
 	}
 	.image-item:hover .evidence-image { transform: scale(1.04); }
-
-	.img-tooltip {
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		background: rgba(0, 0, 0, 0.75);
-		color: rgba(255, 255, 255, 0.85);
-		font-size: 10px;
-		padding: 4px 5px;
-		transform: translateY(100%);
-		transition: transform 0.18s ease;
-		pointer-events: none;
-		word-break: break-word;
-		line-height: 1.3;
-	}
-	.image-item:hover .img-tooltip { transform: translateY(0); }
 
 	.image-remove-btn {
 		position: absolute;
@@ -565,12 +546,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.6px;
 	}
-	.field-value {
-		color: rgba(255, 255, 255, 0.7);
-		font-size: 11px;
-		font-weight: 500;
-		margin: 2px 0 0;
-	}
 
 	.form-input {
 		background: rgba(255, 255, 255, 0.03);
@@ -612,7 +587,6 @@
 		padding: 10px 16px;
 		border-top: 1px solid rgba(255, 255, 255, 0.06);
 	}
-	.modal-footer-end { justify-content: flex-end; }
 
 	.cancel-btn {
 		background: transparent;

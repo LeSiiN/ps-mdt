@@ -128,9 +128,9 @@
 	// hidden via tab_hidden_* permissions. Falls back to the full list when
 	// authService isn't wired (e.g. dev preview).
 	let defaultTabOptions = $derived.by(() => {
-		// 'civilian' never reaches Settings (civilians get their own view), but
-		// the JobType union includes it — narrow for getTabsForJob's sake.
-		const jt = authService && authService.jobType !== "civilian" ? authService.jobType : "leo";
+		// getTabsForJob takes the full JobType and handles anything that is not
+		// leo/ems/doj itself, so the old narrowing dance is gone.
+		const jt = authService?.jobType ?? "leo";
 		return [
 			{ value: "last", label: "Last used tab", icon: "history" },
 			...getTabsForJob(jt)
@@ -573,14 +573,14 @@
 	.settings-scroll::-webkit-scrollbar-track { background: transparent; }
 	.settings-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 2px; }
 
+	/* Multi-column rather than a 2-column grid: the browser distributes the
+	   cards so both columns end at roughly the same height, whatever they
+	   contain. A grid pairs cards by DOM order instead, so one card growing —
+	   or a new one appearing — left the opposite column empty and needed the
+	   order rebalancing by hand every time. This cannot drift. */
 	.settings-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 12px;
-		/* Cards in a row share a height instead of ending wherever their
-		   content happens to stop. With the pairs balanced to at most one row
-		   of difference, that reads as a tidy grid rather than a ragged one. */
-		align-items: stretch;
+		column-count: 2;
+		column-gap: 12px;
 	}
 
 	.settings-card {
@@ -588,8 +588,12 @@
 		border: 1px solid rgba(255, 255, 255, 0.05);
 		border-radius: 6px;
 		padding: 12px 14px;
+		/* A card must never be torn across the column break, and spacing now
+		   comes from the card itself since there is no grid gap any more. */
+		break-inside: avoid;
+		-webkit-column-break-inside: avoid;
+		margin-bottom: 12px;
 	}
-	.settings-card--full { grid-column: 1 / -1; }
 
 	.card-head {
 		display: flex;
@@ -809,7 +813,6 @@
 	}
 
 	@media (max-width: 900px) {
-		.settings-grid { grid-template-columns: 1fr; }
-		.settings-card--full { grid-column: 1; }
+		.settings-grid { column-count: 1; }
 	}
 </style>

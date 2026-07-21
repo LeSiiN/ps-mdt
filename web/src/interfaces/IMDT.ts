@@ -1,4 +1,4 @@
-import type { ComponentId } from "../constants";
+import type { ComponentId, MDTTab } from "../constants";
 import type {
 	ReportPageData,
 	CitizensPageData,

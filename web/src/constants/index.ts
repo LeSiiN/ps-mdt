@@ -1,3 +1,4 @@
+import type { JobType } from "../interfaces/IUser";
 /** MDT tab definitions */
 export const MDT_TABS = [
 	{ name: "Dashboard", icon: "dashboard" },
@@ -59,7 +60,16 @@ export const DOJ_TABS: readonly string[] = [
 	"Settings",
 ] as const;
 
-export function getTabsForJob(jobType: 'leo' | 'ems' | 'doj') {
+/**
+ * Tabs a job may open.
+ *
+ * Accepts the full JobType, including 'civilian': callers pass
+ * `authService.jobType` straight through, and forcing every one of them to
+ * narrow first only produced copies of the same `!== 'civilian' ? x : 'leo'`
+ * dance. Civilians have their own view and never reach a tab bar, so they
+ * fall through to the default like any unknown value.
+ */
+export function getTabsForJob(jobType: JobType) {
 	if (jobType === 'ems') {
 		return MDT_TABS.filter(tab => (EMS_TABS as readonly string[]).includes(tab.name));
 	}
@@ -119,7 +129,7 @@ export const DOJ_REPORT_TYPES = [
 	"Sentencing Report",
 ] as const;
 
-export function getReportTypesForJob(jobType: 'leo' | 'ems' | 'doj'): readonly string[] {
+export function getReportTypesForJob(jobType: JobType): readonly string[] {
 	if (jobType === 'ems') return EMS_REPORT_TYPES;
 	if (jobType === 'doj') return DOJ_REPORT_TYPES;
 	return LEO_REPORT_TYPES;
@@ -331,3 +341,18 @@ export type ReportType = (typeof REPORT_TYPES)[number];
 export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 export type VictimType = (typeof VICTIM_TYPES)[number];
 export type OfficerType = (typeof OFFICER_TYPES)[keyof typeof OFFICER_TYPES];
+
+/**
+ * Branding for a job type, with a safe fallback.
+ *
+ * APP_INFO only carries the three MDT job types, so indexing it with a
+ * JobType (which also includes 'civilian') is an implicit `any` and was
+ * flagged everywhere it happened. One accessor keeps the fallback in a single
+ * place instead of `APP_INFO[x] || APP_INFO.leo` repeated at each call site.
+ */
+export function getAppInfo(jobType: JobType) {
+	// The three entries have different string LITERAL types, so the union of
+	// their value types — not one of them — is what the table holds.
+	const table = APP_INFO as Record<string, (typeof APP_INFO)[keyof typeof APP_INFO]>;
+	return table[jobType] ?? APP_INFO.leo;
+}

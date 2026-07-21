@@ -393,6 +393,8 @@ export function createCaseService() {
 					timestamp: string | number;
 				}>;
 				total: number;
+				page?: number;
+				limit?: number;
 			}>(
 				NUI_EVENTS.AUDIT.GET_AUDIT_LOGS_BY_CASE,
 				{ caseId, page, limit },

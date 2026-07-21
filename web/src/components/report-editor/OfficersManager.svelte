@@ -31,7 +31,7 @@
 			secondaryInfo={`Badge: ${officer.badgeId}`}
 			notes={officer.notes}
 			type={officer.type}
-			typeOptions={OFFICER_TYPES}
+			typeOptions={Object.values(OFFICER_TYPES)}
 			{onRemove}
 			onUpdate={updateOfficer}
 		/>
