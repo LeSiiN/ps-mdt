@@ -53,7 +53,9 @@ export function createEvidenceService() {
 
 		try {
 		const base64 = await compressImage(file);
-		const response = await fetchNui(
+		// Typed explicitly: the server answers with `url`, older builds with
+		// `imageUrl`, and the fallback below reads both.
+		const response = await fetchNui<{ success: boolean; url?: string; imageUrl?: string }>(
 			NUI_EVENTS.EVIDENCE.ADD_EVIDENCE_IMAGE,
 			{
 				evidenceId: Number(evidenceId),
@@ -72,7 +74,9 @@ export function createEvidenceService() {
 
 		if (response.success) {
 			state.uploadProgress = 100;
-			return response.url || response.imageUrl;
+			// Both field names have been in use; neither is guaranteed, and the
+			// caller's signature promises a string.
+			return response.url ?? response.imageUrl ?? "";
 		}
 		throw new Error("Upload failed");
 		} catch (error) {

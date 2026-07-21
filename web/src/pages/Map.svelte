@@ -1111,7 +1111,7 @@
 
         const patrol  = getOfficerPatrol(citizenid);
         const color   = patrol?.color ?? "#38bdf8";
-        const latlng  = toMapLatLng(officer.coords) as L.LatLng;
+        const latlng  = toMapLatLng(officer.coords);
 
         if (highlightMarker) {
             // Reposition existing marker
@@ -1191,8 +1191,11 @@
     const CALIB_OX = 2.47;
     const CALIB_OY = 7.61;
 
-    function toMapLatLng(coords: { x: number; y: number }) {
-        return [CALIB_SY * coords.y + CALIB_OY, CALIB_SX * coords.x + CALIB_OX];
+    // Returns a real LatLng rather than a [lat, lng] array: every caller had
+    // to cast the array back to a Leaflet type, and casting number[] to
+    // L.LatLng is not a conversion TypeScript can vouch for.
+    function toMapLatLng(coords: { x: number; y: number }): L.LatLng {
+        return L.latLng(CALIB_SY * coords.y + CALIB_OY, CALIB_SX * coords.x + CALIB_OX);
     }
     function toGtaCoords(latlng: L.LatLng): GtaPoint {
         return { x: (latlng.lng - CALIB_OX) / CALIB_SX, y: (latlng.lat - CALIB_OY) / CALIB_SY };
@@ -1276,7 +1279,7 @@
 
     function renderZone(patrol: Patrol) {
         if (!map || !patrol.zonePoints || patrol.zonePoints.length < 3) return;
-        const latlngs = patrol.zonePoints.map(pt => toMapLatLng(pt) as L.LatLng);
+        const latlngs = patrol.zonePoints.map(pt => toMapLatLng(pt));
         const poly = L.polygon(latlngs, {
             color: patrol.color, weight: 2.5, opacity: 0.9,
             fillColor: patrol.color, fillOpacity: 0.1,
@@ -1324,7 +1327,7 @@
         for (const patrol of patrols) {
             if (patrol.id === drawingPatrolId || !patrol.zonePoints) continue;
             for (const pt of patrol.zonePoints) {
-                out.push(L.latLng(toMapLatLng(pt) as [number, number]));
+                out.push(toMapLatLng(pt));
             }
         }
         return out;

@@ -95,6 +95,11 @@
 
 	// Certification modal state
 	let selectedOfficer = $state<Officer | null>(null);
+	// Display name as the FTO records store it, used to tell which side of a
+	// record the selected officer was on.
+	let officerFullName = $derived(
+		selectedOfficer ? `${selectedOfficer.firstName ?? ''} ${selectedOfficer.lastName ?? ''}`.trim() : '',
+	);
 	let availableTags = $state<OfficerTag[]>([]);
 	let selectedCerts = $state<string[]>([]);
 	let isSavingCerts = $state(false);
@@ -1358,8 +1363,11 @@
 										</div>
 										<div class="ia-history-meta">
 											<span style="flex:1;">
-												{record.trainee_name === selectedOfficer?.name ? 'Trainer' : 'Trainee'}:
-												{record.trainee_name === selectedOfficer?.name ? record.trainer_name : record.trainee_name}
+												<!-- The officer's display name is firstName + lastName;
+												     `name` does not exist, so this comparison was always
+												     false and every record read as "Trainee". -->
+												{record.trainee_name === officerFullName ? 'Trainer' : 'Trainee'}:
+												{record.trainee_name === officerFullName ? record.trainer_name : record.trainee_name}
 											</span>
 											{#if record.phase_name}
 												<span style="color: rgba(255,255,255,0.5); font-size: 9px;">{record.phase_name}</span>

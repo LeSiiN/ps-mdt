@@ -648,6 +648,7 @@ Config.PlateCheck = {
         bolo         = { enabled = true,  severity = 'critical' },
         stolen       = { enabled = true,  severity = 'critical' },
         warrants     = { enabled = true,  severity = 'critical' }, -- owner wanted
+        driverLicense = { enabled = true, severity = 'warning' },
         impounds     = { enabled = true,  severity = 'warning', minCount = 5, criticalCount = 10 },
         insurance    = { enabled = true,  severity = 'warning'  }, -- needs Config.VehicleInsurance
         registration = { enabled = true,  severity = 'warning'  }, -- needs Config.VehicleRegistration

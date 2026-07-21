@@ -363,7 +363,10 @@ export interface AuthService {
 	// Actions
 	updateAuthState: (data: AuthUpdateData) => void;
 	checkAuth: () => Promise<void>;
-	handleAuthComplete: () => void;
+	// handleAuthComplete is deliberately NOT here: it is an internal lifecycle
+	// step called from checkAuth/updateAuthState, and the factory never
+	// returned it — so anything typed as AuthService could not satisfy the
+	// interface. Nothing outside the service ever called it.
 	goOnDuty: () => Promise<void>;
 	signOut: () => void;
 	closeUI: () => void;

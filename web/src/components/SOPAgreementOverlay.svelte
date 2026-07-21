@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fetchNui } from "../utils/fetchNui";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
-	import { APP_INFO } from "../constants";
+	import { getAppInfo } from "../constants";
 	import type { AuthService } from "../services/authService.svelte";
 
 	interface Props {
@@ -16,7 +16,7 @@
 	let agreed = $state(false);
 	let submitting = $state(false);
 
-	let info = $derived(APP_INFO[authService.jobType] || APP_INFO.leo);
+	let info = $derived(getAppInfo(authService.jobType));
 
 	async function handleAcknowledge() {
 		if (!agreed || submitting) return;

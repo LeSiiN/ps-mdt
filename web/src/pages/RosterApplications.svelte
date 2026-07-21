@@ -650,7 +650,6 @@
 		align-self: flex-start;
 	}
 	.a-open:hover { color: rgba(147, 197, 253, 1); text-decoration: underline; }
-	.a-open .material-icons { font-size: 13px; }
 
 	/* Yes/No answers get an icon so the verdict is readable at a glance. */
 	.a-bool {

@@ -125,7 +125,7 @@
 		if (activeInstance) tabService.setInstanceTab(activeInstance.id, "BOLOs");
 	}
 
-	function viewReport(reportId: string) {
+	function viewReport(reportId: string | number) {
 		openReportInEditor(reportId);
 		tabService.setActiveTab("Reports");
 		const activeInstance = tabService.getActiveInstance();
@@ -411,7 +411,7 @@
 							<div class="empty-state">No pending warrants</div>
 						{:else}
 							{#each dojWarrantReviews as wr}
-								<button class="list-item-btn" onclick={() => tabService.openTab('warrant_review')}>
+								<button class="list-item-btn" onclick={() => tabService.setActiveTab('Warrant Review')}>
 									<span class="item-name">{wr.citizen_name || wr.citizenid}</span>
 									<span class="item-meta">{wr.status || 'pending'} · {formatDate(wr.created_at)}</span>
 								</button>
@@ -429,7 +429,7 @@
 							<div class="empty-state">No court cases</div>
 						{:else}
 							{#each dojCourtCases as cc}
-								<button class="list-item-btn" onclick={() => tabService.openTab('court_cases')}>
+								<button class="list-item-btn" onclick={() => tabService.setActiveTab('Court Cases')}>
 									<span class="item-name">{cc.title || cc.case_number}</span>
 									<span class="item-meta">{cc.status} · {formatDate(cc.created_at || cc.filed_date)}</span>
 								</button>
@@ -447,7 +447,7 @@
 							<div class="empty-state">No court orders</div>
 						{:else}
 							{#each dojCourtOrders as co}
-								<button class="list-item-btn" onclick={() => tabService.openTab('court_orders')}>
+								<button class="list-item-btn" onclick={() => tabService.setActiveTab('Court Orders')}>
 									<span class="item-name">{co.title || co.order_number}</span>
 									<span class="item-meta">{co.status} · {formatDate(co.created_at)}</span>
 								</button>
@@ -648,7 +648,7 @@
 	.item-left { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 	.item-name { color: rgba(255, 255, 255, 0.85); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.item-meta { color: rgba(255, 255, 255, 0.3); font-size: 11px; display: flex; align-items: center; gap: 4px; }
-	.item-notes { color: rgba(255, 255, 255, 0.35); font-size: 11px; line-height: 1.3; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+	.item-notes { color: rgba(255, 255, 255, 0.35); font-size: 11px; line-height: 1.3; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 	.item-arrow { color: rgba(255, 255, 255, 0.15); flex-shrink: 0; transition: color 0.12s; }
 	.list-item:hover .item-arrow { color: rgba(255, 255, 255, 0.4); }
 

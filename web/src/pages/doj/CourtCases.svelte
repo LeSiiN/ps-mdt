@@ -386,7 +386,7 @@
 					<div class="section">
 						<div class="section-header-row">
 							<span class="section-title">Documents</span>
-							<button class="add-btn" onclick={() => { newDocData = { title: `${selectedCase.court_case.case_number} - `, type: "brief", content: "" }; showNewDocModal = true; }}>+ Add</button>
+							<button class="add-btn" onclick={() => { newDocData = { title: `${selectedCase?.court_case?.case_number ?? ''} - `, type: "brief", content: "" }; showNewDocModal = true; }}>+ Add</button>
 						</div>
 					</div>
 

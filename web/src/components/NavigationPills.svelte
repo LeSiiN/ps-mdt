@@ -54,7 +54,9 @@
 	}
 
 	let visibleTabs = $derived(getTabsForJob(jobType).filter(t => !isTabHidden(t.name)));
-	let visibleTabNames = $derived(new Set(visibleTabs.map(t => t.name)));
+	// Set<string>, not Set<MDTTab>: the group definitions hold plain strings,
+	// and a Set typed to the narrower union cannot be queried with them.
+	let visibleTabNames = $derived(new Set<string>(visibleTabs.map(t => t.name)));
 
 	let collapsed = $state(false);
 	let collapsedGroups = $state<Record<string, boolean>>({});

@@ -1166,7 +1166,6 @@
 <PersonSearchModal
 	show={showTraineeSearch}
 	title="Search Trainee"
-	searchQuery={personSearchQuery}
 	searchResults={searchService.state.results}
 	onClose={() => {
 		showTraineeSearch = false;
@@ -1179,7 +1178,6 @@
 <PersonSearchModal
 	show={showTrainerSearch}
 	title="Search Trainer (FTO)"
-	searchQuery={personSearchQuery}
 	searchResults={searchService.state.results}
 	onClose={() => {
 		showTrainerSearch = false;

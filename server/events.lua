@@ -67,9 +67,27 @@ AddEventHandler("wk:onPlateScanned", function(cam, plate, index)
     local src = source
     if not CheckAuth(src) then return end
     local Player = ps.getPlayer(src)
-    local driversLicense = ps.getMetadata(src, 'licences') and ps.getMetadata(src, 'licences').driver
-
     local vehicleOwner = GetVehicleOwner(plate)
+
+    local driversLicense = true
+    do
+        local normalizedPlate = NormalizePlate(plate)
+        if normalizedPlate then
+            local row = MySQL.single.await([[
+                SELECT JSON_EXTRACT(p.metadata, '$.licences.driver') AS driver_licence
+                FROM player_vehicles pv
+                LEFT JOIN players p ON p.citizenid = pv.citizenid
+                WHERE pv.plate = ? OR REPLACE(pv.plate, ' ', '') = REPLACE(?, ' ', '')
+                LIMIT 1
+            ]], { normalizedPlate, normalizedPlate })
+            local raw = row and row.driver_licence
+            local text = raw ~= nil and tostring(raw):lower() or nil
+ 
+            if text and text ~= 'null' and text ~= 'true' and text ~= '1' then
+                driversLicense = false
+            end
+        end
+    end
     local bolo, title, boloId = GetBoloStatus(plate)
     local warrant, owner, incidentId = GetWarrantStatus(plate)
 

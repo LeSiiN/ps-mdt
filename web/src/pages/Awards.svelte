@@ -95,7 +95,7 @@
 				stats: OfficerStats;
 				awards: Award[];
 				leaderboard: LeaderboardEntry[];
-			}>(NUI_EVENTS.AWARDS.GET_AWARDS_DATA, { jobType }, null);
+			} | null>(NUI_EVENTS.AWARDS.GET_AWARDS_DATA, { jobType }, null);
 			if (data) {
 				myStats = data.stats || myStats;
 				awards = data.awards || [];
