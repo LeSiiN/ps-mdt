@@ -139,7 +139,8 @@ ps.registerCallback(resourceName .. ':server:getCase', function(source, caseId)
 
     local officers = MySQL.query.await([[
         SELECT mco.citizenid, mco.role, mco.assigned_by, mco.assigned_at,
-               mp.fullname, mp.callsign, mp.badge_number, mp.rank, mp.department
+               mp.fullname, mp.callsign, mp.badge_number, mp.rank, mp.department,
+               mp.profilepicture
         FROM mdt_case_officers mco
         LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = mco.citizenid COLLATE utf8mb4_general_ci
         WHERE mco.case_id = ?

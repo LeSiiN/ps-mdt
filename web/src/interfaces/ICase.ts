@@ -27,6 +27,7 @@ export interface CaseOfficerAssignment {
 	badge_number?: string;
 	rank?: string;
 	department?: string;
+	profilepicture?: string;
 }
 
 export interface CaseAttachment {

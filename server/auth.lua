@@ -36,6 +36,81 @@ function CheckAuth(source)
 end
 
 -- Check if a player has a specific permission (by job + grade lookup)
+
+-- ── Department policy permissions ────────────────────────────────────────────
+-- Config.PermissionDefaults grants permissions by rank the way a department's
+-- own regulations would: they are not something a supervisor hands out in the
+-- MDT, they come with the rank itself.
+--
+-- Three modes decide how they interact with what a boss configures in the
+-- Management tab (Config.PermissionDefaultsMode):
+--
+--   'merge'         policy ALWAYS applies, on top of whatever is stored.
+--                   Adding a permission to the config takes effect
+--                   immediately, including for ranks that were saved long ago.
+--   'seed'          the pre-2.x behaviour: the moment a rank is saved in the
+--                   MDT, its stored list is the only thing that counts and the
+--                   config is ignored for that rank forever.
+--   'authoritative' policy wins outright — for servers that manage permissions
+--                   in the file only and want the MDT to be read-only.
+---@return string
+local function permissionDefaultsMode()
+    local mode = Config and Config.PermissionDefaultsMode
+    if mode == 'seed' or mode == 'authoritative' then return mode end
+    return 'merge'
+end
+
+--- Permissions granted by department policy for a job + grade.
+---
+--- Ranks build on each other, so by default a grade inherits everything the
+--- lower grades are granted — defining grade 0 and grade 5 no longer leaves
+--- grades 1-4 with nothing. Set Config.PermissionDefaultsCumulative = false
+--- for strict per-grade lists.
+---@param jobName string
+---@param gradeValue number|string
+---@return table
+function GetPolicyPermissions(jobName, gradeValue)
+    local defaults = Config and Config.PermissionDefaults and Config.PermissionDefaults[jobName]
+    if type(defaults) ~= 'table' then return {} end
+
+    local out, seen = {}, {}
+    local function add(list)
+        for _, perm in ipairs(list or {}) do
+            if perm and not seen[perm] then
+                seen[perm] = true
+                out[#out + 1] = perm
+            end
+        end
+    end
+
+    local target = tonumber(gradeValue)
+    if target == nil or (Config and Config.PermissionDefaultsCumulative == false) then
+        add(defaults[tostring(gradeValue)])
+        return out
+    end
+
+    for key, list in pairs(defaults) do
+        local keyNum = tonumber(key)
+        if keyNum and keyNum <= target then add(list) end
+    end
+    return out
+end
+
+--- Is `permName` granted by department policy for this job + grade?
+---@return boolean
+function HasPolicyPermission(jobName, gradeValue, permName)
+    for _, perm in ipairs(GetPolicyPermissions(jobName, gradeValue)) do
+        if perm == permName then return true end
+    end
+    return false
+end
+
+--- The active mode, exposed so the management tab can describe it.
+---@return string
+function GetPermissionDefaultsMode()
+    return permissionDefaultsMode()
+end
+
 function CheckPermission(source, permName)
     if not source or not permName then return false end
 
@@ -60,7 +135,14 @@ function CheckPermission(source, permName)
     local jobName = ps.getJobName(source) or 'police'
     local gradeStr = tostring(gradeValue)
 
-    -- Check database
+    local mode = permissionDefaultsMode()
+
+    -- Policy first when it outranks the MDT.
+    if mode == 'authoritative' then
+        return HasPolicyPermission(jobName, gradeValue, permName)
+    end
+
+    -- What a supervisor configured in the Management tab.
     local row = MySQL.single.await('SELECT permissions FROM mdt_permission_roles WHERE job = ? AND grade = ?', { jobName, tonumber(gradeStr) })
     if row and row.permissions then
         local ok, decoded = pcall(json.decode, row.permissions)
@@ -68,19 +150,14 @@ function CheckPermission(source, permName)
             for _, p in ipairs(decoded) do
                 if p == permName then return true end
             end
-            return false
+            -- 'seed' stops here: once a rank has been saved, its stored list
+            -- is the whole truth. In 'merge' the rank still keeps whatever
+            -- department policy grants it.
+            if mode == 'seed' then return false end
         end
     end
 
-    -- Check config defaults
-    local defaults = Config and Config.PermissionDefaults and Config.PermissionDefaults[jobName]
-    if defaults and defaults[gradeStr] then
-        for _, p in ipairs(defaults[gradeStr]) do
-            if p == permName then return true end
-        end
-    end
-
-    return false
+    return HasPolicyPermission(jobName, gradeValue, permName)
 end
 
 local function upsertProfileSession(src, action)
@@ -282,21 +359,39 @@ ps.registerCallback(tostring(GetCurrentResourceName())..':server:getMyPermission
 
     local gradeStr = tostring(gradeValue)
 
-    -- Check database for stored permissions
+    local mode = GetPermissionDefaultsMode()
+    local policy = GetPolicyPermissions(jobName, gradeValue)
+
+    if mode == 'authoritative' then
+        return { permissions = policy, isBoss = false }
+    end
+
+    local granted, seen = {}, {}
+    local function add(list)
+        for _, perm in ipairs(list or {}) do
+            if perm and not seen[perm] then
+                seen[perm] = true
+                granted[#granted + 1] = perm
+            end
+        end
+    end
+
+    -- Stored role first, so the list reads in the order a supervisor set it.
+    local stored, hasStored = nil, false
     local row = MySQL.single.await('SELECT permissions FROM mdt_permission_roles WHERE job = ? AND grade = ?', { jobName, tonumber(gradeStr) })
     if row and row.permissions then
         local ok, decoded = pcall(json.decode, row.permissions)
         if ok and type(decoded) == 'table' then
-            return { permissions = decoded, isBoss = false }
+            stored, hasStored = decoded, true
+            add(decoded)
         end
     end
 
-    -- Check config defaults
-    local defaults = Config and Config.PermissionDefaults and Config.PermissionDefaults[jobName]
-    if defaults and defaults[gradeStr] then
-        return { permissions = defaults[gradeStr], isBoss = false }
+    -- In 'seed', a saved rank ignores policy entirely; in 'merge' policy is
+    -- always added on top.
+    if not (mode == 'seed' and hasStored) then
+        add(policy)
     end
 
-    -- No permissions found for this grade
-    return { permissions = {}, isBoss = false }
+    return { permissions = granted, isBoss = false }
 end)

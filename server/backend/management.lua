@@ -95,17 +95,39 @@ local function normalizePermissionList(list)
     return result
 end
 
-local function getDefaultRolePermissions(jobName, gradeKey, isBoss)
+--- Permissions this rank holds by department policy (Config.PermissionDefaults).
+--- Resolution — mode and rank inheritance — lives in server/auth.lua so the
+--- Management tab can never disagree with what CheckPermission actually grants.
+local function getPolicyRolePermissions(jobName, gradeKey, isBoss)
+    if isBoss then
+        return normalizePermissionList(getAllPermissions())
+    end
+    if not GetPolicyPermissions then return {} end
+    return normalizePermissionList(GetPolicyPermissions(jobName, gradeKey))
+end
+
+--- The full effective list for a rank: what a supervisor stored plus what
+--- policy grants, exactly as CheckPermission evaluates it.
+local function getEffectiveRolePermissions(jobName, gradeKey, isBoss, stored)
     if isBoss then
         return normalizePermissionList(getAllPermissions())
     end
 
-    local defaults = Config and Config.PermissionDefaults and Config.PermissionDefaults[jobName]
-    if defaults and defaults[tostring(gradeKey)] then
-        return normalizePermissionList(defaults[tostring(gradeKey)])
+    local mode = GetPermissionDefaultsMode and GetPermissionDefaultsMode() or 'merge'
+    local policy = getPolicyRolePermissions(jobName, gradeKey, false)
+
+    if mode == 'authoritative' then
+        return policy
+    end
+    -- 'seed': a rank that has been saved ignores policy from then on.
+    if mode == 'seed' and stored and #stored > 0 then
+        return normalizePermissionList(stored)
     end
 
-    return {}
+    local merged = {}
+    for _, perm in ipairs(stored or {}) do merged[#merged + 1] = perm end
+    for _, perm in ipairs(policy) do merged[#merged + 1] = perm end
+    return normalizePermissionList(merged)
 end
 
 ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(source)
@@ -132,7 +154,7 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
     if not job or not job.grades then
         ps.debug('[getPermissionRoles] no job grades, using fallback')
         local isBoss = ps and ps.isBoss and ps.isBoss(src) or false
-        local fallbackPermissions = getDefaultRolePermissions(jobName, 0, isBoss)
+        local fallbackPermissions = getEffectiveRolePermissions(jobName, 0, isBoss, nil)
         return {
             job = jobName,
             label = 'Law Enforcement',
@@ -167,17 +189,19 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
     ps.debug('[getPermissionRoles] grade count', gradeCount)
     for gradeKeyString, gradeData in pairs(grades) do
         local isBoss = hasBossAccess or isBossGrade(gradeData)
-        local permissions = storedByGrade[gradeKeyString]
-        if not permissions or #permissions == 0 then
-            permissions = getDefaultRolePermissions(jobName, gradeKeyString, isBoss)
-        end
-        permissions = normalizePermissionList(permissions)
+        local stored = storedByGrade[gradeKeyString]
+        local permissions = getEffectiveRolePermissions(jobName, gradeKeyString, isBoss, stored)
+        -- Sent alongside so the UI can mark these as coming with the rank
+        -- rather than from this screen — a supervisor cannot untick them, and
+        -- showing them as a normal choice would be a lie.
+        local policyPermissions = isBoss and {} or getPolicyRolePermissions(jobName, gradeKeyString, false)
 
         roles[#roles + 1] = {
             key = gradeKeyString,
             label = getGradeLabel(gradeData, gradeKeyString),
             isBoss = isBoss,
             permissions = permissions,
+            policyPermissions = policyPermissions,
         }
     end
 
@@ -194,16 +218,14 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
             end
             gradeValue = gradeValue or 0
             local gradeKeyString = tostring(gradeValue)
-            local permissions = storedByGrade[gradeKeyString]
-            if not permissions or #permissions == 0 then
-                permissions = getDefaultRolePermissions(jobName, gradeKeyString, isBoss)
-            end
-            permissions = normalizePermissionList(permissions)
+            local stored = storedByGrade[gradeKeyString]
+            local permissions = getEffectiveRolePermissions(jobName, gradeKeyString, isBoss, stored)
             roles[#roles + 1] = {
                 key = gradeKeyString,
                 label = gradeLabel or ('Grade ' .. gradeKeyString),
                 isBoss = isBoss,
                 permissions = permissions,
+                policyPermissions = isBoss and {} or getPolicyRolePermissions(jobName, gradeKeyString, false),
             }
         end
     end
@@ -218,6 +240,8 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
     end)
 
     return {
+        -- So the tab can explain why some entries are locked.
+        permissionMode = GetPermissionDefaultsMode and GetPermissionDefaultsMode() or 'merge',
         job = jobName,
         label = job.label or 'Law Enforcement',
         roles = roles,
@@ -250,6 +274,24 @@ ps.registerCallback(resourceName .. ':server:updatePermissionRole', function(sou
     local permissions = normalizePermissionList(payload.permissions)
     if isBoss then
         permissions = normalizePermissionList(getAllPermissions())
+    else
+        -- Strip what department policy already grants before storing. The UI
+        -- shows those ticked, so saving would otherwise copy them into the
+        -- database — and a later config change could no longer reach this
+        -- rank, which is exactly the trap the old behaviour set. The stored
+        -- row holds only what this screen actually granted on top.
+        local mode = GetPermissionDefaultsMode and GetPermissionDefaultsMode() or 'merge'
+        if mode ~= 'seed' and GetPolicyPermissions then
+            local policy = {}
+            for _, perm in ipairs(GetPolicyPermissions(payload.job, payload.grade) or {}) do
+                policy[perm] = true
+            end
+            local kept = {}
+            for _, perm in ipairs(permissions) do
+                if not policy[perm] then kept[#kept + 1] = perm end
+            end
+            permissions = kept
+        end
     end
 
     local updatedBy = ps.getIdentifier(src)

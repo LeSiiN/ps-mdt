@@ -6,13 +6,22 @@ import { ALL_PERMISSION_KEYS } from "../constants/management";
 export interface PermissionRole {
 	key: string;
 	label: string;
+	/** Effective list: what a supervisor granted plus what policy grants. */
 	permissions?: string[];
+	/**
+	 * Subset that comes with the RANK via Config.PermissionDefaults. Shown
+	 * ticked and locked in the UI — a supervisor adds on top of these but
+	 * cannot revoke them here.
+	 */
+	policyPermissions?: string[];
 	isBoss?: boolean;
 }
 
 export interface PermissionRolesResponse {
 	job: string;
 	label: string;
+	/** 'merge' | 'seed' | 'authoritative' — see Config.PermissionDefaultsMode. */
+	permissionMode?: string;
 	roles: PermissionRole[];
 	permissions?: string[];
 }

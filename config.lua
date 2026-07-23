@@ -1038,15 +1038,47 @@ Config.OfficerStatus = {
     },
 }
 
--- Optional defaults for role permissions by job/grade
+-- ---------------------------------------------------------------------------
+--  Department policy permissions
+-- ---------------------------------------------------------------------------
+-- Permissions that come WITH A RANK, the way a department's own regulations
+-- would grant them — not something a supervisor hands out in the Management
+-- tab. In the MDT they show up ticked and locked, labelled "Department Policy".
+--
 -- Example:
 -- Config.PermissionDefaults = {
 --     police = {
 --         ['0'] = { 'access_reports' },
---         ['1'] = { 'access_reports', 'view_bodycams' },
+--         ['1'] = { 'view_bodycams' },   -- sergeants and up, see Cumulative
 --     }
 -- }
 Config.PermissionDefaults = Config.PermissionDefaults or {}
+
+-- Ranks build on each other: a grade also gets everything the lower grades
+-- are granted. In the example above a grade 1 officer holds BOTH
+-- access_reports and view_bodycams, and grades you never list still inherit
+-- from below instead of ending up with nothing.
+-- Set to false if each grade should only get its own exact list.
+Config.PermissionDefaultsCumulative = true
+
+-- How policy interacts with what a boss configures in the Management tab:
+--
+--   'merge'          Policy always applies, on top of whatever is stored.
+--                    Add a permission here and every matching rank has it
+--                    immediately, including ranks saved months ago. Bosses
+--                    grant EXTRA permissions on top; they cannot revoke
+--                    policy ones. (Recommended, and what most people expect
+--                    the word "defaults" to mean.)
+--
+--   'seed'           The old behaviour: policy only fills in a rank that has
+--                    never been saved in the MDT. The first time a boss saves
+--                    that rank — even without changing anything — this config
+--                    stops affecting it for good.
+--
+--   'authoritative'  Policy is the only source. The Management tab becomes
+--                    read-only in effect; for servers that manage permissions
+--                    in this file exclusively.
+Config.PermissionDefaultsMode = 'merge'
 
 -- ---------------------------------------------------------------------------
 --  Camera tampering
