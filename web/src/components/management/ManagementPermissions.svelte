@@ -48,6 +48,12 @@
 
 	let currentRole = $derived(mgmt.roles.find((r) => r.key === selectedRole));
 
+	// Permissions this rank holds by department policy (Config.PermissionDefaults).
+	// They come with the rank, so this screen shows them ticked and locked —
+	// a supervisor grants extras on top, they cannot take a policy right away.
+	let policyPerms = $derived(new Set<string>(currentRole?.policyPermissions ?? []));
+	let isPolicy = $derived((permKey: string) => policyPerms.has(permKey));
+
 	function categoryAllEnabled(catKey: string): boolean {
 		if (!currentRole) return false;
 		const cat = PERMISSION_CATEGORIES.find((c) => c.key === catKey);
@@ -167,14 +173,19 @@
 									{#each category.permissions as perm}
 										<div class="permission-row">
 											<div class="permission-info">
-												<span class="permission-label">{perm.label}</span>
+												<span class="permission-label">
+													{perm.label}
+													{#if isPolicy(perm.key) && !currentRole.isBoss}
+														<span class="policy-badge" title="Granted by department policy — comes with this rank and cannot be removed here">Department Policy</span>
+													{/if}
+												</span>
 												<span class="permission-desc">{perm.description}</span>
 											</div>
 											<label class="toggle">
 												<input
 													type="checkbox"
 													checked={mgmt.roleHasPermission(currentRole.key, perm.key)}
-													disabled={currentRole.isBoss}
+													disabled={currentRole.isBoss || isPolicy(perm.key)}
 													onchange={() => mgmt.togglePermission(currentRole.key, perm.key)}
 												/>
 												<span class="toggle-slider"></span>
@@ -192,6 +203,21 @@
 </div>
 
 <style>
+	.policy-badge {
+		margin-left: 6px;
+		padding: 1px 6px;
+		border-radius: 3px;
+		background: rgba(59, 130, 246, 0.12);
+		border: 1px solid rgba(59, 130, 246, 0.25);
+		color: #93c5fd;
+		font-size: 9px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		white-space: nowrap;
+		vertical-align: middle;
+	}
+
 	.permissions-panel {
 		display: flex;
 		flex-direction: column;

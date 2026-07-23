@@ -45,6 +45,31 @@
 	let showCaseView = $state(false);
 	let showOfficerSearch = $state(false);
 	let officerRole = $state<CaseOfficerAssignment["role"]>("assisting");
+
+	// Summary editing — the case summary was read-only, though the server has always
+	// accepted updates to it. Editing is inline: click Edit, change the text, Save.
+	// Detail tabs — the sections were one long stacked scroll; grouping them behind tabs
+	// keeps only the relevant one on screen.
+	let detailTab = $state("overview");
+	// Reset to the first tab whenever a different case is opened.
+	$effect(() => {
+		selectedCase?.case.id;
+		detailTab = "overview";
+	});
+
+	let editingSummary = $state(false);
+	let summaryDraft = $state("");
+	function startEditSummary() {
+		summaryDraft = selectedCase?.case.summary ?? "";
+		editingSummary = true;
+	}
+	async function saveSummary() {
+		if (!selectedCase) return;
+		const next = summaryDraft.trim();
+		editingSummary = false;
+		if (next === (selectedCase.case.summary ?? "")) return;
+		await handleUpdateCase({ summary: next });
+	}
 	let isCreateDisabled = $derived.by(() => !newCase.title.trim());
 	let newCase = $state({
 		title: "",
@@ -224,14 +249,30 @@
 	let casePage = $state(1);
 	let casePerPage = $state(25);
 
+	let activeStatus = $state("");
+
+	let caseCounts = $derived.by(() => {
+		const c = { all: cases.length, open: 0, in_progress: 0, closed: 0 };
+		for (const item of cases) {
+			if (item.status === "open") c.open++;
+			else if (item.status === "in_progress") c.in_progress++;
+			else if (item.status === "closed") c.closed++;
+		}
+		return c;
+	});
+
 	let allFilteredCases = $derived.by(() => {
 		const query = searchQuery.trim().toLowerCase();
-		if (!query) return cases;
-		return cases.filter((item) => {
-			return [item.case_number, item.title, item.assigned_department]
-				.filter(Boolean)
-				.some((value) => String(value).toLowerCase().includes(query));
-		});
+		let list = cases;
+		if (activeStatus) list = list.filter((item) => item.status === activeStatus);
+		if (query) {
+			list = list.filter((item) =>
+				[item.case_number, item.title, item.assigned_department]
+					.filter(Boolean)
+					.some((value) => String(value).toLowerCase().includes(query)),
+			);
+		}
+		return list;
 	});
 
 	let filteredCaseList = $derived.by(() => {
@@ -242,6 +283,7 @@
 	// Reset page on search
 	$effect(() => {
 		searchQuery;
+		activeStatus;
 		casePage = 1;
 	});
 
@@ -584,6 +626,42 @@
 	function formatStatus(status: string) {
 		return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 	}
+
+	function relativeTime(value: string | number | undefined): string {
+		if (value == null) return "-";
+		const then = typeof value === "number" ? value : Date.parse(String(value));
+		if (Number.isNaN(then)) return formatDateValue(value);
+		const diff = Date.now() - then;
+		if (diff < 0) return "just now";
+		const mins = Math.floor(diff / 60000);
+		if (mins < 1) return "just now";
+		if (mins < 60) return mins + "m ago";
+		const hrs = Math.floor(mins / 60);
+		if (hrs < 24) return hrs + "h ago";
+		const days = Math.floor(hrs / 24);
+		if (days < 30) return days + "d ago";
+		return formatDateValue(value);
+	}
+
+	// Shared image lightbox: click any thumbnail/attachment to view it full-size. URLs are
+	// shown as real images throughout rather than as raw links.
+	let lightboxUrl = $state<string | null>(null);
+	function openLightbox(url: string) { lightboxUrl = url; }
+
+	// URLs that point at an image we can actually render inline. Everything else stays a
+	// link so a PDF or doc URL doesn't render as a broken image.
+	function isImageUrl(url?: string): boolean {
+		if (!url) return false;
+		return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(url) || url.startsWith("data:image");
+	}
+
+	function caseInitials(name?: string): string {
+		if (!name) return "?";
+		const parts = name.replace(/^\w+\.\s*/, "").trim().split(/\s+/);
+		const a = (parts[0] && parts[0][0]) || "";
+		const b = parts.length > 1 ? parts[parts.length - 1][0] : "";
+		return (a + b).toUpperCase() || "?";
+	}
 </script>
 
 <div class="cases-page">
@@ -597,10 +675,7 @@
 			{#if showCreatePanel}
 				<span class="topbar-title">New Case</span>
 			{:else if selectedCase}
-				<span class="topbar-case-number">{selectedCase.case.case_number}</span>
-				<span class="topbar-title">{selectedCase.case.title}</span>
-				<span class="pill {selectedCase.case.status === 'open' ? 'pill-green' : selectedCase.case.status === 'in_progress' ? 'pill-blue' : 'pill-grey'}">{formatStatus(selectedCase.case.status)}</span>
-				<span class="pill {selectedCase.case.priority === 'high' ? 'pill-red' : selectedCase.case.priority === 'medium' ? 'pill-orange' : 'pill-green'}">{selectedCase.case.priority}</span>
+				<span class="topbar-title topbar-title--muted">Case File</span>
 			{/if}
 		</div>
 
@@ -677,37 +752,132 @@
 		{:else if selectedCase}
 			<!-- ==================== CASE DETAIL VIEW ==================== -->
 			<div class="detail-scroll">
+				<!-- Hero header: the case's identity and vital stats before any editable
+				     fields, so opening a case answers "what is this and who owns it" at once. -->
+				<div class="case-hero prio-{selectedCase.case.priority}">
+					<span class="hero-rail"></span>
+					<div class="hero-body">
+						<div class="hero-top">
+							<span class="hero-number">{selectedCase.case.case_number}</span>
+							<span class="cc-status status-{selectedCase.case.status}">{formatStatus(selectedCase.case.status)}</span>
+							<span class="cc-prio prio-badge-{selectedCase.case.priority}">{selectedCase.case.priority} priority</span>
+						</div>
+						<h1 class="hero-title">{selectedCase.case.title}</h1>
+						<div class="hero-meta">
+							<span class="hero-avatar">{caseInitials(selectedCase.case.primary_officer_name)}</span>
+							<span class="hero-officer">
+								{selectedCase.case.primary_officer_callsign ? selectedCase.case.primary_officer_callsign + " · " : ""}{selectedCase.case.primary_officer_name || "Unassigned"}
+							</span>
+							{#if selectedCase.case.assigned_department}
+								<span class="hero-dot">•</span>
+								<span class="hero-dept">{selectedCase.case.assigned_department}</span>
+							{/if}
+							<span class="hero-dot">•</span>
+							<span class="hero-updated">Updated {relativeTime(selectedCase.case.updated_at)}</span>
+						</div>
+					</div>
+					</div>
+
+				<!-- Tabs styled to match the roster's boss-tabs: uppercase, icon, accent
+				     underline on the active one. -->
+				<div class="detail-tabs">
+					<button class="detail-tab" class:active={detailTab === "overview"} onclick={() => (detailTab = "overview")}>
+						<span class="material-icons detail-tab-icon">description</span>
+						Overview
+					</button>
+					<button class="detail-tab" class:active={detailTab === "evidence"} onclick={() => (detailTab = "evidence")}>
+						<span class="material-icons detail-tab-icon">inventory_2</span>
+						Evidence
+						<span class="detail-tab-count">{selectedCase.evidence.length + selectedCase.attachments.length}</span>
+					</button>
+					<button class="detail-tab" class:active={detailTab === "reports"} onclick={() => (detailTab = "reports")}>
+						<span class="material-icons detail-tab-icon">assignment</span>
+						Reports
+						<span class="detail-tab-count">{((selectedCase as any).reports || []).length}</span>
+					</button>
+					<button class="detail-tab" class:active={detailTab === "notes"} onclick={() => (detailTab = "notes")}>
+						<span class="material-icons detail-tab-icon">sticky_note_2</span>
+						Notes
+						<span class="detail-tab-count">{(selectedCase.notes || []).length}</span>
+					</button>
+					<button class="detail-tab" class:active={detailTab === "activity"} onclick={() => (detailTab = "activity")}>
+						<span class="material-icons detail-tab-icon">history</span>
+						Activity
+					</button>
+				</div>
+
+				{#if detailTab === "overview"}
 				<!-- Info Section -->
-				<div class="section">
-					<div class="section-title">Case Information</div>
-					<p class="summary-text">{selectedCase.case.summary || "No summary"}</p>
-					<div class="field-row">
-						<div class="field-group">
-							<span class="field-label">Status</span>
-							<select class="form-select" value={selectedCase.case.status} onchange={(event) => handleUpdateCase({ status: (event.target as HTMLSelectElement).value })}>
-								{#each statusOptions as option}
-									<option value={option}>{formatStatus(option)}</option>
-								{/each}
-							</select>
-						</div>
-						<div class="field-group">
-							<span class="field-label">Priority</span>
-							<select class="form-select" value={selectedCase.case.priority} onchange={(event) => handleUpdateCase({ priority: (event.target as HTMLSelectElement).value })}>
-								{#each priorityOptions as option}
-									<option value={option}>{formatStatus(option)}</option>
-								{/each}
-							</select>
-						</div>
-						<div class="field-group">
-							<span class="field-label">Department</span>
-							<input class="form-input" value={selectedCase.case.assigned_department || ""} onchange={(event) => handleUpdateCase({ department: (event.target as HTMLInputElement).value })} />
-						</div>
-						<div class="field-group field-group-actions">
-							<button class="danger-btn" onclick={handleDeleteCase}>
-								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-								Delete
+				<div class="section info-section">
+					<div class="section-header">
+						<div class="section-title" style="margin-bottom:0;">Summary</div>
+						{#if !editingSummary}
+							<button class="ghost-btn" onclick={startEditSummary}>
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+								Edit
 							</button>
+						{/if}
+					</div>
+
+					{#if editingSummary}
+						<textarea class="summary-edit" rows="4" bind:value={summaryDraft} placeholder="Describe the case..."></textarea>
+						<div class="summary-actions">
+							<button class="ghost-btn" onclick={() => (editingSummary = false)}>Cancel</button>
+							<button class="save-btn" onclick={saveSummary}>Save</button>
 						</div>
+					{:else}
+						<p class="summary-text" class:empty={!selectedCase.case.summary}>
+							{selectedCase.case.summary || "No summary yet — click Edit to add one."}
+						</p>
+					{/if}
+
+					<!-- Status and priority as segmented pickers rather than dropdowns: the
+					     choice is visible and colour-coded, and changing it is one click. -->
+					<div class="control-grid">
+						<div class="control-block">
+							<span class="control-label">Status</span>
+							<div class="seg">
+								{#each statusOptions as option}
+									<button
+										class="seg-btn seg-status-{option}"
+										class:active={selectedCase.case.status === option}
+										onclick={() => handleUpdateCase({ status: option })}
+									>{formatStatus(option)}</button>
+								{/each}
+							</div>
+						</div>
+						<div class="control-block">
+							<span class="control-label">Priority</span>
+							<div class="seg">
+								{#each priorityOptions as option}
+									<button
+										class="seg-btn seg-prio-{option}"
+										class:active={selectedCase.case.priority === option}
+										onclick={() => handleUpdateCase({ priority: option })}
+									>{formatStatus(option)}</button>
+								{/each}
+							</div>
+						</div>
+					</div>
+
+					<div class="control-block">
+						<span class="control-label">Department</span>
+						<input class="form-input dept-input" value={selectedCase.case.assigned_department || ""} placeholder="Unassigned" onchange={(event) => handleUpdateCase({ department: (event.target as HTMLInputElement).value })} />
+					</div>
+
+					<!-- Provenance: who opened the case and when — plainly stated, where it
+					     was invisible before. -->
+					<div class="info-foot">
+						<span class="info-foot-item">
+							Opened by <strong>{selectedCase.case.created_by_name || selectedCase.case.created_by || "Unknown"}</strong>
+						</span>
+						<span class="info-foot-sep">•</span>
+						<span class="info-foot-item">{formatDateValue(selectedCase.case.created_at)}</span>
+						<div style="flex:1;"></div>
+						<button class="danger-link" onclick={handleDeleteCase}>
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+							Delete case
+						</button>
 					</div>
 				</div>
 
@@ -730,22 +900,34 @@
 					{#if selectedCase.officers.length === 0}
 						<p class="muted-text">No officers assigned.</p>
 					{:else}
-						<div class="chip-list">
+						<div class="officer-grid">
 							{#each selectedCase.officers as officer}
-								<div class="chip">
-									<div class="chip-info">
-										<span class="chip-name">
-											{officer.callsign ? officer.callsign + " " : ""}
-											{officer.fullname || officer.citizenid}
+								<div class="officer-card role-{officer.role}">
+									{#if officer.profilepicture}
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+										<img
+											class="officer-photo"
+											src={officer.profilepicture}
+											alt={officer.fullname || officer.citizenid}
+											role="button"
+											tabindex="-1"
+											onclick={() => openLightbox(officer.profilepicture!)}
+										/>
+									{:else}
+										<span class="officer-photo officer-photo--fallback">{caseInitials(officer.fullname)}</span>
+									{/if}
+									<div class="officer-info">
+										<span class="officer-name">
+											{officer.callsign ? officer.callsign + " · " : ""}{officer.fullname || officer.citizenid}
 										</span>
-										<span class="chip-meta">
-											{officer.rank || "Officer"}
-											{officer.badge_number ? " - " + officer.badge_number : ""}
+										<span class="officer-sub">
+											{officer.rank || "Officer"}{officer.badge_number ? " · #" + officer.badge_number : ""}
 										</span>
 									</div>
-									<span class="chip-role">{officer.role}</span>
-									<button class="chip-remove" onclick={() => handleRemoveOfficer(officer.citizenid)}>
-										<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+									<span class="officer-role role-badge-{officer.role}">{officer.role}</span>
+									<button class="officer-remove" aria-label="Remove officer" onclick={() => handleRemoveOfficer(officer.citizenid)}>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 									</button>
 								</div>
 							{/each}
@@ -753,6 +935,9 @@
 					{/if}
 				</div>
 
+				{/if}
+
+				{#if detailTab === "reports"}
 				<!-- Linked Reports Section -->
 				<div class="section">
 					<div class="section-header">
@@ -785,6 +970,9 @@
 					{/if}
 				</div>
 
+				{/if}
+
+				{#if detailTab === "notes"}
 				<!-- Notes Section -->
 				<div class="section">
 					<div class="section-title">Notes</div>
@@ -814,6 +1002,9 @@
 					{/if}
 				</div>
 
+				{/if}
+
+				{#if detailTab === "evidence"}
 				<!-- Attachments Section -->
 				<div class="section">
 					<div class="section-title">Attachments</div>
@@ -833,15 +1024,21 @@
 					{#if selectedCase.attachments.length === 0}
 						<p class="muted-text">No attachments yet.</p>
 					{:else}
-						<div class="item-list">
+						<div class="thumb-grid">
 							{#each selectedCase.attachments as attachment}
-								<div class="list-item">
-									<div class="list-item-info">
-										<strong>{attachment.label || attachment.type}</strong>
-										<span>{attachment.url}</span>
-									</div>
-									<button class="remove-btn" onclick={() => handleRemoveAttachment(attachment.id)}>
-										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+								<div class="thumb">
+									{#if isImageUrl(attachment.url)}
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+										<img src={attachment.url} alt={attachment.label || attachment.type} role="button" tabindex="-1" onclick={() => openLightbox(attachment.url)} />
+									{:else}
+										<a class="thumb-link" href={attachment.url} target="_blank" rel="noopener noreferrer">
+											<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+										</a>
+									{/if}
+									<span class="thumb-label">{attachment.label || attachment.type}</span>
+									<button class="thumb-remove" aria-label="Remove attachment" onclick={() => handleRemoveAttachment(attachment.id)}>
+										<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 									</button>
 								</div>
 							{/each}
@@ -963,15 +1160,21 @@
 						{#if selectedCase?.evidence}
 							{#each selectedCase.evidence.filter((e) => e.id === selectedEvidenceId) as item}
 								{#if item.images && item.images.length > 0}
-									<div class="item-list">
+									<div class="thumb-grid">
 										{#each item.images as image}
-											<div class="list-item">
-												<div class="list-item-info">
-													<strong>{image.label || "Evidence Image"}</strong>
-													<span>{image.url}</span>
-												</div>
-												<button class="remove-btn" onclick={() => handleRemoveEvidenceImage(image.id)}>
-													<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+											<div class="thumb">
+												{#if isImageUrl(image.url)}
+													<!-- svelte-ignore a11y_click_events_have_key_events -->
+													<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+													<img src={image.url} alt={image.label || "Evidence"} role="button" tabindex="-1" onclick={() => openLightbox(image.url)} />
+												{:else}
+													<a class="thumb-link" href={image.url} target="_blank" rel="noopener noreferrer">
+														<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+													</a>
+												{/if}
+												{#if image.label}<span class="thumb-label">{image.label}</span>{/if}
+												<button class="thumb-remove" aria-label="Remove image" onclick={() => handleRemoveEvidenceImage(image.id)}>
+													<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 												</button>
 											</div>
 										{/each}
@@ -995,6 +1198,9 @@
 					</div>
 				{/if}
 
+				{/if}
+
+				{#if detailTab === "activity"}
 				<!-- Audit Log Section -->
 				<div class="section">
 					<div class="section-title">Audit Log</div>
@@ -1040,6 +1246,7 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 			</div>
 
 		{:else}
@@ -1079,48 +1286,82 @@
 			</button>
 		</div>
 
+		<div class="stat-bar">
+			<button class="stat" class:active={activeStatus === ""} onclick={() => (activeStatus = "")}>
+				<span class="stat-num">{caseCounts.all}</span>
+				<span class="stat-label">All Cases</span>
+			</button>
+			<button class="stat stat-open" class:active={activeStatus === "open"} onclick={() => (activeStatus = activeStatus === "open" ? "" : "open")}>
+				<span class="stat-num">{caseCounts.open}</span>
+				<span class="stat-label">Open</span>
+			</button>
+			<button class="stat stat-progress" class:active={activeStatus === "in_progress"} onclick={() => (activeStatus = activeStatus === "in_progress" ? "" : "in_progress")}>
+				<span class="stat-num">{caseCounts.in_progress}</span>
+				<span class="stat-label">In Progress</span>
+			</button>
+			<button class="stat stat-closed" class:active={activeStatus === "closed"} onclick={() => (activeStatus = activeStatus === "closed" ? "" : "closed")}>
+				<span class="stat-num">{caseCounts.closed}</span>
+				<span class="stat-label">Closed</span>
+			</button>
+		</div>
+
 		<div class="list-panel">
 			{#if isLoading && cases.length === 0}
 				<SkeletonList rows={8} thumb={false} columns={[2.2, 1, 1, 0.8]} />
 			{:else if filteredCaseList.length === 0}
 				<div class="center-state">
 					<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-					<h3>No Cases Found</h3>
-					<p>{searchQuery ? "No cases match your search criteria." : "No cases have been created yet."}</p>
-					{#if !searchQuery}
+					{#if searchQuery || activeStatus}
+						<h3>No matching cases</h3>
+						<p>
+							{#if searchQuery && activeStatus}
+								No {formatStatus(activeStatus).toLowerCase()} cases match "{searchQuery}".
+							{:else if activeStatus}
+								There are no {formatStatus(activeStatus).toLowerCase()} cases right now.
+							{:else}
+								No cases match "{searchQuery}".
+							{/if}
+						</p>
+						<button class="ghost-btn" onclick={() => { searchQuery = ""; activeStatus = ""; }}>Clear filters</button>
+					{:else}
+						<h3>No cases yet</h3>
+						<p>No cases have been created yet.</p>
 						<button class="action-btn" onclick={openCreatePanel}>Create First Case</button>
 					{/if}
 				</div>
 			{:else}
-				<!-- Table Header -->
-				<div class="table-header">
-					<span class="col-title">Title</span>
-					<span class="col-case">Case #</span>
-					<span class="col-status">Status</span>
-					<span class="col-priority">Priority</span>
-					<span class="col-dept">Department</span>
-					<span class="col-officer">Primary Officer</span>
-					<span class="col-date">Created</span>
-					<span class="col-date">Updated</span>
-				</div>
-				<div class="table-body">
-					{#each filteredCaseList.slice().reverse() as item}
-						<button class="table-row" onclick={() => selectCase(item.id)}>
-							<span class="col-title row-title">{item.title}</span>
-							<span class="col-case row-case">{item.case_number}</span>
-							<span class="col-status">
-								<span class="pill {item.status === 'open' ? 'pill-green' : item.status === 'in_progress' ? 'pill-blue' : 'pill-grey'}">{formatStatus(item.status)}</span>
-							</span>
-							<span class="col-priority">
-								<span class="pill {item.priority === 'high' ? 'pill-red' : item.priority === 'medium' ? 'pill-orange' : 'pill-green'}">{item.priority}</span>
-							</span>
-							<span class="col-dept">{item.assigned_department || "-"}</span>
-							<span class="col-officer">{item.primary_officer_callsign ? item.primary_officer_callsign + " " : ""}{item.primary_officer_name || "Unassigned"}</span>
-							<span class="col-date">{formatDateValue(item.created_at)}</span>
-							<span class="col-date">{formatDateValue(item.updated_at)}</span>
-						</button>
-					{/each}
-				</div>
+				<div class="case-rows">
+				{#each filteredCaseList.slice().reverse() as item}
+					<button class="case-row" onclick={() => selectCase(item.id)}>
+						<!-- Priority dot: a single quiet signal, colour only. -->
+						<span class="cr-dot prio-dot-{item.priority}" title={item.priority}></span>
+
+						<div class="cr-body">
+							<div class="cr-head">
+								<span class="cr-title">{item.title}</span>
+								<span class="cr-number">{item.case_number}</span>
+							</div>
+							{#if item.summary}
+								<div class="cr-summary">{item.summary}</div>
+							{/if}
+						</div>
+
+						<div class="cr-officer">
+							<span class="cr-avatar">{caseInitials(item.primary_officer_name)}</span>
+							<span class="cr-officer-name">{item.primary_officer_name || "Unassigned"}</span>
+						</div>
+
+						<span class="cr-status status-{item.status}">{formatStatus(item.status)}</span>
+
+						<div class="cr-time">
+							<span class="cr-time-val">{relativeTime(item.updated_at)}</span>
+							<span class="cr-time-label">updated</span>
+						</div>
+
+						<svg class="cr-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+					</button>
+				{/each}
+			</div>
 			{/if}
 			<Pagination
 				currentPage={casePage}
@@ -1136,6 +1377,7 @@
 <PersonSearchModal
 	show={showOfficerSearch}
 	title="Search Officers"
+	searchQuery={officerSearchQuery}
 	searchResults={searchService.state.results}
 	onClose={() => {
 		showOfficerSearch = false;
@@ -1144,6 +1386,17 @@
 	onSearch={handleOfficerSearch}
 	onSelect={handleAssignOfficer}
 />
+
+{#if lightboxUrl}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="lightbox" onclick={() => (lightboxUrl = null)}>
+		<img src={lightboxUrl} alt="Preview" onclick={(e) => e.stopPropagation()} />
+		<button class="lightbox-close" aria-label="Close" onclick={() => (lightboxUrl = null)}>
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+		</button>
+	</div>
+{/if}
 
 <style>
 	/* ===== PAGE ===== */
@@ -1313,7 +1566,6 @@
 	}
 
 	.list-item:hover .remove-btn,
-
 	.remove-btn:hover {
 		background: rgba(239, 68, 68, 0.1);
 		color: rgba(252, 165, 165, 0.8);
@@ -1660,73 +1912,7 @@
 	}
 
 	/* ===== CHIPS ===== */
-	.chip-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0;
-	}
 
-	.chip {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 6px 0;
-		border-radius: 0;
-		background: transparent;
-		border: none;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-		font-size: 11px;
-	}
-
-	.chip:last-child {
-		border-bottom: none;
-	}
-
-	.chip-info {
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-	}
-
-	.chip-name {
-		font-weight: 600;
-		color: rgba(255, 255, 255, 0.85);
-		font-size: 11px;
-	}
-
-	.chip-meta {
-		color: rgba(255, 255, 255, 0.35);
-		font-size: 10px;
-	}
-
-	.chip-role {
-		text-transform: uppercase;
-		font-size: 9px;
-		font-weight: 600;
-		color: rgba(255, 255, 255, 0.2);
-		letter-spacing: 0.5px;
-		margin-left: auto;
-	}
-
-	.chip-remove {
-		background: transparent;
-		border: none;
-		color: rgba(255, 255, 255, 0.15);
-		cursor: pointer;
-		padding: 2px;
-		display: flex;
-		align-items: center;
-		opacity: 0;
-		transition: opacity 0.1s;
-	}
-
-	.chip:hover .chip-remove {
-		opacity: 1;
-	}
-
-	.chip-remove:hover {
-		color: rgba(248, 113, 113, 0.8);
-	}
 
 	/* ===== ITEM LIST ===== */
 	.item-list {
@@ -2178,4 +2364,480 @@
 			grid-template-columns: 1fr;
 		}
 	}
+
+	/* ═══════════ Stat filter bar ═══════════ */
+	.stat-bar {
+		display: flex;
+		gap: 8px;
+		margin-bottom: 12px;
+	}
+	.stat {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+		padding: 10px 14px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-left: 2px solid rgba(255, 255, 255, 0.1);
+		border-radius: 4px;
+		cursor: pointer;
+		transition: background 0.12s ease, border-color 0.12s ease;
+		text-align: left;
+	}
+	.stat:hover { background: rgba(255, 255, 255, 0.04); }
+	.stat.active { background: rgba(255, 255, 255, 0.05); }
+	.stat-num { font-size: 20px; font-weight: 700; color: rgba(255, 255, 255, 0.92); line-height: 1; }
+	.stat-label {
+		font-size: 9px; font-weight: 600; text-transform: uppercase;
+		letter-spacing: 0.7px; color: rgba(255, 255, 255, 0.4);
+	}
+	/* Each stat carries its status colour on the rail, lit when active. */
+	.stat-open { border-left-color: rgba(16, 185, 129, 0.5); }
+	.stat-open.active { border-left-color: rgb(16, 185, 129); background: rgba(16, 185, 129, 0.08); }
+	.stat-open.active .stat-num { color: rgba(52, 211, 153, 0.95); }
+	.stat-progress { border-left-color: rgba(56, 189, 248, 0.5); }
+	.stat-progress.active { border-left-color: rgb(56, 189, 248); background: rgba(56, 189, 248, 0.08); }
+	.stat-progress.active .stat-num { color: rgba(147, 197, 253, 0.95); }
+	.stat-closed { border-left-color: rgba(255, 255, 255, 0.2); }
+	.stat-closed.active { border-left-color: rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.06); }
+	.stat.active.stat:first-child { border-left-color: rgba(var(--accent-rgb), 0.9); background: rgba(var(--accent-rgb), 0.08); }
+
+	/* ═══════════ Case list rows ═══════════ */
+	.case-rows { display: flex; flex-direction: column; }
+
+	.case-row {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		width: 100%;
+		padding: 13px 14px;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+		cursor: pointer;
+		text-align: left;
+		transition: background 0.1s ease;
+	}
+	.case-row:hover { background: rgba(255, 255, 255, 0.03); }
+	.case-row:first-child { border-top: 1px solid rgba(255, 255, 255, 0.045); }
+
+	/* Priority as a single coloured dot — quiet until you're looking for it. */
+	.cr-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+	.prio-dot-high { background: rgb(239, 68, 68); box-shadow: 0 0 6px rgba(239, 68, 68, 0.5); }
+	.prio-dot-medium { background: rgb(251, 146, 60); }
+	.prio-dot-low { background: rgba(16, 185, 129, 0.7); }
+
+	.cr-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+	.cr-head { display: flex; align-items: baseline; gap: 9px; }
+	.cr-title {
+		font-size: 13px;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.9);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.cr-number {
+		font-family: "SFMono-Regular", ui-monospace, monospace;
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.35);
+		flex-shrink: 0;
+	}
+	.cr-summary {
+		font-size: 11px;
+		color: rgba(255, 255, 255, 0.4);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.cr-officer { display: flex; align-items: center; gap: 7px; width: 150px; flex-shrink: 0; }
+	.cr-avatar {
+		display: grid; place-items: center;
+		width: 22px; height: 22px; flex-shrink: 0;
+		border-radius: 50%;
+		background: rgba(var(--accent-rgb), 0.13);
+		border: 1px solid rgba(var(--accent-rgb), 0.2);
+		color: rgba(var(--accent-rgb), 0.95);
+		font-size: 8px; font-weight: 700;
+	}
+	.cr-officer-name {
+		font-size: 11px; color: rgba(255, 255, 255, 0.6);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+
+	.cr-status {
+		width: 92px;
+		flex-shrink: 0;
+		text-align: center;
+		padding: 3px 0;
+		border-radius: 3px;
+		font-size: 9px; font-weight: 700;
+		text-transform: uppercase; letter-spacing: 0.4px;
+	}
+
+	.cr-time { width: 74px; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+	.cr-time-val { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+	.cr-time-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255, 255, 255, 0.28); }
+
+	.cr-chevron { color: rgba(255, 255, 255, 0.2); flex-shrink: 0; transition: color 0.1s ease, transform 0.1s ease; }
+	.case-row:hover .cr-chevron { color: rgba(255, 255, 255, 0.5); transform: translateX(2px); }
+
+	/* Status colours, shared by the list rows and the detail header. */
+	.status-open { background: rgba(16, 185, 129, 0.12); color: rgba(52, 211, 153, 0.9); }
+	.status-in_progress { background: rgba(56, 189, 248, 0.12); color: rgba(147, 197, 253, 0.9); }
+	.status-closed { background: rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.45); }
+
+	/* ═══════════ Case detail hero ═══════════ */
+	.case-hero {
+		position: relative;
+		display: flex;
+		align-items: stretch;
+		gap: 0;
+		margin-bottom: 14px;
+		background: linear-gradient(rgba(255,255,255,0.03), rgba(255,255,255,0.012));
+		border: 1px solid rgba(255, 255, 255, 0.07);
+		border-radius: 8px;
+		overflow: hidden;
+	}
+	.hero-rail { width: 4px; flex-shrink: 0; background: rgba(255, 255, 255, 0.15); }
+	.case-hero.prio-high .hero-rail { background: rgb(239, 68, 68); }
+	.case-hero.prio-medium .hero-rail { background: rgb(251, 146, 60); }
+	.case-hero.prio-low .hero-rail { background: rgb(16, 185, 129); }
+
+	.hero-body { flex: 1; min-width: 0; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
+	/* Status + priority badges in the hero (shared class names with the old cards). */
+	.hero-top .cc-status {
+		padding: 2px 8px; border-radius: 3px;
+		font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+	}
+	.hero-top .cc-prio {
+		padding: 2px 8px; border-radius: 3px;
+		font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+	}
+	.prio-badge-high { background: rgba(239, 68, 68, 0.13); color: rgba(248, 113, 113, 0.92); border: 1px solid rgba(239, 68, 68, 0.22); }
+	.prio-badge-medium { background: rgba(251, 146, 60, 0.12); color: rgba(251, 146, 60, 0.9); border: 1px solid rgba(251, 146, 60, 0.2); }
+	.prio-badge-low { background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.4); border: 1px solid rgba(255, 255, 255, 0.07); }
+	.hero-top { display: flex; align-items: center; gap: 9px; }
+	.hero-number {
+		font-family: "SFMono-Regular", ui-monospace, monospace;
+		font-size: 11px; font-weight: 600; letter-spacing: 0.4px;
+		color: rgba(255, 255, 255, 0.45);
+	}
+	.hero-title {
+		margin: 0;
+		font-size: 22px;
+		font-weight: 700;
+		line-height: 1.2;
+		color: rgba(255, 255, 255, 0.96);
+		letter-spacing: -0.2px;
+	}
+	.hero-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.hero-avatar {
+		display: grid; place-items: center;
+		width: 24px; height: 24px; flex-shrink: 0;
+		border-radius: 50%;
+		background: rgba(var(--accent-rgb), 0.15);
+		border: 1px solid rgba(var(--accent-rgb), 0.25);
+		color: rgba(var(--accent-rgb), 0.95);
+		font-size: 9px; font-weight: 700;
+	}
+	.hero-officer { font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.82); }
+	.hero-dept { font-size: 12px; color: rgba(255, 255, 255, 0.55); }
+	.hero-updated { font-size: 11px; color: rgba(255, 255, 255, 0.4); }
+	.hero-dot { color: rgba(255, 255, 255, 0.2); font-size: 10px; }
+
+	/* Metrics strip on the right — the case's weight at a glance. */
+	/* ═══════════ Detail tabs — same construction as the roster's boss-tabs ═══════════ */
+	.detail-tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+		padding: 0 4px;
+		margin-bottom: 16px;
+	}
+	.detail-tab {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 8px 12px;
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: rgba(255, 255, 255, 0.35);
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		white-space: nowrap;
+	}
+	.detail-tab:hover {
+		color: rgba(255, 255, 255, 0.6);
+	}
+	.detail-tab.active {
+		color: rgba(var(--accent-text-rgb), 0.85);
+		border-bottom-color: rgba(var(--accent-rgb), 0.5);
+	}
+	.detail-tab-icon {
+		font-size: 14px;
+	}
+	.detail-tab-count {
+		display: inline-grid;
+		place-items: center;
+		min-width: 16px;
+		height: 15px;
+		padding: 0 4px;
+		margin-left: 2px;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.08);
+		color: rgba(255, 255, 255, 0.55);
+		font-size: 9px;
+		font-weight: 700;
+	}
+	.detail-tab.active .detail-tab-count {
+		background: rgba(var(--accent-rgb), 0.2);
+		color: rgba(var(--accent-text-rgb), 0.9);
+	}
+
+	.topbar-title--muted { color: rgba(255, 255, 255, 0.5); font-weight: 500; }
+
+
+	/* ═══════════ Case information (detail) ═══════════ */
+	.ghost-btn {
+		display: inline-flex; align-items: center; gap: 5px;
+		padding: 4px 10px;
+		background: transparent;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.55);
+		font-size: 10px; font-weight: 600;
+		cursor: pointer; transition: all 0.1s;
+	}
+	.ghost-btn:hover { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.2); }
+
+	.summary-text {
+		margin: 0 0 14px;
+		font-size: 13px; line-height: 1.6;
+		color: rgba(255, 255, 255, 0.75);
+	}
+	.summary-text.empty { color: rgba(255, 255, 255, 0.3); font-style: italic; }
+
+	.summary-edit {
+		width: 100%;
+		box-sizing: border-box;
+		margin-bottom: 8px;
+		padding: 10px 12px;
+		background: rgba(0, 0, 0, 0.2);
+		border: 1px solid rgba(var(--accent-rgb), 0.3);
+		border-radius: 4px;
+		color: rgba(255, 255, 255, 0.9);
+		font-size: 13px; line-height: 1.6; font-family: inherit;
+		resize: vertical; outline: none;
+	}
+	.summary-actions { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 14px; }
+	.save-btn {
+		padding: 4px 14px;
+		background: rgba(16, 185, 129, 0.1);
+		border: 1px solid rgba(16, 185, 129, 0.25);
+		border-radius: 3px;
+		color: rgba(52, 211, 153, 0.95);
+		font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.1s;
+	}
+	.save-btn:hover { background: rgba(16, 185, 129, 0.18); }
+
+	/* Segmented status/priority pickers */
+	.control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+	.control-block { display: flex; flex-direction: column; gap: 6px; }
+	.control-label {
+		font-size: 9px; font-weight: 700; text-transform: uppercase;
+		letter-spacing: 0.7px; color: rgba(255, 255, 255, 0.4);
+	}
+	.seg {
+		display: flex;
+		background: rgba(0, 0, 0, 0.2);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 4px;
+		padding: 2px;
+		gap: 2px;
+	}
+	.seg-btn {
+		flex: 1;
+		padding: 5px 4px;
+		background: transparent;
+		border: none;
+		border-radius: 3px;
+		color: rgba(255, 255, 255, 0.45);
+		font-size: 10px; font-weight: 600;
+		cursor: pointer; transition: all 0.1s;
+		white-space: nowrap;
+	}
+	.seg-btn:hover:not(.active) { color: rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0.03); }
+	.seg-status-open.active { background: rgba(16, 185, 129, 0.16); color: rgba(52, 211, 153, 0.95); }
+	.seg-status-in_progress.active { background: rgba(56, 189, 248, 0.16); color: rgba(147, 197, 253, 0.95); }
+	.seg-status-closed.active { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.85); }
+	.seg-prio-high.active { background: rgba(239, 68, 68, 0.16); color: rgba(248, 113, 113, 0.95); }
+	.seg-prio-medium.active { background: rgba(251, 146, 60, 0.16); color: rgba(251, 146, 60, 0.95); }
+	.seg-prio-low.active { background: rgba(16, 185, 129, 0.14); color: rgba(52, 211, 153, 0.9); }
+
+	.dept-input { max-width: 280px; }
+
+	/* Provenance + delete, set apart from the routine fields. */
+	.info-foot {
+		display: flex; align-items: center; gap: 8px;
+		margin-top: 16px; padding-top: 12px;
+		border-top: 1px solid rgba(255, 255, 255, 0.05);
+		font-size: 11px; color: rgba(255, 255, 255, 0.4);
+	}
+	.info-foot strong { color: rgba(255, 255, 255, 0.65); font-weight: 600; }
+	.info-foot-sep { color: rgba(255, 255, 255, 0.2); }
+	.danger-link {
+		display: inline-flex; align-items: center; gap: 5px;
+		padding: 4px 10px;
+		background: transparent;
+		border: 1px solid rgba(239, 68, 68, 0.15);
+		border-radius: 3px;
+		color: rgba(248, 113, 113, 0.7);
+		font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.1s;
+	}
+	.danger-link:hover { background: rgba(239, 68, 68, 0.1); color: rgba(248, 113, 113, 0.95); border-color: rgba(239, 68, 68, 0.3); }
+
+
+	/* ═══════════ Officers (detail) ═══════════ */
+	.officer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+	.officer-card {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 9px 11px;
+		background: rgba(255, 255, 255, 0.025);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-left: 2px solid rgba(255, 255, 255, 0.12);
+		border-radius: 5px;
+	}
+	/* Role tints the left edge: primary is the accent, the rest stay neutral. */
+	.officer-card.role-primary { border-left-color: rgba(var(--accent-rgb), 0.7); }
+	.officer-card.role-supervisor { border-left-color: rgba(251, 146, 60, 0.6); }
+
+	.officer-photo {
+		width: 38px; height: 38px; flex-shrink: 0;
+		border-radius: 50%;
+		object-fit: cover;
+		background: rgba(0, 0, 0, 0.25);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		cursor: pointer;
+		transition: border-color 0.1s;
+	}
+	.officer-photo:hover { border-color: rgba(var(--accent-rgb), 0.5); }
+	.officer-photo--fallback {
+		display: grid; place-items: center;
+		cursor: default;
+		color: rgba(var(--accent-rgb), 0.9);
+		font-size: 12px; font-weight: 700;
+		background: rgba(var(--accent-rgb), 0.12);
+		border-color: rgba(var(--accent-rgb), 0.2);
+	}
+	.officer-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+	.officer-name {
+		font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.88);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.officer-sub {
+		font-size: 10px; color: rgba(255, 255, 255, 0.42);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.officer-role {
+		padding: 2px 7px; border-radius: 3px;
+		font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+		flex-shrink: 0;
+	}
+	.role-badge-primary { background: rgba(var(--accent-rgb), 0.15); color: rgba(var(--accent-text-rgb, 147,197,253), 0.95); }
+	.role-badge-assisting { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.5); }
+	.role-badge-supervisor { background: rgba(251, 146, 60, 0.14); color: rgba(251, 146, 60, 0.9); }
+	.officer-remove {
+		display: grid; place-items: center;
+		width: 20px; height: 20px; flex-shrink: 0;
+		padding: 0; border: none; border-radius: 3px;
+		background: transparent; color: rgba(255, 255, 255, 0.25);
+		cursor: pointer; transition: all 0.1s;
+	}
+	.officer-remove:hover { background: rgba(239, 68, 68, 0.12); color: rgba(248, 113, 113, 0.9); }
+
+	/* ═══════════ Thumbnails (attachments + evidence images) ═══════════ */
+	.thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+	.thumb {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		border-radius: 5px;
+		overflow: hidden;
+		background: rgba(0, 0, 0, 0.2);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+	}
+	.thumb img {
+		width: 100%; height: 90px;
+		object-fit: cover;
+		cursor: pointer;
+		display: block;
+		transition: opacity 0.1s;
+	}
+	.thumb img:hover { opacity: 0.85; }
+	/* Non-image URLs (docs, PDFs) get an icon tile that opens in a new tab. */
+	.thumb-link {
+		display: grid; place-items: center;
+		height: 90px;
+		color: rgba(var(--accent-rgb), 0.8);
+		background: rgba(var(--accent-rgb), 0.05);
+		transition: background 0.1s;
+	}
+	.thumb-link:hover { background: rgba(var(--accent-rgb), 0.1); }
+	.thumb-label {
+		padding: 5px 8px;
+		font-size: 10px;
+		color: rgba(255, 255, 255, 0.6);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+		border-top: 1px solid rgba(255, 255, 255, 0.04);
+	}
+	.thumb-remove {
+		position: absolute; top: 4px; right: 4px;
+		display: grid; place-items: center;
+		width: 18px; height: 18px;
+		padding: 0; border: none; border-radius: 3px;
+		background: rgba(0, 0, 0, 0.55);
+		color: rgba(255, 255, 255, 0.7);
+		cursor: pointer; transition: all 0.1s;
+	}
+	.thumb-remove:hover { background: rgba(239, 68, 68, 0.8); color: #fff; }
+
+	/* ═══════════ Lightbox ═══════════ */
+	.lightbox {
+		position: fixed; inset: 0;
+		z-index: 200;
+		display: flex; align-items: center; justify-content: center;
+		padding: 40px;
+		background: rgba(0, 0, 0, 0.85);
+	}
+	.lightbox img {
+		max-width: 90vw; max-height: 90vh;
+		object-fit: contain;
+		border-radius: 6px;
+		box-shadow: 0 20px 70px rgba(0, 0, 0, 0.7);
+	}
+	.lightbox-close {
+		position: absolute; top: 20px; right: 20px;
+		display: grid; place-items: center;
+		width: 36px; height: 36px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 5px;
+		background: rgba(0, 0, 0, 0.5);
+		color: rgba(255, 255, 255, 0.8);
+		cursor: pointer; transition: all 0.1s;
+	}
+	.lightbox-close:hover { background: rgba(0, 0, 0, 0.8); color: #fff; }
+
 </style>

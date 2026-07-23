@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { DashboardData } from "../../interfaces/IDashboard";
+	import { sanitizeHtml } from "../../utils/sanitizeHtml";
 	import { formatDate } from "../../utils/datetime";
 
 	let {
@@ -39,7 +40,7 @@
 	{#if isExpanded}
 		<div class="report-body">
 			<div class="body-label">Details</div>
-			<div class="body-content">{@html report.contentplaintext}</div>
+			<div class="body-content">{@html sanitizeHtml(report.contentplaintext)}</div>
 		</div>
 	{/if}
 </div>

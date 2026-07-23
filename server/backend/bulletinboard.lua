@@ -1,5 +1,114 @@
 local resourceName = tostring(GetCurrentResourceName())
 
+-- Pull every identifier we can off a connected player, for the exploit log below. Native
+-- lookups rather than the ps bridge, so this keeps working regardless of framework state.
+local function collectIdentifiers(src)
+    local ids = { license = 'unknown', license2 = 'unknown', discord = 'unknown', steam = 'unknown', ip = 'unknown' }
+    local ok = pcall(function()
+        for i = 0, GetNumPlayerIdentifiers(src) - 1 do
+            local id = GetPlayerIdentifier(src, i)
+            if id then
+                local kind, value = id:match('^(%w+):(.+)$')
+                if kind == 'license' and ids.license == 'unknown' then ids.license = value
+                elseif kind == 'license2' then ids.license2 = value
+                elseif kind == 'discord' then ids.discord = value
+                elseif kind == 'steam' then ids.steam = value
+                elseif kind == 'ip' then ids.ip = value end
+            end
+        end
+    end)
+    if not ok then ps.debug('collectIdentifiers failed for src ' .. tostring(src)) end
+    return ids
+end
+
+-- A sanitized-away payload means someone submitted markup that would execute, navigate or
+-- embed. That is an attempted XSS, so log who did it loudly with everything needed to
+-- identify them. This fires even when the NUI would have stripped it client-side, because
+-- the record of the attempt is what matters.
+local function logExploitAttempt(src, field, original, cleaned)
+    local ids = collectIdentifiers(src)
+    local citizenId = (ps.getIdentifier and ps.getIdentifier(src)) or 'unknown'
+    local charName  = (ps.getPlayerName and ps.getPlayerName(src)) or 'unknown'
+    local fivemName = tostring(GetPlayerName(src) or 'unknown')
+
+    -- A short excerpt of what they tried, so the log shows the vector without dumping a
+    -- potentially huge payload into the console.
+    local excerpt = original:gsub('%s+', ' '):sub(1, 200)
+
+    ps.warn(('─────────────────────────────────────────────'))
+    ps.warn(('[SECURITY] Bulletin XSS attempt blocked (%s)'):format(field))
+    ps.warn(('  Server ID : %s'):format(tostring(src)))
+    ps.warn(('  FiveM name: %s'):format(fivemName))
+    ps.warn(('  Char name : %s'):format(charName))
+    ps.warn(('  CitizenID : %s'):format(citizenId))
+    ps.warn(('  license   : %s'):format(ids.license))
+    ps.warn(('  license2  : %s'):format(ids.license2))
+    ps.warn(('  discord   : %s'):format(ids.discord))
+    ps.warn(('  steam     : %s'):format(ids.steam))
+    ps.warn(('  ip        : %s'):format(ids.ip))
+    ps.warn(('  payload   : %s'):format(excerpt))
+    ps.warn(('─────────────────────────────────────────────'))
+
+    -- Also route it through the audit log so it's queryable later, not just in the console.
+    if ps.auditLog then
+        CreateThread(function()
+            pcall(ps.auditLog, src, 'bulletin_xss_blocked', 'security', citizenId, {
+                field = field,
+                fivem_name = fivemName,
+                license = ids.license,
+                license2 = ids.license2,
+                discord = ids.discord,
+                steam = ids.steam,
+                ip = ids.ip,
+                payload = excerpt,
+                action_label = 'Blocked an attempted bulletin XSS injection',
+            })
+        end)
+    end
+end
+
+-- Server-side content sanitizer. The NUI already strips dangerous HTML before rendering,
+-- but that is the client's word for it — a crafted packet can call this callback directly
+-- and never touch the NUI. So we also strip on the way into the database.
+-- Allowlist in spirit: whole categories of executable/navigating/embedding tag are removed,
+-- along with every on* handler and javascript:/vbscript: URL. Formatting tags are kept.
+local function sanitizeBulletinHtml(html)
+    if type(html) ~= 'string' or html == '' then return '' end
+    local out = html
+
+    -- Remove script/style/iframe/object/embed/meta/link/svg blocks together with whatever
+    -- they contain — their content is the payload.
+    for _, tag in ipairs({ 'script', 'style', 'iframe', 'object', 'embed', 'svg', 'template' }) do
+        out = out:gsub('<%s*' .. tag .. '.-<%s*/%s*' .. tag .. '%s*>', '')  -- paired
+        out = out:gsub('<%s*' .. tag .. '[^>]*>', '')                         -- stray/self-closing open
+        out = out:gsub('<%s*/%s*' .. tag .. '%s*>', '')                       -- stray close
+    end
+
+    -- Void/standalone tags that navigate or load: meta (http-equiv refresh), base, link.
+    for _, tag in ipairs({ 'meta', 'base', 'link' }) do
+        out = out:gsub('<%s*' .. tag .. '[^>]*>', '')
+    end
+
+    -- Strip event-handler attributes (onload, onerror, onclick, …) wherever they appear.
+    out = out:gsub('[oO][nN]%w+%s*=%s*"[^"]*"', '')
+    out = out:gsub("[oO][nN]%w+%s*=%s*'[^']*'", '')
+    out = out:gsub('[oO][nN]%w+%s*=%s*[^%s>]+', '')
+
+    -- Neutralise javascript:/vbscript: URLs in any remaining attribute.
+    -- Case-insensitive: lower-case a copy to find the scheme, blank it in the original.
+    out = out:gsub('(%a+)%s*:', function(scheme)
+        local low = scheme:lower()
+        if low == 'javascript' or low == 'vbscript' then return '' end
+        return scheme .. ':'
+    end)
+
+    -- Second return value: did we actually remove anything dangerous? Compared on a
+    -- whitespace-normalised basis so trivial spacing differences don't count as an attack.
+    local function squish(v) return (v:gsub('%s+', ' ')) end
+    local changed = squish(out) ~= squish(html)
+    return out, changed
+end
+
 -- ════════════════════════════════════════════════════════════
 --  Bulletin Posts
 -- ════════════════════════════════════════════════════════════
@@ -80,13 +189,18 @@ ps.registerCallback(resourceName .. ':server:createBulletinPost', function(sourc
     local canPin = CheckPermission(src, 'bulletin_pin')
     local pinned = (canPin and data.pinned == true) and 1 or 0
 
+    -- Sanitize before storing; if anything was stripped, this was an injection attempt.
+    local rawContent = tostring(data.content or '')
+    local cleanContent, wasExploit = sanitizeBulletinHtml(rawContent)
+    if wasExploit then logExploitAttempt(src, 'create', rawContent, cleanContent) end
+
     local id = MySQL.insert.await([[
         INSERT INTO mdt_bulletin_posts
             (title, content, author, author_rank, category, priority, pinned, job, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         title:sub(1, 255),
-        tostring(data.content or ''):sub(1, 65535),
+        cleanContent:sub(1, 65535),
         author:sub(1, 100),
         jobRank,
         data.category,
@@ -141,8 +255,11 @@ ps.registerCallback(resourceName .. ':server:updateBulletinPost', function(sourc
         end
     end
     if updates.content ~= nil then
+        local rawContent = tostring(updates.content)
+        local cleanContent, wasExploit = sanitizeBulletinHtml(rawContent)
+        if wasExploit then logExploitAttempt(src, 'edit', rawContent, cleanContent) end
         sets[#sets + 1] = 'content = ?'
-        vals[#vals + 1] = tostring(updates.content):sub(1, 65535)
+        vals[#vals + 1] = cleanContent:sub(1, 65535)
     end
     if updates.category ~= nil then
         -- Validate category belongs to this job

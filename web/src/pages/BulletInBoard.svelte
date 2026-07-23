@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { sanitizeHtml } from "../utils/sanitizeHtml";
     import { formatDateTime } from "../utils/datetime";
     import { fetchNui } from "../utils/fetchNui";
     import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -390,7 +391,7 @@
 
                             {#if expandedId === post.id}
                                 <div class="post-body prose">
-                                    {@html post.content}
+                                    {@html sanitizeHtml(post.content)}
                                 </div>
                                 <div class="post-actions">
                                     {#if canPin()}
@@ -466,7 +467,7 @@
 
                             {#if expandedId === post.id}
                                 <div class="post-body prose">
-                                    {@html post.content}
+                                    {@html sanitizeHtml(post.content)}
                                 </div>
                                 <div class="post-actions">
                                     {#if canPin()}
