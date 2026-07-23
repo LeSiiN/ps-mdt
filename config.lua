@@ -383,6 +383,26 @@ Config.Housing = {
             },
         },
 
+        -- added by cheeseburger.apocalypse, thank u <3
+        nolag_properties = {
+            table = 'properties_owners',
+            columns = {
+                owner      = 'identifier',
+                id         = 'property_id',
+                name       = nil,
+                coords     = nil,       -- disabled: metadata isn't a flat {x,y,z}, so "set waypoint" won't show
+                keyholders = nil,
+            },
+            join = {
+                table   = 'properties',
+                on      = { left = 'property_id', right = 'id' },
+                columns = {
+                    name       = 'label',
+                    keyholders = 'keyholders',
+                },
+            },
+        },
+
         -- Fully custom mapping. Set Config.Housing.system = 'custom' and edit
         -- the values below to match your housing resource's database.
         custom = {
