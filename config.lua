@@ -891,6 +891,43 @@ Config.Dashcam = {
     },
 }
 
+Config.TabletCam = {
+    -- Master switch. false = MDT behaves exactly like before.
+    Enabled = true,
+ 
+    -- Blend times in ms
+    Duration     = 900,  -- gameplay cam -> tablet
+    ExitDuration = 700,  -- tablet -> gameplay cam
+ 
+    -- Block driving / exiting / combat while the tablet is open.
+    -- Set to false if your server wants passengers to keep control.
+    DisableDriving = true,
+ 
+    -- Hide the minimap while the tablet cam is up
+    HideRadar = true,
+ 
+    -- Anchor bone. Change to 'seat_pside_f' if you want the passenger side.
+    SeatBone = 'seat_dside_f',
+ 
+    -- Used when the model has no seat bone (rare, mostly on badly ported cars)
+    SeatFallback = vec3(-0.35, 0.20, 0.62),
+ 
+    -- Applied on top of the seat bone, so this one entry fits most vehicles.
+    -- offset: x = right, y = forward, z = up   |   rot: pitch, roll, yaw
+    Base = {
+        offset = vec3(0.430, 0.150, 0.440),
+        rot    = vec3(-26.0, 0.0, -19.5),
+        fov    = 45.0,
+    },
+ 
+    -- Only add models where the base values actually look wrong.
+    -- Generate these lines in game with /mdtcamtune -> E (see tablet_cam_tune.lua)
+    Overrides = {
+        [`police5`] = { offset = vec3(0.430, 0.150, 0.440), rot = vec3(-26.0, 0.0, -19.5), fov = 45.0 },
+        -- [`sheriff2`] = { offset = vec3(...), rot = vec3(...), fov = 45.0 },
+    },
+}
+
 -- Management permissions and defaults (per job grade)
 Config.ManagementPermissions = {
     -- Citizens
