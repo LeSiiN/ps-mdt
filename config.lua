@@ -1475,47 +1475,39 @@ Config.Court = {
         { id = 'ems_on_duty',   label = 'On-Duty EMS',    role = 'attendee', domain = 'ems', jobType = Config.MedicalJobType, onlyOnDuty = true },
     },
 }
+
 -- ═══════════════════════════════════════════════════════════════════════════
 --  Radio in MDT
---  Lets players push-to-talk on the radio while the MDT is open. Because the
---  MDT holds full NUI focus (keyboard goes to the UI, not the game), the UI
---  itself captures the PTT key and forwards it to the client, which drives the
---  active voice system. No extra RegisterKeyMapping is added — where possible
---  the player's EXISTING radio keybind is detected and reused.
+--  Lets players talk on the radio while the MDT is open. Because the MDT holds
+--  full NUI focus, the game never sees a keypress — so instead of guessing at
+--  the player's radio keybind, the MDT shows its own push-to-talk button in the
+--  top bar. Hold it to transmit, release to stop. No keybind, nothing to
+--  configure per player, and it works the same on every voice system.
 -- ═══════════════════════════════════════════════════════════════════════════
 Config.Radio = {
     Enabled = true,
-
+ 
     -- Which voice resource to drive:
     --   'auto'       → detect the first running one (order below in AutoDetect)
     --   'pma-voice' | 'saltychat' | 'yaca' → force a specific system
     VoiceSystem = 'auto',
-
-    -- Fallback PTT key the MDT listens for IF the real keybind can't be read
-    -- (browser KeyboardEvent value — a code like 'AltLeft'/'CapsLock' or a
-    -- single character like 'n'). Pick a non-text key to avoid clashing with
-    -- typing in reports. The real in-game radio key is auto-detected when
-    -- possible and takes priority over this.
-    PTTKey = 'AltLeft',
-
-    -- Per-system trigger + which command's key to read for the NUI listener.
+ 
+    -- Per-system trigger.
     --   type = 'command' → ExecuteCommand(start) / ExecuteCommand(stop)
     --   type = 'export'  → exports[resource][fn](state)
-    -- `keyCmd` is the keymapping command whose bound key we read (nil = use the
-    -- fallback PTTKey). `startCandidates` lets us match fork-renamed commands.
+    -- `startCandidates` lets us match fork-renamed commands; the first one that
+    -- is actually registered wins, and the stop command is derived from it.
     Systems = {
         ['pma-voice'] = {
             type = 'command',
             start = '+radiotalk',
             stop = '-radiotalk',
-            keyCmd = '+radiotalk',
             startCandidates = { '+radiotalk' },
         },
         ['saltychat'] = {
             type = 'command',
             start = '+primaryRadio',
             stop = '-primaryRadio',
-            keyCmd = '+primaryRadio',
             -- SaltyChat forks name this differently; first registered wins.
             startCandidates = { '+primaryRadio', '+radioPrimary', '+SaltyChat_RadioPrimary' },
         },
@@ -1523,12 +1515,9 @@ Config.Radio = {
             type = 'export',
             resource = 'yaca-voice',
             fn = 'radioTalkingStart',
-            -- YACA drives radio via an export; no stable command to read, so
-            -- the NUI listens for the fallback PTTKey (set it to your YACA key).
-            keyCmd = nil,
         },
     },
-
+ 
     -- 'auto' detection order: { system = key in Systems, resource = res name }.
     AutoDetect = {
         { system = 'pma-voice', resource = 'pma-voice' },

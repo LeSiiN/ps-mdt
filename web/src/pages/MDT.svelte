@@ -15,7 +15,6 @@
     import NavigationPills from "../components/NavigationPills.svelte";
     import InstanceTabs from "../components/InstanceTabs.svelte";
     import ContentArea from "../components/ContentArea.svelte";
-    import RadioPTT from "../components/RadioPTT.svelte";
     import type {AuthUpdateData} from "@/interfaces/IUser";
 
     const authService = createAuthService();
@@ -174,7 +173,6 @@
 </script>
 
 <main class="mdt-container" data-job-type={authService.jobType}>
-    <RadioPTT />
     <div class="mdt-window" style={opacityStyle}>
         <div class="mdt-interface">
             <TopBar

@@ -15,6 +15,7 @@
 
 	import type { TabService } from "../services/tabService.svelte";
 	import type { MDTTab } from "../constants";
+	import RadioPTT from "./RadioPTT.svelte";
 
 	interface Props {
 		authService: AuthService;
@@ -240,16 +241,39 @@
 		searchHovered || searchFocused || searchOpen || searchQuery.length > 0,
 	);
 
+	/** Set while the radio button is held or focused, reported by the child. */
+	let radioActive = $state(false);
+
+	/**
+	 * Set while the pointer is over any element marked data-hold-open.
+	 *
+	 * Hovering is resolved here by delegation rather than by a callback from the
+	 * child: mouseenter on .top-bar fires before the child's own mouseenter, so
+	 * a child that reports upwards is always one step behind the fade it is
+	 * meant to prevent. mouseover bubbles, so this sees the button on the same
+	 * event that would otherwise dim the bar.
+	 */
+	let overHoldElement = $state(false);
+
+	let holdOpen = $derived(searchActive || radioActive || overHoldElement);
+
+	function handleTopBarOver(event: MouseEvent) {
+		const target = event.target as HTMLElement | null;
+		overHoldElement = !!target?.closest?.("[data-hold-open]");
+	}
+
 	function handleTopBarEnter() {
 		if (opacityTimeout) {
 			clearTimeout(opacityTimeout);
 			opacityTimeout = null;
 		}
-		if (searchActive) return;
+		if (holdOpen) return;
 		documentOpacity = 0.25;
 	}
 
 	function handleTopBarLeave() {
+		overHoldElement = false;
+
 		if (opacityTimeout) {
 			clearTimeout(opacityTimeout);
 		}
@@ -260,10 +284,10 @@
 		}, TIMING.topBarOpacityDelay);
 	}
 
-	// Reaching the search from an already-faded bar has to bring it back at once, not
-	// wait for the pointer to leave and the timer to run out.
+	// Reaching the search or the radio button from an already-faded bar has to bring
+	// it back at once, not wait for the pointer to leave and the timer to run out.
 	$effect(() => {
-		if (searchActive) {
+		if (holdOpen) {
 			if (opacityTimeout) {
 				clearTimeout(opacityTimeout);
 				opacityTimeout = null;
@@ -295,6 +319,7 @@
 	class="top-bar"
 	role="region"
 	onmouseenter={handleTopBarEnter}
+	onmouseover={handleTopBarOver}
 	onmouseleave={handleTopBarLeave}
 >
 	<div class="tb-identity">
@@ -428,9 +453,12 @@
 		{/if}
 	</div>
 
-	<div class="tb-clock">
-		<span class="tb-time">{currentTime}</span>
-		<span class="tb-date">{currentDate}</span>
+	<div class="tb-right">
+		<RadioPTT onActiveChange={(active) => (radioActive = active)} />
+		<div class="tb-clock">
+			<span class="tb-time">{currentTime}</span>
+			<span class="tb-date">{currentDate}</span>
+		</div>
 	</div>
 </div>
 
@@ -788,6 +816,13 @@
 		text-align: center;
 		font-size: 11px;
 		color: rgba(255, 255, 255, 0.3);
+	}
+
+	.tb-right {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		flex-shrink: 0;
 	}
 
 	.tb-clock {

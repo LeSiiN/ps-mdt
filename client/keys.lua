@@ -5,10 +5,6 @@ local resourceName = tostring(GetCurrentResourceName())
 local controlsDisabled = false
 local controlCheckInterval = 0
 
--- Open/close state guards
-local mdtOpening = false   -- camera is moving in, UI not shown yet
-local mdtClosing = false   -- exit blend running, input is swallowed
-
 -- Cache globals for performance
 local DisableControlAction = DisableControlAction
 local Wait = Wait
@@ -36,7 +32,7 @@ end
 local restrictedControls = {
     -- Camera controls
     {0, 0},   -- Next Camera
-    {0, 1},   -- Look Left/Right
+    {0, 1},   -- Look Left/Right  
     {0, 2},   -- Look Up/Down
     {0, 26},  -- Look Behind
 
@@ -82,10 +78,6 @@ local restrictedControls = {
 }
 
 -- Control disabling loop
--- Doubles as a cheap watchdog: while the MDT is up we poll for death every
--- ~500ms so a player who dies mid-session does not get stuck in the tablet.
-local nextDeathCheck = 0
-
 CreateThread(function()
     while true do
         if controlsDisabled then
@@ -93,18 +85,6 @@ CreateThread(function()
             for i = 1, #restrictedControls do
                 local control = restrictedControls[i]
                 DisableControlAction(control[1], control[2], true)
-            end
-
-            -- Camera phase handles death itself and aborts, so only poll once
-            -- the UI is actually up
-            if MDTOpen and not mdtOpening then
-                local now = GetGameTimer()
-                if now >= nextDeathCheck then
-                    nextDeathCheck = now + 500
-                    if ps.isDead() then
-                        CloseMDT()
-                    end
-                end
             end
         else
             controlCheckInterval = 150
@@ -118,69 +98,60 @@ local function toggleControls(state)
     controlsDisabled = state
 end
 
--- Guards ------------------------------------------------------
+-- MDT Display ------------------------------------------------
 
--- Single source of truth for "may this player open / keep open the MDT".
--- Called twice on the vehicle path: once before the camera moves, once when it
--- arrives, because a lot can change during a 1.2s animation.
-local function canUseMDT(isCivilian)
-    local ped = PlayerPedId()
+-- Open MDT
+function OpenMDT()
+    -- Check auth
+    local authResult = CheckAuth()
+
+    local isCivilian = type(authResult) == 'table' and authResult.isCivilian
+    if not authResult and not isCivilian then return end
 
     -- Don't allow if player is dead
     if ps.isDead() then
-        return false, 'You cannot open the MDT right now'
+        ps.notify('You cannot open the MDT right now', 'error')
+        return
     end
 
     -- Don't allow if swimming
+    local ped = PlayerPedId()
     if IsPedSwimming(ped) then
-        return false, 'You cannot open the MDT right now'
+        ps.notify('You cannot open the MDT right now', 'error')
+        return
     end
 
-    if not isCivilian then
-        -- Don't allow if armed (skip for civilians)
-        if IsPedArmed(ped, 1) or IsPedArmed(ped, 2) or IsPedArmed(ped, 4) then
-            return false, 'You cannot open the MDT right now'
-        end
-
-        -- Don't allow if viewing a camera
-        if exports[resourceName]:isViewingCamera() then
-            return false, 'You cannot open the MDT while viewing a camera'
-        end
+    -- Don't allow if armed (skip for civilians)
+    if not isCivilian and (IsPedArmed(ped, 1) or IsPedArmed(ped, 2) or IsPedArmed(ped, 4)) then
+        ps.notify('You cannot open the MDT right now', 'error')
+        return
     end
 
-    return true
-end
+    -- Don't allow if viewing a camera
+    if not isCivilian and exports[resourceName]:isViewingCamera() then
+        ps.notify('You cannot open the MDT while viewing a camera', 'error')
+        return
+    end
 
--- MDT Display ------------------------------------------------
+    -- Check if MDT is already open
+    if MDTOpen then
+        if StopMdtRadio then StopMdtRadio() end
+        StopTabletAnimation()
+        SendNUI('setVisible', { visible = false })
+        SetNuiFocus(false, false)
+        SetNuiFocusKeepInput(false)
+        toggleControls(false)
+        MDTOpen = false
+        return
+    end
 
--- Prop, animation and sound. Starts together with the camera move so the
--- officer visibly pulls the tablet out while the view slides over to it.
-local function playOpenFx(isCivilian)
-    if isCivilian then return end
-    PlayMDTSound('open')
-    -- Tablet prop + animation (CreateObject / AttachEntity / TaskPlayAnim) is
-    -- the most expensive native cluster on open; it yields internally so it
-    -- lands on its own frame(s).
-    PlayTabletAnimation()
-end
-
-local function stopOpenFx()
-    StopTabletAnimation()
-end
-
--- Everything that actually puts the MDT on screen. On the vehicle path this
--- only runs once the camera has finished its move.
-local function finishOpenMDT(authResult, isCivilian)
-    -- MDTOpen is already true at this point (set when the sequence started).
-    -- This function only brings the UI up.
     MDTOpen = true
-    nextDeathCheck = GetGameTimer() + 500
 
-    SendNUI('setVisible', {
-        visible   = true,
-        debugMode = Config.Debug,
-        dateTime  = Config.DateTime,
-    })
+    -- ── Critical path: get the UI on screen this frame ──────────────────────
+    -- Only visibility + auth + focus run synchronously so the panel appears
+    -- instantly. Everything cosmetic (sound, tablet prop/animation) or map-
+    -- related is pushed to later frames so opening never spikes one frame.
+    SendNUI('setVisible', { visible = true, debugMode = Config.Debug, dateTime = Config.DateTime })
 
     if isCivilian then
         -- Civilian mode: send auth with civilian flag
@@ -188,10 +159,10 @@ local function finishOpenMDT(authResult, isCivilian)
         SendNUI('updateAuth', {
             authorized = true,
             playerData = playerData,
-            isLEO      = false,
-            onDuty     = true,
+            isLEO = false,
+            onDuty = true,
             isCivilian = true,
-            jobType    = 'civilian',
+            jobType = 'civilian',
         })
     else
         NUIUpdateAuth()
@@ -202,141 +173,62 @@ local function finishOpenMDT(authResult, isCivilian)
     SetNuiFocusKeepInput(false)
     toggleControls(true)
 
-    -- Deferred: map state and radio config are not needed on the first frame
+    -- ── Deferred path: spread the heavy / non-critical work over later frames ─
     CreateThread(function()
         Wait(0)
         if not MDTOpen then return end -- player toggled it back off already
 
-        -- Map state is only needed once the Map tab is actually opened
+        if not isCivilian then
+            PlayMDTSound('open')
+            -- Tablet prop + animation (CreateObject / AttachEntity / TaskPlayAnim)
+            -- is the most expensive native cluster on open; it yields internally
+            -- so it lands on its own frame(s), not the UI frame.
+            PlayTabletAnimation()
+        end
+
+        Wait(0)
+        if not MDTOpen then return end
+
+        -- Map state is only needed once the Map tab is actually opened.
         SendMapCitizenId()
         SendMapUiState()
 
-        -- Tell the NUI which key to listen for so PTT works while the MDT is
-        -- focused (resolves the player's real radio keybind when possible)
+        -- Tell the NUI whether to show the push-to-talk button (off when the
+        -- radio is disabled in config or no voice resource is running).
         if SendRadioConfig then SendRadioConfig() end
     end)
-end
-
--- Open MDT
-function OpenMDT()
-    -- Case 1: exit blend still running. Starting a new camera move into a
-    -- running one looks broken, so the input is swallowed entirely.
-    if mdtClosing then return end
-
-    -- Case 2: camera is moving in and the player presses again -> abort.
-    -- The cancel callback below owns the cleanup, nothing to do here.
-    if mdtOpening then
-        TabletCam.Cancel()
-        return
-    end
-
-    -- Case 3: already open -> normal close path
-    if MDTOpen then
-        CloseMDT()
-        return
-    end
-
-    -- Check auth
-    local authResult = CheckAuth()
-    local isCivilian = type(authResult) == 'table' and authResult.isCivilian
-    if not authResult and not isCivilian then return end
-
-    local allowed, reason = canUseMDT(isCivilian)
-    if not allowed then
-        ps.notify(reason, 'error')
-        return
-    end
-
-    -- MDTOpen goes true HERE, not after the camera arrives. Anything that
-    -- keeps state while the tablet is out - the animation loop above all -
-    -- polls this flag, and would exit instantly if it stayed false during the
-    -- camera move. mdtOpening is what tells us the UI is not up yet.
-    MDTOpen    = true
-    mdtOpening = true
-
-    -- Case 4: on foot, camera disabled in config, or camera busy. Start()
-    -- returns false in all of those, so this stays one branch instead of four.
-    local started = TabletCam.Start(nil, function(ok, camReason)
-        mdtOpening = false
-
-        if not ok then
-            -- cancelled, left the vehicle, died, vehicle despawned, resource stop
-            MDTOpen = false
-            stopOpenFx()
-            toggleControls(false)
-            ps.debug('MDT open aborted during camera move: ' .. tostring(camReason))
-            return
-        end
-
-        -- Re-check: the animation is long enough to draw a weapon or start swimming
-        local stillAllowed, stillReason = canUseMDT(isCivilian)
-        if not stillAllowed then
-            MDTOpen = false
-            TabletCam.Stop()
-            stopOpenFx()
-            toggleControls(false)
-            ps.notify(stillReason, 'error')
-            return
-        end
-
-        finishOpenMDT(authResult, isCivilian)
-    end)
-
-    playOpenFx(isCivilian)
-
-    if started then
-        toggleControls(true)   -- lock input for the duration of the move
-    else
-        mdtOpening = false
-        finishOpenMDT(authResult, isCivilian)
-    end
 end
 
 -- Close MDT
 local closeControlsPending = false
 
+
 function CloseMDT(keepAnimation)
-    -- Close requested while the camera is still moving in
-    if mdtOpening then
-        TabletCam.Cancel()
-        return
+    if MDTOpen then
+        MDTOpen = false
+
+        if StopMdtRadio then StopMdtRadio() end
+
+        if not keepAnimation then
+            StopTabletAnimation()
+        end
+
+        SendNUI('setVisible', { visible = false })
+        SetNuiFocus(false, false)
+
+        -- Prevent ESC pause menu conflict - only spawn one delayed thread at a time
+        if not closeControlsPending then
+            closeControlsPending = true
+            CreateThread(function()
+                Wait(100)
+                toggleControls(false) -- Re-enable controls
+                closeControlsPending = false
+            end)
+        end
+
+        ps.debug('MDT closed via CloseMDT function')
+        TriggerServerEvent('ps-mdt:server:trackLogout')
     end
-
-    if not MDTOpen then return end
-
-    MDTOpen    = false
-    mdtClosing = true
-
-    if StopMdtRadio then StopMdtRadio() end
-
-    if not keepAnimation then
-        StopTabletAnimation()
-    end
-
-    SendNUI('setVisible', { visible = false })
-    SetNuiFocus(false, false)
-
-    local exitDuration = 900
-    TabletCam.Stop(exitDuration)
-
-    -- Prevent ESC pause menu conflict - only spawn one delayed thread at a time
-    if not closeControlsPending then
-        closeControlsPending = true
-        CreateThread(function()
-            Wait(100)
-            toggleControls(false) -- Re-enable controls
-            closeControlsPending = false
-        end)
-    end
-
-    -- Input stays blocked until the camera is fully back, otherwise a fast
-    -- re-press starts an entry blend into the running exit blend
-    SetTimeout(exitDuration + 150, function()
-        mdtClosing = false
-    end)
-
-    ps.debug('MDT closed via CloseMDT function')
-    TriggerServerEvent('ps-mdt:server:trackLogout')
 end
 
 -- Nui ------------------------------------------------------
