@@ -70,6 +70,8 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 			{ key: "warrants_view", label: "View Warrants", description: "View active warrants" },
 			{ key: "warrants_issue", label: "Issue Warrants", description: "Issue warrants on suspects" },
 			{ key: "warrants_close", label: "Close Warrants", description: "Close active warrants" },
+			{ key: "phone_track_request", label: "Request Phone Tracking", description: "Submit a phone number for court-authorised location tracking" },
+			{ key: "phone_track_review", label: "Approve Phone Tracking", description: "Approve or deny phone tracking requests, and cancel running tracks" },
 		],
 	},
 	{

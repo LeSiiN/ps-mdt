@@ -71,6 +71,7 @@
     let bodycamLayer = L.layerGroup();
     let patrolLayer  = L.layerGroup();
     let zoneLayer    = L.layerGroup();
+    let phoneLayer   = L.layerGroup();
 
     let sidebarOpen  = $state(localStorage.getItem("mdt_map_sidebar")   !== "false");
     let officersOpen = $state(localStorage.getItem("mdt_map_officers")  !== "false");
@@ -1833,6 +1834,79 @@
         }
     }
 
+    /**
+     * Court-authorised phone tracks.
+     *
+     * Rendered in the same language as a dispatch call — ring, badge, pulse —
+     * because that is what it is to the officer reading the map: a live thing
+     * to drive towards. The accuracy circle sits underneath it rather than
+     * being the whole marker, so the uncertainty is visible without the track
+     * looking like a weather front.
+     */
+    function escapeMarkerText(value: string): string {
+        return value
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
+
+    function renderPhoneTracks(tracks: any[]) {
+        phoneLayer.clearLayers();
+        if (!Array.isArray(tracks) || tracks.length === 0) return;
+
+        for (const track of tracks) {
+            const coords = normalizeCoords(track?.coords);
+            if (!coords) continue;
+
+            const centre = toMapLatLng(coords);
+            const live = track.online === true;
+            const colour = live ? "#f59e0b" : "#6b7280";
+
+            // Radius is a game-metre distance; the map is a Simple CRS whose
+            // units are game metres scaled by CALIB_SX, so it converts with
+            // the same constant the positions do.
+            const radius = (Number(track.accuracy) || 150) * CALIB_SX;
+
+            L.circle(centre as any, {
+                radius,
+                color: colour,
+                weight: 1,
+                opacity: live ? 0.45 : 0.25,
+                fillColor: colour,
+                fillOpacity: live ? 0.08 : 0.04,
+                dashArray: "3 5",
+                interactive: false,
+            }).addTo(phoneLayer);
+
+            const expiresIn = Math.max(0, Number(track.expiresIn) || 0);
+            const mins = Math.floor(expiresIn / 60);
+            const label = `${mins}:${String(expiresIn % 60).padStart(2, "0")}`;
+            const number = escapeMarkerText(String(track.number ?? ""));
+            const name = escapeMarkerText(String(track.citizen_name ?? ""));
+
+            const html =
+                `<div class="pt-marker${live ? "" : " pt-marker--stale"}" style="--ptc:${colour}">` +
+                    `<div class="pt-ring"></div>` +
+                    `<div class="pt-badge">` +
+                        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+                            `<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>` +
+                        `</svg>` +
+                    `</div>` +
+                    `<div class="pt-tag">` +
+                        `<span class="pt-tag-num">${number}</span>` +
+                        `<span class="pt-tag-meta">${live ? label : "no signal"}${name ? ` · ${name}` : ""}</span>` +
+                    `</div>` +
+                `</div>`;
+
+            L.marker(centre as any, {
+                icon: L.divIcon({ className: "", html, iconSize: [34, 34], iconAnchor: [17, 17] }),
+                zIndexOffset: 900,
+                interactive: false,
+            }).addTo(phoneLayer);
+        }
+    }
+
     async function refreshTracking() {
         if (!map || !tabVisible) return;
         if (isEnvBrowser()) return;
@@ -1856,6 +1930,11 @@
             const data = (response as any).data ?? response;
             const bodycams = (data as any).bodycams;
             const vehicles = (data as any).vehicles;
+
+            // Rendered before the early return below: an empty officer list is
+            // still a valid poll for phone tracks, and a running track must not
+            // stop drawing just because nobody is on duty.
+            renderPhoneTracks((data as any).phoneTracks ?? []);
 
             if (!Array.isArray(bodycams) && !Array.isArray(vehicles)) return;
 
@@ -2413,6 +2492,7 @@
         bodycamLayer = L.layerGroup().addTo(map);
         patrolLayer  = L.layerGroup().addTo(map);
         zoneLayer    = L.layerGroup().addTo(map);
+        phoneLayer   = L.layerGroup().addTo(map);
 
         syncLayerVisibility();
 
@@ -3922,6 +4002,82 @@
     .sidebar-toggle:hover { background: rgba(30,30,30,0.95); color: rgba(255,255,255,0.9); }
     .sidebar-toggle.open { right: var(--sidebar-width,520px); }
     .sidebar-toggle-label { writing-mode: vertical-rl; text-orientation: mixed; }
+
+    :global(.pt-marker) {
+        position: relative;
+        width: 34px;
+        height: 34px;
+        pointer-events: none;
+    }
+
+    /* Same ring-and-badge construction the dispatch call markers use, so a
+       track reads as one more thing happening rather than a foreign object. */
+    :global(.pt-ring) {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 2px solid var(--ptc);
+        opacity: 0.55;
+        animation: pt-pulse 2s ease-out infinite;
+    }
+
+    :global(.pt-marker--stale .pt-ring) {
+        animation: none;
+        opacity: 0.25;
+        border-style: dashed;
+    }
+
+    :global(.pt-badge) {
+        position: absolute;
+        inset: 6px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: rgba(10, 10, 12, 0.9);
+        border: 1.5px solid var(--ptc);
+        color: var(--ptc);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+    }
+
+    :global(.pt-badge svg) {
+        width: 12px;
+        height: 12px;
+    }
+
+    :global(.pt-tag) {
+        position: absolute;
+        left: 40px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        line-height: 1.2;
+        padding: 3px 7px;
+        border-radius: 4px;
+        white-space: nowrap;
+        background: rgba(10, 10, 12, 0.85);
+        border-left: 2px solid var(--ptc);
+    }
+
+    :global(.pt-tag-num) {
+        font-family: monospace;
+        font-size: 11px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.94);
+    }
+
+    :global(.pt-tag-meta) {
+        font-size: 9px;
+        letter-spacing: 0.03em;
+        color: var(--ptc);
+        opacity: 0.85;
+    }
+
+    @keyframes pt-pulse {
+        0%   { transform: scale(0.85); opacity: 0.7; }
+        70%  { transform: scale(1.35); opacity: 0; }
+        100% { transform: scale(1.35); opacity: 0; }
+    }
 
     .sidebar { position: absolute; z-index: 1001; top: 0; right: 0; bottom: 0; width: var(--sidebar-width,520px); display: flex; flex-direction: row; background: rgba(13,13,13,0.96); border-left: 1px solid rgba(255,255,255,0.06); transform: translateX(100%); transition: transform 0.25s cubic-bezier(0.4,0,0.2,1), width 0.25s cubic-bezier(0.4,0,0.2,1); overflow: hidden; }
     .sidebar--open { transform: translateX(0); }

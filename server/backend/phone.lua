@@ -14,6 +14,7 @@
 --
 --  Public API (server):
 --      PhoneNumberFor(citizenid, fallback) -> string|nil
+--      PhoneOwnerOf(number)                -> citizenid|nil, name|nil
 --      PhoneSendSms(citizenid, body)       -> boolean
 --      PhoneSendMail(citizenid, subject, message) -> boolean
 -- ============================================================================
@@ -44,6 +45,10 @@ local PROVIDERS = {
     ['lb-phone'] = {
         Resource = 'lb-phone',
         Number = { kind = 'export', method = 'GetEquippedPhoneNumber', args = { '@citizenid' } },
+        -- ASSUMPTION: reverse lookup export name. If your build calls it
+        -- something else, this one line is the only place to correct it —
+        -- and the charinfo fallback below covers you until you do.
+        Owner  = { kind = 'export', method = 'GetNumberOwner', args = { '@number' } },
         Sms    = { kind = 'export', method = 'SendMessage', args = { '@sender', '@number', '@message' } },
         Mail   = {
             kind = 'export',
@@ -61,6 +66,8 @@ local PROVIDERS = {
         -- own number, so it is no use for looking up somebody else. Numbers
         -- come from charinfo.phone via UseCharinfoFallback instead.
         Number = { kind = 'none' },
+        -- No server-side reverse lookup either; charinfo covers it.
+        Owner  = { kind = 'none' },
         -- Reversed argument order compared to lb-phone, plus a trailing
         -- message TYPE ('message' | 'gps' | 'image'). Client-side, so this
         -- reaches ONLINE players only.
@@ -85,6 +92,9 @@ local PROVIDERS = {
     ['yseries'] = {
         Resource = 'yseries',
         Number = { kind = 'export', method = 'GetPhoneNumberByIdentifier', args = { '@citizenid' } },
+        -- ASSUMPTION: the mirror of GetPhoneNumberByIdentifier. Same caveat as
+        -- lb-phone above — one line to fix, charinfo fallback until then.
+        Owner  = { kind = 'export', method = 'GetIdentifierByPhoneNumber', args = { '@number' } },
         -- Reminders go out as a phone notification. Addressed by SERVER ID,
         -- following the same shape as the documented CellBroadcast export
         -- (to, title, content, ...), so it reaches ONLINE players only —
@@ -118,6 +128,7 @@ local PROVIDERS = {
     ['none'] = {
         Resource = '',
         Number = { kind = 'none' },
+        Owner  = { kind = 'none' },
         Sms    = { kind = 'none' },
         Mail   = { kind = 'none' },
     },
@@ -372,4 +383,59 @@ function PhoneSendMail(citizenid, subject, message, senderOverride)
 
     local ok = invoke(spec, values, citizenid)
     return ok == true
+end
+
+--- The citizen behind a phone number — the reverse of PhoneNumberFor.
+---
+--- Phone scripts are far less consistent here than they are about handing out a
+--- number for a citizen, and two of the three supported ones have no documented
+--- server-side reverse export at all. So this tries the configured Owner spec
+--- first and then falls back to charinfo.phone, which every QBCore/QBX server
+--- has regardless of which phone script is installed and which also covers
+--- offline characters.
+---
+--- The number is compared digits-only, because players type 555-0123 for what
+--- the database stores as 5550123.
+---@param number string|number
+---@return string|nil citizenid, string|nil name
+function PhoneOwnerOf(number)
+    if number == nil then return nil end
+    local raw = tostring(number)
+    local digits = raw:gsub('%D', '')
+    if digits == '' then return nil end
+
+    local function nameFor(citizenid)
+        local row = MySQL.single.await('SELECT charinfo FROM players WHERE citizenid = ?', { citizenid })
+        if not row or not row.charinfo then return nil end
+        local ok, info = pcall(json.decode, row.charinfo)
+        if not ok or type(info) ~= 'table' then return nil end
+        return ((info.firstname or '') .. ' ' .. (info.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+    end
+
+    -- 1) Whatever the phone script itself offers.
+    local cfg = phoneCfg()
+    local ok, result = invoke(cfg.Owner, { number = raw, digits = digits })
+    if ok and result ~= nil and tostring(result) ~= '' then
+        local citizenid = tostring(result)
+        return citizenid, nameFor(citizenid)
+    end
+
+    -- 2) charinfo.phone. Compared digits-only on both sides so formatting
+    --    differences between the phone script and charinfo cannot miss.
+    if cfg.UseCharinfoFallback == false then return nil end
+
+    local row = MySQL.single.await([[
+        SELECT citizenid, charinfo FROM players
+        WHERE REGEXP_REPLACE(JSON_UNQUOTE(JSON_EXTRACT(charinfo, '$.phone')), '[^0-9]', '') = ?
+        LIMIT 1
+    ]], { digits })
+
+    if not row then return nil end
+
+    local name
+    local decoded, info = pcall(json.decode, row.charinfo)
+    if decoded and type(info) == 'table' then
+        name = ((info.firstname or '') .. ' ' .. (info.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+    end
+    return row.citizenid, name
 end

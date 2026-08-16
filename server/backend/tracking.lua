@@ -484,13 +484,21 @@ local function getTrackingSnapshot(domain)
 end
 
 ps.registerCallback(resourceName .. ':server:getTracking', function(source)
-    if not CheckAuth(source) then
+    local src = source
+    if not CheckAuth(src) then
         return { vehicles = {}, bodycams = {} }
     end
     -- EMS see EMS units; police/DOJ see police units.
-    local domain = GetMdtDomain(source)
+    local domain = GetMdtDomain(src)
     local snap = getTrackingSnapshot(domain)
-    return { vehicles = snap.vehicles, bodycams = snap.bodycams }
+    -- Phone tracks ride along on the poll the map already makes, rather than
+    -- adding a second timer. Only officers who may run them see the markers.
+    local phoneTracks
+    if GetActivePhoneTracks and CheckPermission(src, 'phone_track_request') then
+        phoneTracks = GetActivePhoneTracks()
+    end
+
+    return { vehicles = snap.vehicles, bodycams = snap.bodycams, phoneTracks = phoneTracks or {} }
 end)
 
 RegisterNetEvent(resourceName .. ':server:cacheVehicle', function(plate, coords, heading)
