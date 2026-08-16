@@ -290,6 +290,15 @@ export const NUI_EVENTS = {
 		SET_OFFICER_STATUS: "setOfficerStatus",
 		GET_LOCAL_CITIZEN_ID: "getLocalCitizenId",
 	},
+	PHONE_TRACK: {
+		LOOKUP_NUMBER: "lookupPhoneNumber",
+		REQUEST:       "requestPhoneTrack",
+		REVIEW:        "reviewPhoneTrack",
+		START:         "startPhoneTrack",
+		CANCEL:        "cancelPhoneTrack",
+		GET_MINE:      "getPhoneTracks",
+		GET_REQUESTS:  "getPhoneTrackRequests",
+	},
 	MANAGEMENT: {
 		GET_PERMISSION_ROLES: "getPermissionRoles",
 		UPDATE_PERMISSION_ROLE: "updatePermissionRole",
@@ -445,6 +454,7 @@ export const ALL_NUI_EVENTS = [
 	...Object.values(NUI_EVENTS.EVIDENCE),
 	...Object.values(NUI_EVENTS.AUDIT),
 	...Object.values(NUI_EVENTS.MAP),
+	...Object.values(NUI_EVENTS.PHONE_TRACK),
 	...Object.values(NUI_EVENTS.MANAGEMENT),
 	...Object.values(NUI_EVENTS.AWARDS),
 	...Object.values(NUI_EVENTS.SETTINGS),

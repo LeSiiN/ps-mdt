@@ -7,6 +7,7 @@
 	import { globalNotifications } from "../../services/notificationService.svelte";
 	import type { createTabService } from "../../services/tabService.svelte";
 	import type { AuthService } from "../../services/authService.svelte";
+	import PhoneTrackPanel from "../../components/PhoneTrackPanel.svelte";
 
 	interface Props {
 		tabService: ReturnType<typeof createTabService>;
@@ -524,6 +525,9 @@
 			</div>
 			<div class="topbar-actions">
 				<span class="result-count">{allFilteredRequests.length} request{allFilteredRequests.length !== 1 ? "s" : ""}</span>
+				{#if authService.hasPermission("phone_track_review")}
+					<PhoneTrackPanel mode="review" />
+				{/if}
 				<button class="action-btn" onclick={loadRequests} disabled={isLoading}>{isLoading ? "Loading..." : "Refresh"}</button>
 			</div>
 		</div>

@@ -195,6 +195,50 @@ Config.Phone = {
     },
 }
 
+-- ═══════════════════════════════════════════════════════════════════════════
+--  Phone tracking
+--  Locating a phone is surveillance, so it runs on a warrant: an officer
+--  submits the number with a justification, a judge approves or denies it, and
+--  only then does the phone report in. The position is deliberately imprecise
+--  and the track expires on its own — nobody has to remember to switch it off.
+-- ═══════════════════════════════════════════════════════════════════════════
+Config.PhoneTracking = {
+    Enabled = true,
+ 
+    -- Judicial approval. Turning this off grants the request immediately, but
+    -- the officer still has to execute it — the warrant step is skipped, not
+    -- the trigger. A policy decision for your server, not a convenience
+    -- setting; the audit log records it either way.
+    RequireApproval = true,
+ 
+    -- How long a granted warrant stays executable, in seconds. Approval does
+    -- not start anything: the officer runs the track themselves, when they are
+    -- actually in a position to act on it. This is the window they have to do
+    -- that in — an approval read in the morning should not still authorise
+    -- surveillance that evening. Unused warrants lapse and need a new request.
+    ApprovalValidFor = 7200,  -- 2 hours
+ 
+    -- How long an approved track runs, in seconds, and how far apart the
+    -- pings are. With the defaults that is three pings: one on approval and
+    -- one a minute later, then a third, then the track expires. Enough to see
+    -- roughly where somebody is and which way they are moving, without
+    -- turning into a live feed.
+    Duration     = 180,
+    PingInterval = 60,
+ 
+    -- Radius in metres the reported position is scattered within. This is what
+    -- makes it a rough fix rather than a GPS lock — the marker on the map is
+    -- drawn at this size, so officers can see the uncertainty instead of
+    -- having to be told about it.
+    Accuracy = 150,
+ 
+    -- How many tracks may run at once, server-wide.
+    MaxActive = 3,
+ 
+    -- Keep expired tracks and their pings for this many days, then delete.
+    -- Surveillance records should not accumulate forever.
+    RetentionDays = 14,
+}
 
 -- Callsigns
 -- Officers pick a callsign from a grid rather than typing one, so the range has to be

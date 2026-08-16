@@ -11,6 +11,7 @@
 	import type { AuthService } from "../services/authService.svelte";
 	import { globalNotifications } from "../services/notificationService.svelte";
 	import { permissionHint } from "../utils/permissionHint";
+	import PhoneTrackPanel from "../components/PhoneTrackPanel.svelte";
 
 	let { tabService, authService }: {
 		tabService: ReturnType<typeof createTabService>;
@@ -33,6 +34,9 @@
 	let confirmingKey = $state<string | null>(null);
 
 	let canClose = $derived(authService?.hasPermission("warrants_close") ?? false);
+	// Phone tracking runs on a court order, so it belongs beside the warrants
+	// rather than on the map — the map only shows where the result lands.
+	let canTrackPhones = $derived(authService?.hasPermission("phone_track_request") ?? false);
 
 	function warrantKey(warrant: Warrant): string {
 		return `${warrant.reportid}:${warrant.citizenid}`;
@@ -164,6 +168,9 @@
 			>
 				{isLoading ? "Loading..." : "Refresh"}
 			</button>
+			{#if canTrackPhones}
+				<PhoneTrackPanel mode="request" />
+			{/if}
 			<button
 				class="btn-primary"
 				onclick={createWarrantReport}
