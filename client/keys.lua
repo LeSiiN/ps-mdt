@@ -193,8 +193,8 @@ function OpenMDT()
         SendMapCitizenId()
         SendMapUiState()
 
-        -- Tell the NUI which key to listen for so PTT works while the MDT is
-        -- focused (resolves the player's real radio keybind when possible).
+        -- Tell the NUI whether to show the push-to-talk button (off when the
+        -- radio is disabled in config or no voice resource is running).
         if SendRadioConfig then SendRadioConfig() end
     end)
 end
