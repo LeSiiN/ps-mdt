@@ -69,25 +69,7 @@ lawyer = {
 
 Run `sql/qbcore.sql` or `sql/qbx.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
 
-### 3. Set your FiveManage API keys
-
-Image uploads (mugshots, evidence photos, suspect photos) and activity log forwarding go through [FiveManage](https://www.fivemanage.com/). You need API keys from their site.
-
-Add these lines to your `server.cfg`:
-
-```
-set ps_mdt_fivemanage_key_images "YOUR_IMAGES_API_KEY_HERE"
-set ps_mdt_fivemanage_key_logs   "YOUR_LOGS_API_KEY_HERE"
-```
-
-| Convar | What it does |
-|--------|-------------|
-| `ps_mdt_fivemanage_key_images` | Used for uploading mugshots, evidence photos, and suspect photos |
-| `ps_mdt_fivemanage_key_logs` | Used for forwarding audit trail activity to FiveManage Logs |
-
-Both are optional. Without the images key you won't be able to upload any images. Without the logs key the audit trail still works locally in the database, it just won't forward to FiveManage.
-
-### 4. Build the frontend
+### 3. Build the frontend ( not needed if downloaded release version )
 
 If you grabbed a release with `web/dist` already in it, skip this step.
 
