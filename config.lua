@@ -1327,6 +1327,10 @@ Config.DepartmentBanking = {
         --   resource = 'qb-management', method = 'AddMoney',
         --   args = { 'account', 'amount' }
         --
+        -- tgg-banking:
+        -- resource = 'tgg-banking', method   = 'AddSocietyMoney',
+        -- args     = { 'account', 'amount' },
+        --
         -- esx_addonaccount is not an export — use Method = 'custom' below.
     },
 
