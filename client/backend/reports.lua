@@ -10,7 +10,7 @@ RegisterNUICallback('getReports', function(data, cb)
     local page = tonumber(data.page) or 1
     page = math.max(1, page)
     local filters = data and data.filters or nil
-    local reports = ps.callback(resourceName .. ':server:getReports', page, filters)
+    local reports = MDT.callback(resourceName .. ':server:getReports', page, filters)
 
     if reports then
         local response = {
@@ -30,7 +30,7 @@ RegisterNUICallback('getReportAnalytics', function(data, cb)
     end
 
     local filters = data and data.filters or nil
-    local result = ps.callback(resourceName .. ':server:getReportAnalytics', filters)
+    local result = MDT.callback(resourceName .. ':server:getReportAnalytics', filters)
     cb(result or { success = false })
 end)
 
@@ -45,7 +45,7 @@ RegisterNUICallback('getReport', function(data, cb)
         return
     end
 
-    local report = ps.callback(resourceName .. ':server:getReport', data.reportId)
+    local report = MDT.callback(resourceName .. ':server:getReport', data.reportId)
     if report then
         cb({ success = true, data = report })
     else
@@ -60,7 +60,7 @@ RegisterNUICallback('saveReport', function(data, cb)
     end
 
     if not data or not data.reportId then
-        ps.error('Missing report data in request')
+        MDT.error('Missing report data in request')
         cb({ success = false, message = 'Missing report data' })
         return
     end
@@ -174,7 +174,7 @@ RegisterNUICallback('saveReport', function(data, cb)
         end
     end
 
-    local result = ps.callback(resourceName .. ':server:saveReport', {
+    local result = MDT.callback(resourceName .. ':server:saveReport', {
         report = reportPayload,
         involved = involved,
         evidence = evidence,
@@ -208,7 +208,7 @@ RegisterNUICallback('updateReportContent', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:updateReportContent', data.reportId, data.content, data.reportData)
+    local result = MDT.callback(resourceName .. ':server:updateReportContent', data.reportId, data.content, data.reportData)
     if result and result.success then
         cb({
             success = true,
@@ -235,7 +235,7 @@ RegisterNUICallback('deleteReport', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:deleteReport', data.reportId)
+    local result = MDT.callback(resourceName .. ':server:deleteReport', data.reportId)
     if result and result.success then
     cb({
         success = true,
@@ -256,9 +256,9 @@ RegisterNUICallback('getAvailableTags', function(data, cb)
         return
     end
 
-    local jobType = ps.getJobType()
+    local jobType = MDT.getJobType()
     local mdtJobType = jobType == Config.MedicalJobType and 'ems' or 'leo'
-    local tags = ps.callback(resourceName .. ':server:getAvailableTags', mdtJobType)
+    local tags = MDT.callback(resourceName .. ':server:getAvailableTags', mdtJobType)
     if tags then
         cb({ success = true, data = tags })
     else
@@ -272,7 +272,7 @@ RegisterNUICallback('generateReportId', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:generateReportId')
+    local result = MDT.callback(resourceName .. ':server:generateReportId')
     if result and result.success then
         cb({
             success = true,
@@ -293,7 +293,7 @@ RegisterNUICallback('searchOfficers', function(data, cb)
     end
 
     local query = data and data.query or ''
-    local result = ps.callback(resourceName .. ':server:searchOfficers', query)
+    local result = MDT.callback(resourceName .. ':server:searchOfficers', query)
     cb(result or {})
 end)
 
@@ -304,7 +304,7 @@ RegisterNUICallback('searchPlayers', function(data, cb)
     end
 
     local query = data and data.query or ''
-    local result = ps.callback(resourceName .. ':server:searchPlayers', query)
+    local result = MDT.callback(resourceName .. ':server:searchPlayers', query)
     cb(result or {})
 end)
 
@@ -320,6 +320,6 @@ RegisterNUICallback('searchVehiclesForReport', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:searchVehiclesForReport', query)
+    local result = MDT.callback(resourceName .. ':server:searchVehiclesForReport', query)
     cb(result or {})
 end)

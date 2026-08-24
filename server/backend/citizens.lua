@@ -92,14 +92,14 @@ end
 local function safeQuery(query, params)
     local ok, rows = pcall(MySQL.query.await, query, params)
     if not ok then
-        ps.warn('[getCitizens] Query failed (table may not exist): ' .. tostring(rows))
+        MDT.warn('[getCitizens] Query failed (table may not exist): ' .. tostring(rows))
         return {}
     end
     return rows or {}
 end
 
 -- getCitizens - pulls citizens from database with pagination support
-ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page)
+lib.callback.register(resourceName .. ':server:getCitizens', function(source, page)
     local src = source
     if not CheckAuth(src) then return {} end
     local startTime = os.clock()
@@ -133,7 +133,7 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
     -- Wrap flags in pcall since it queries mdt_reports_warrants / mdt_bolos which may not exist
     local ok, flagsByCid = pcall(collectCitizenFlags, citizenids)
     if not ok then
-        ps.warn('[getCitizens] collectCitizenFlags failed: ' .. tostring(flagsByCid))
+        MDT.warn('[getCitizens] collectCitizenFlags failed: ' .. tostring(flagsByCid))
         flagsByCid = {}
     end
 
@@ -212,10 +212,10 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
     end
     local endTime = os.clock()
     local elapsedTime = (endTime - startTime) * 1000
-    ps.debug(string.format("getCitizens callback executed in %.2f ms for page %d", elapsedTime, page))
+    MDT.debug(string.format("getCitizens callback executed in %.2f ms for page %d", elapsedTime, page))
 
     if result[1] then
-        ps.debug('[getCitizens] Sample citizen data structure:', result[1])
+        MDT.debug('[getCitizens] Sample citizen data structure:', result[1])
     end
 
     return result
@@ -223,7 +223,7 @@ end)
 
 -- searchPlayers - searches the database for citizens by provided query (first/last name, citizenid, phone number, occupation)
 -- Returns the same data structure as getCitizens but filtered by search query
-ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, query)
+lib.callback.register(resourceName .. ':server:searchCitizens', function(source, query)
     local src = source
     if not CheckAuth(src) then return {} end
     local startTime = os.clock()
@@ -233,8 +233,8 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
         return {}
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'search_citizens', 'search', nil, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'search_citizens', 'search', nil, {
             query = norm
         })
     end
@@ -283,7 +283,7 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
 
     local ok, flagsByCid = pcall(collectCitizenFlags, citizenids)
     if not ok then
-        ps.warn('[searchCitizens] collectCitizenFlags failed: ' .. tostring(flagsByCid))
+        MDT.warn('[searchCitizens] collectCitizenFlags failed: ' .. tostring(flagsByCid))
         flagsByCid = {}
     end
 
@@ -361,17 +361,17 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
 
     local endTime = os.clock()
     local elapsedTime = (endTime - startTime) * 1000
-    ps.debug(string.format("searchCitizens callback executed in %.2f ms for query: %s", elapsedTime, query))
+    MDT.debug(string.format("searchCitizens callback executed in %.2f ms for query: %s", elapsedTime, query))
 
     if result[1] then
-        ps.debug('[searchCitizens] Sample citizen data structure:', result[1])
+        MDT.debug('[searchCitizens] Sample citizen data structure:', result[1])
     end
 
     return result
 end)
 
 -- getCitizenBOLOs - gets active BOLOs by type, probably have a table of active bolos load on script start and use that then save it to db periodically or on resource stop
-ps.registerCallback(resourceName .. ':server:getBOLO', function(source, boloType, boloStatus)
+lib.callback.register(resourceName .. ':server:getBOLO', function(source, boloType, boloStatus)
     local src = source
     if not CheckAuth(src) then return {} end
     boloType = boloType or 'citizen'
@@ -396,18 +396,18 @@ ps.registerCallback(resourceName .. ':server:getBOLO', function(source, boloType
         local formattedBolo = {
             id = v.id,
             reportId = v.reportId and tostring(v.reportId) or 'N/A',
-            name = v.subject_name or ps.getPlayerNameByIdentifier(v.subject_id) or 'Unknown',
+            name = v.subject_name or MDT.getPlayerNameByIdentifier(v.subject_id) or 'Unknown',
             type = v.type,
             notes = v.notes or '',
             status = v.status,
         }
         table.insert(result, formattedBolo)
     end
-    ps.debug('Fetched ' .. #result .. ' ' .. boloType .. ' BOLOs from database for source ' .. src, result)
+    MDT.debug('Fetched ' .. #result .. ' ' .. boloType .. ' BOLOs from database for source ' .. src, result)
     return result
 end)
 
-ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source, citizenid)
+lib.callback.register(resourceName .. ':server:getCitizenProfile', function(source, citizenid)
     local src = source
     if not CheckAuth(src) then return end
 
@@ -439,7 +439,7 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
     -- license toggled via SetMetaData won't reach the DB until the next autosave).
     -- Use the live metadata when the citizen is online so the profile reflects the
     -- current state instead of stale data.
-    local OnlinePlayer = ps.getPlayerByIdentifier(citizenid)
+    local OnlinePlayer = MDT.getPlayerByIdentifier(citizenid)
     if OnlinePlayer and OnlinePlayer.PlayerData and OnlinePlayer.PlayerData.metadata then
         local okEnc, encoded = pcall(json.encode, OnlinePlayer.PlayerData.metadata)
         if okEnc and encoded then
@@ -697,7 +697,7 @@ end)
 -- SQL (GROUP BY), not by aggregating in Lua/JS after the fact, since the
 -- whole point of this endpoint is to never pull a citizen's full charge
 -- history into memory just to summarize it.
-ps.registerCallback(resourceName .. ':server:getCitizenCharges', function(source, citizenid, page)
+lib.callback.register(resourceName .. ':server:getCitizenCharges', function(source, citizenid, page)
     local src = source
     if not CheckAuth(src) then return { charges = {}, hasMore = false } end
 
@@ -744,7 +744,7 @@ ps.registerCallback(resourceName .. ':server:getCitizenCharges', function(source
     return { charges = rows, hasMore = hasMore }
 end)
 
-ps.registerCallback(resourceName .. ':server:updateCitizenLicense', function(source, payload)
+lib.callback.register(resourceName .. ':server:updateCitizenLicense', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -762,7 +762,7 @@ ps.registerCallback(resourceName .. ':server:updateCitizenLicense', function(sou
     -- next flush (and live license checks read the stale in-memory copy), so the
     -- change appears to do nothing. Go through SetMetaData instead: it mutates the
     -- in-memory metadata AND persists it.
-    local Player = ps.getPlayerByIdentifier(citizenId)
+    local Player = MDT.getPlayerByIdentifier(citizenId)
     if Player and Player.Functions and Player.Functions.SetMetaData then
         local metadata = (Player.PlayerData and Player.PlayerData.metadata) or {}
         metadata.licences = metadata.licences or {}
@@ -787,7 +787,7 @@ ps.registerCallback(resourceName .. ':server:updateCitizenLicense', function(sou
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:updateCitizenCustomLicense', function(source, payload)
+lib.callback.register(resourceName .. ':server:updateCitizenCustomLicense', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -806,7 +806,7 @@ ps.registerCallback(resourceName .. ':server:updateCitizenCustomLicense', functi
         return { success = false, message = 'License not found' }
     end
 
-    local grantedBy = ps.getIdentifier(src)
+    local grantedBy = MDT.getIdentifier(src)
 
     MySQL.query.await([[
         INSERT INTO mdt_citizen_licenses (citizenid, license_id, active, granted_by)
@@ -818,7 +818,7 @@ ps.registerCallback(resourceName .. ':server:updateCitizenCustomLicense', functi
 end)
 
 -- Trigger fingerprint scan on a suspect (opens qb-policejob fingerprint UI)
-ps.registerCallback(resourceName .. ':server:addSuspectFingerprint', function(source, citizenid)
+lib.callback.register(resourceName .. ':server:addSuspectFingerprint', function(source, citizenid)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -836,7 +836,7 @@ ps.registerCallback(resourceName .. ':server:addSuspectFingerprint', function(so
     end
 
     -- Find the suspect's server source (they must be online)
-    local targetPlayer = ps.getPlayerByIdentifier(citizenid)
+    local targetPlayer = MDT.getPlayerByIdentifier(citizenid)
     if not targetPlayer then
         return { success = false, message = 'Suspect is not online' }
     end
@@ -859,7 +859,7 @@ ps.registerCallback(resourceName .. ':server:addSuspectFingerprint', function(so
 end)
 
 -- Update citizen fingerprint
-ps.registerCallback(resourceName .. ':server:updateCitizenFingerprint', function(source, citizenid, fingerprint)
+lib.callback.register(resourceName .. ':server:updateCitizenFingerprint', function(source, citizenid, fingerprint)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -869,12 +869,12 @@ ps.registerCallback(resourceName .. ':server:updateCitizenFingerprint', function
 
     -- Online: write through the live player object so the next autosave does not
     -- clobber it (same rationale as updateCitizenLicense).
-    local Player = ps.getPlayerByIdentifier(citizenid)
+    local Player = MDT.getPlayerByIdentifier(citizenid)
     if Player and Player.Functions and Player.Functions.SetMetaData then
         Player.Functions.SetMetaData('fingerprint', fingerprint or '')
         persistLiveMetadata(Player, citizenid)
-        if ps.auditLog then
-            ps.auditLog(src, 'update_fingerprint', 'citizens', citizenid, { fingerprint = fingerprint })
+        if MDT.auditLog then
+            MDT.auditLog(src, 'update_fingerprint', 'citizens', citizenid, { fingerprint = fingerprint })
         end
         return { success = true }
     end
@@ -889,15 +889,15 @@ ps.registerCallback(resourceName .. ':server:updateCitizenFingerprint', function
     metadata.fingerprint = fingerprint or ''
     MySQL.update.await('UPDATE players SET metadata = ? WHERE citizenid = ?', { json.encode(metadata), citizenid })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'update_fingerprint', 'citizens', citizenid, { fingerprint = fingerprint })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'update_fingerprint', 'citizens', citizenid, { fingerprint = fingerprint })
     end
 
     return { success = true }
 end)
 
 -- Update citizen dna
-ps.registerCallback(resourceName .. ':server:updateCitizenDNA', function(source, citizenid, dna)
+lib.callback.register(resourceName .. ':server:updateCitizenDNA', function(source, citizenid, dna)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -905,12 +905,12 @@ ps.registerCallback(resourceName .. ':server:updateCitizenDNA', function(source,
         return { success = false, message = 'Missing citizen id' }
     end
 
-    local Player = ps.getPlayerByIdentifier(citizenid)
+    local Player = MDT.getPlayerByIdentifier(citizenid)
     if Player and Player.Functions and Player.Functions.SetMetaData then
         Player.Functions.SetMetaData('dna', dna or '')
         persistLiveMetadata(Player, citizenid)
-        if ps.auditLog then
-            ps.auditLog(src, 'update_dna', 'citizens', citizenid, { dna = dna })
+        if MDT.auditLog then
+            MDT.auditLog(src, 'update_dna', 'citizens', citizenid, { dna = dna })
         end
         return { success = true }
     end
@@ -924,14 +924,14 @@ ps.registerCallback(resourceName .. ':server:updateCitizenDNA', function(source,
     metadata.dna = dna or ''
     MySQL.update.await('UPDATE players SET metadata = ? WHERE citizenid = ?', { json.encode(metadata), citizenid })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'update_dna', 'citizens', citizenid, { dna = dna })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'update_dna', 'citizens', citizenid, { dna = dna })
     end
 
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:createBolo', function(source, payload)
+lib.callback.register(resourceName .. ':server:createBolo', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not RateLimitAction(src, 'createBolo') then
@@ -988,7 +988,7 @@ ps.registerCallback(resourceName .. ':server:createBolo', function(source, paylo
 end)
 
 -- Delete a BOLO
-ps.registerCallback(resourceName .. ':server:deleteBolo', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteBolo', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -1003,7 +1003,7 @@ ps.registerCallback(resourceName .. ':server:deleteBolo', function(source, paylo
 end)
 
 -- Update BOLO status (resolve, deactivate, reactivate)
-ps.registerCallback(resourceName .. ':server:updateBoloStatus', function(source, payload)
+lib.callback.register(resourceName .. ':server:updateBoloStatus', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -1024,7 +1024,7 @@ ps.registerCallback(resourceName .. ':server:updateBoloStatus', function(source,
 end)
 
 -- Save citizen profile notes and profile picture
-ps.registerCallback(resourceName .. ':server:updateCitizen', function(source, payload)
+lib.callback.register(resourceName .. ':server:updateCitizen', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -1047,7 +1047,7 @@ ps.registerCallback(resourceName .. ':server:updateCitizen', function(source, pa
 end)
 
 -- Add a tag to a citizen profile
-ps.registerCallback(resourceName .. ':server:addCitizenTag', function(source, payload)
+lib.callback.register(resourceName .. ':server:addCitizenTag', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -1074,7 +1074,7 @@ ps.registerCallback(resourceName .. ':server:addCitizenTag', function(source, pa
 end)
 
 -- Remove a tag from a citizen profile
-ps.registerCallback(resourceName .. ':server:removeCitizenTag', function(source, payload)
+lib.callback.register(resourceName .. ':server:removeCitizenTag', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -1095,7 +1095,7 @@ ps.registerCallback(resourceName .. ':server:removeCitizenTag', function(source,
 end)
 
 -- Add an image to a citizen profile gallery
-ps.registerCallback(resourceName .. ':server:addCitizenGallery', function(source, payload)
+lib.callback.register(resourceName .. ':server:addCitizenGallery', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -1117,7 +1117,7 @@ ps.registerCallback(resourceName .. ':server:addCitizenGallery', function(source
 end)
 
 -- Remove an image from a citizen profile gallery
-ps.registerCallback(resourceName .. ':server:removeCitizenGallery', function(source, payload)
+lib.callback.register(resourceName .. ':server:removeCitizenGallery', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -1138,9 +1138,9 @@ ps.registerCallback(resourceName .. ':server:removeCitizenGallery', function(sou
 end)
 
 -- Civilian self-profile: returns own profile without LEO auth check
-ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
+lib.callback.register(resourceName .. ':server:getMyProfile', function(source)
     local src = source
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid or citizenid == '' then
         return { success = false, message = 'Could not identify player' }
     end
@@ -1317,7 +1317,7 @@ end)
 -- Keyed on actor_citizenid (the officer as the one who performed the action),
 -- not entity_id, so it's a full record of their activity. Paginated (limit+1
 -- for exact hasMore), served off the actor_citizenid index.
-ps.registerCallback(resourceName .. ':server:getCitizenTimeline', function(source, payload)
+lib.callback.register(resourceName .. ':server:getCitizenTimeline', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { entries = {}, hasMore = false } end
 
@@ -1374,7 +1374,7 @@ ps.registerCallback(resourceName .. ':server:getCitizenTimeline', function(sourc
     return { entries = rows, hasMore = hasMore }
 end)
 
-ps.registerCallback(resourceName .. ':server:getProperty', function(source, propertyId)
+lib.callback.register(resourceName .. ':server:getProperty', function(source, propertyId)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 

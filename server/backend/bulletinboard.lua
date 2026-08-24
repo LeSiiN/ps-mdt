@@ -1,7 +1,7 @@
 local resourceName = tostring(GetCurrentResourceName())
 
 -- Pull every identifier we can off a connected player, for the exploit log below. Native
--- lookups rather than the ps bridge, so this keeps working regardless of framework state.
+-- lookups rather than the MDT framework bridge, so this keeps working regardless of framework state.
 local function collectIdentifiers(src)
     local ids = { license = 'unknown', license2 = 'unknown', discord = 'unknown', steam = 'unknown', ip = 'unknown' }
     local ok = pcall(function()
@@ -17,7 +17,7 @@ local function collectIdentifiers(src)
             end
         end
     end)
-    if not ok then ps.debug('collectIdentifiers failed for src ' .. tostring(src)) end
+    if not ok then MDT.debug('collectIdentifiers failed for src ' .. tostring(src)) end
     return ids
 end
 
@@ -27,32 +27,32 @@ end
 -- the record of the attempt is what matters.
 local function logExploitAttempt(src, field, original, cleaned)
     local ids = collectIdentifiers(src)
-    local citizenId = (ps.getIdentifier and ps.getIdentifier(src)) or 'unknown'
-    local charName  = (ps.getPlayerName and ps.getPlayerName(src)) or 'unknown'
+    local citizenId = (MDT.getIdentifier and MDT.getIdentifier(src)) or 'unknown'
+    local charName  = (MDT.getPlayerName and MDT.getPlayerName(src)) or 'unknown'
     local fivemName = tostring(GetPlayerName(src) or 'unknown')
 
     -- A short excerpt of what they tried, so the log shows the vector without dumping a
     -- potentially huge payload into the console.
     local excerpt = original:gsub('%s+', ' '):sub(1, 200)
 
-    ps.warn(('─────────────────────────────────────────────'))
-    ps.warn(('[SECURITY] Bulletin XSS attempt blocked (%s)'):format(field))
-    ps.warn(('  Server ID : %s'):format(tostring(src)))
-    ps.warn(('  FiveM name: %s'):format(fivemName))
-    ps.warn(('  Char name : %s'):format(charName))
-    ps.warn(('  CitizenID : %s'):format(citizenId))
-    ps.warn(('  license   : %s'):format(ids.license))
-    ps.warn(('  license2  : %s'):format(ids.license2))
-    ps.warn(('  discord   : %s'):format(ids.discord))
-    ps.warn(('  steam     : %s'):format(ids.steam))
-    ps.warn(('  ip        : %s'):format(ids.ip))
-    ps.warn(('  payload   : %s'):format(excerpt))
-    ps.warn(('─────────────────────────────────────────────'))
+    MDT.warn(('─────────────────────────────────────────────'))
+    MDT.warn(('[SECURITY] Bulletin XSS attempt blocked (%s)'):format(field))
+    MDT.warn(('  Server ID : %s'):format(tostring(src)))
+    MDT.warn(('  FiveM name: %s'):format(fivemName))
+    MDT.warn(('  Char name : %s'):format(charName))
+    MDT.warn(('  CitizenID : %s'):format(citizenId))
+    MDT.warn(('  license   : %s'):format(ids.license))
+    MDT.warn(('  license2  : %s'):format(ids.license2))
+    MDT.warn(('  discord   : %s'):format(ids.discord))
+    MDT.warn(('  steam     : %s'):format(ids.steam))
+    MDT.warn(('  ip        : %s'):format(ids.ip))
+    MDT.warn(('  payload   : %s'):format(excerpt))
+    MDT.warn(('─────────────────────────────────────────────'))
 
     -- Also route it through the audit log so it's queryable later, not just in the console.
-    if ps.auditLog then
+    if MDT.auditLog then
         CreateThread(function()
-            pcall(ps.auditLog, src, 'bulletin_xss_blocked', 'security', citizenId, {
+            pcall(MDT.auditLog, src, 'bulletin_xss_blocked', 'security', citizenId, {
                 field = field,
                 fivem_name = fivemName,
                 license = ids.license,
@@ -115,11 +115,11 @@ end
 
 -- ── Get all bulletin posts for the officer's department ──────
 
-ps.registerCallback(resourceName .. ':server:getBulletinPosts', function(source)
+lib.callback.register(resourceName .. ':server:getBulletinPosts', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
     if not jobName or jobName == '' then return {} end
 
     local ok, posts = pcall(MySQL.query.await, [[
@@ -149,7 +149,7 @@ end)
 
 -- ── Create a bulletin post ────────────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:createBulletinPost', function(source, data)
+lib.callback.register(resourceName .. ':server:createBulletinPost', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'bulletin_post') then
@@ -159,9 +159,9 @@ ps.registerCallback(resourceName .. ':server:createBulletinPost', function(sourc
     data = data or {}
 
     -- Validate category exists for this job (or allow any stored value)
-    local jobName   = ps.getJobName(src)
-    local jobRank   = ps.getJobGradeName(src)
-    local citizenId = ps.getIdentifier(src)
+    local jobName   = MDT.getJobName(src)
+    local jobRank   = MDT.getJobGradeName(src)
+    local citizenId = MDT.getIdentifier(src)
 
     local title = tostring(data.title or ''):gsub('^%s+', ''):gsub('%s+$', '')
     if title == '' then return { success = false, error = 'Title is required' } end
@@ -216,7 +216,7 @@ end)
 
 -- ── Update a bulletin post ────────────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:updateBulletinPost', function(source, postId, updates)
+lib.callback.register(resourceName .. ':server:updateBulletinPost', function(source, postId, updates)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -230,8 +230,8 @@ ps.registerCallback(resourceName .. ':server:updateBulletinPost', function(sourc
     )
     if not existing then return { success = false, error = 'Post not found' } end
 
-    local jobName      = ps.getJobName(src)
-    local citizenId    = ps.getIdentifier(src)
+    local jobName      = MDT.getJobName(src)
+    local citizenId    = MDT.getIdentifier(src)
     local isSupervisor = CheckPermission(src, 'bulletin_post')
     local isOwner      = existing.created_by == citizenId
 
@@ -293,7 +293,7 @@ end)
 
 -- ── Delete a bulletin post ────────────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:deleteBulletinPost', function(source, postId)
+lib.callback.register(resourceName .. ':server:deleteBulletinPost', function(source, postId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -306,8 +306,8 @@ ps.registerCallback(resourceName .. ':server:deleteBulletinPost', function(sourc
     )
     if not existing then return { success = false, error = 'Post not found' } end
 
-    local jobName      = ps.getJobName(src)
-    local citizenId    = ps.getIdentifier(src)
+    local jobName      = MDT.getJobName(src)
+    local citizenId    = MDT.getIdentifier(src)
     local isSupervisor = CheckPermission(src, 'bulletin_pin')
     local isOwner      = existing.created_by == citizenId
 
@@ -324,7 +324,7 @@ end)
 
 -- ── Toggle pin on a bulletin post ────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:toggleBulletinPin', function(source, postId)
+lib.callback.register(resourceName .. ':server:toggleBulletinPin', function(source, postId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'bulletin_pin') then
@@ -340,7 +340,7 @@ ps.registerCallback(resourceName .. ':server:toggleBulletinPin', function(source
     )
     if not existing then return { success = false, error = 'Post not found' } end
 
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
     if existing.job ~= jobName then
         return { success = false, error = 'Post belongs to a different department' }
     end
@@ -397,11 +397,11 @@ end
 
 -- ── GET categories ────────────────────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:getBulletinCategories', function(source)
+lib.callback.register(resourceName .. ':server:getBulletinCategories', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
     if not jobName or jobName == '' then return {} end
 
     ensureDefaultCategories(jobName)
@@ -424,7 +424,7 @@ end)
 
 -- ── ADD category ──────────────────────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:addBulletinCategory', function(source, data)
+lib.callback.register(resourceName .. ':server:addBulletinCategory', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'bulletin_post') then
@@ -432,7 +432,7 @@ ps.registerCallback(resourceName .. ':server:addBulletinCategory', function(sour
     end
 
     data = data or {}
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
 
     local label = tostring(data.label or ''):gsub('^%s+', ''):gsub('%s+$', '')
     if label == '' then return { success = false, error = 'Label is required' } end
@@ -482,7 +482,7 @@ end)
 
 -- ── UPDATE category ───────────────────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:updateBulletinCategory', function(source, data)
+lib.callback.register(resourceName .. ':server:updateBulletinCategory', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'bulletin_post') then
@@ -490,7 +490,7 @@ ps.registerCallback(resourceName .. ':server:updateBulletinCategory', function(s
     end
 
     data = data or {}
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
 
     local existing = MySQL.single.await(
         'SELECT id, is_default FROM mdt_bulletin_categories WHERE job = ? AND value = ?',
@@ -536,7 +536,7 @@ end)
 
 -- ── REMOVE category ───────────────────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:removeBulletinCategory', function(source, data)
+lib.callback.register(resourceName .. ':server:removeBulletinCategory', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'bulletin_post') then
@@ -545,7 +545,7 @@ ps.registerCallback(resourceName .. ':server:removeBulletinCategory', function(s
 
     -- Accept either a table { value = '...' } or a plain string (backwards compat)
     local value = type(data) == 'table' and tostring(data.value or '') or tostring(data or '')
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
 
     if value == '' then return { success = false, error = 'Missing category value' } end
 
@@ -585,14 +585,14 @@ end)
 
 -- ── REORDER categories ────────────────────────────────────────
 
-ps.registerCallback(resourceName .. ':server:reorderBulletinCategories', function(source, data)
+lib.callback.register(resourceName .. ':server:reorderBulletinCategories', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'bulletin_post') then
         return { success = false, error = 'No permission to manage categories' }
     end
 
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
 
     -- data may arrive as the array directly, or wrapped: { order = [...] }
     local order = data

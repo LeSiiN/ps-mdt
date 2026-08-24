@@ -129,7 +129,7 @@ end
 local function safe(query, params)
     local ok, rows = pcall(MySQL.query.await, query, params)
     if not ok then
-        if ps and ps.warn then ps.warn('[housing] Query failed: ' .. tostring(rows)) end
+        if MDT and MDT.warn then MDT.warn('[housing] Query failed: ' .. tostring(rows)) end
         return nil
     end
     return rows
@@ -206,7 +206,7 @@ function Housing.GetById(propertyId)
 
     local ok, row = pcall(MySQL.single.await, sql, { propertyId })
     if not ok then
-        if ps and ps.warn then ps.warn('[housing] GetById failed: ' .. tostring(row)) end
+        if MDT and MDT.warn then MDT.warn('[housing] GetById failed: ' .. tostring(row)) end
         return nil
     end
     return row

@@ -4,7 +4,7 @@
 --  Responsibilities:
 --    * Live officer/vehicle tracking served to the map NUI (getTracking).
 --    * Patrol CRUD + ordering + zone storage, persisted in `mdt_patrols`.
---    * Audit logging of every patrol mutation via ps.auditLog.
+--    * Audit logging of every patrol mutation via MDT.auditLog.
 --
 --  Performance notes for future devs:
 --    * getTracking is polled by EVERY open MDT (~every 4.5s in the NUI). The
@@ -49,7 +49,7 @@ local function dbg(...)
 end
 
 -- Cache the QBCore object once instead of crossing the export boundary on
--- every call. Returns nil on non-QB frameworks (then the `ps`/ESX path is used).
+-- every call. Returns nil when the framework is unavailable (then the MDT bridge path is used).
 local _qbCore
 local function getQBCore()
     if _qbCore then return _qbCore end
@@ -110,14 +110,14 @@ local function getOfficerInfo(src)
                 job       = d.job and d.job.name or nil,
             }
         end
-    elseif ps and ps.getIdentifier then
-        local name = (ps.getPlayerName and ps.getPlayerName(src)) or GetPlayerName(src) or 'Unknown'
+    elseif MDT and MDT.getIdentifier then
+        local name = (MDT.getPlayerName and MDT.getPlayerName(src)) or GetPlayerName(src) or 'Unknown'
         return {
-            citizenid = ps.getIdentifier(src),
+            citizenid = MDT.getIdentifier(src),
             name      = name,
-            callsign  = ps.getMetadata and ps.getMetadata(src, 'callsign') or nil,
-            rank      = ps.getJobGradeName and ps.getJobGradeName(src) or nil,
-            job       = ps.getJobName and ps.getJobName(src) or nil,
+            callsign  = MDT.getMetadata and MDT.getMetadata(src, 'callsign') or nil,
+            rank      = MDT.getJobGradeName and MDT.getJobGradeName(src) or nil,
+            job       = MDT.getJobName and MDT.getJobName(src) or nil,
         }
     end
     return { name = GetPlayerName(src) or ('Player #' .. src) }
@@ -137,7 +137,7 @@ local function getNameByCitizenId(citizenId)
 end
 
 local function auditPatrol(src, action, patrolId, extra)
-    if not ps.auditLog then return end
+    if not MDT.auditLog then return end
     local officer = getOfficerInfo(src)
     local data = {
         officer_name     = officer.name,
@@ -148,7 +148,7 @@ local function auditPatrol(src, action, patrolId, extra)
     if extra then
         for k, v in pairs(extra) do data[k] = v end
     end
-    ps.auditLog(src, action, 'mdt_patrol', patrolId or 'none', data)
+    MDT.auditLog(src, action, 'mdt_patrol', patrolId or 'none', data)
 end
 
 -- ─── DB ─────────────────────────────────────────────────────────────────────
@@ -235,10 +235,10 @@ local function playersInDomain(domain)
                 end
             end
         end
-    elseif ps and ps.getAllPlayers then
-        for _, pid in pairs(ps.getAllPlayers() or {}) do
-            local jobName = ps.getJobName and ps.getJobName(pid) or nil
-            local jobType = ps.getJobType and ps.getJobType(pid) or nil
+    elseif MDT and MDT.getAllPlayers then
+        for _, pid in pairs(MDT.getAllPlayers() or {}) do
+            local jobName = MDT.getJobName and MDT.getJobName(pid) or nil
+            local jobType = MDT.getJobType and MDT.getJobType(pid) or nil
             if GetDomainForJob(jobName, jobType) == domain then
                 out[#out + 1] = pid
             end
@@ -380,12 +380,12 @@ local function getAllTrackers(matchFn, domain)
             ::continue::
         end
 
-    elseif ps and ps.getAllPlayers then
-        local playerList = ps.getAllPlayers() or {}
+    elseif MDT and MDT.getAllPlayers then
+        local playerList = MDT.getAllPlayers() or {}
         for _, playerId in pairs(playerList) do
-            if not (ps.getJobDuty and ps.getJobDuty(playerId)) then goto continue end
-            local jobName = ps.getJobName and ps.getJobName(playerId) or nil
-            local jobType = ps.getJobType and ps.getJobType(playerId) or nil
+            if not (MDT.getJobDuty and MDT.getJobDuty(playerId)) then goto continue end
+            local jobName = MDT.getJobName and MDT.getJobName(playerId) or nil
+            local jobType = MDT.getJobType and MDT.getJobType(playerId) or nil
             if not matchFn(jobName, jobType) then goto continue end
 
             local ped = GetPlayerPed(playerId)
@@ -393,13 +393,13 @@ local function getAllTrackers(matchFn, domain)
 
             local coords = GetEntityCoords(ped)
             local veh = GetVehiclePedIsIn(ped, false)
-            local officerCid = ps.getIdentifier and ps.getIdentifier(playerId) or nil
+            local officerCid = MDT.getIdentifier and MDT.getIdentifier(playerId) or nil
             local bcId, bcOn = bodycamFields(playerId, officerCid)
             bodycams[#bodycams + 1] = {
                 citizenid = officerCid,
-                name      = (ps.getPlayerName and ps.getPlayerName(playerId)) or GetPlayerName(playerId) or 'Unknown',
-                callsign  = ps.getMetadata and ps.getMetadata(playerId, 'callsign') or nil,
-                rank      = ps.getJobGradeName and ps.getJobGradeName(playerId) or 'Officer',
+                name      = (MDT.getPlayerName and MDT.getPlayerName(playerId)) or GetPlayerName(playerId) or 'Unknown',
+                callsign  = MDT.getMetadata and MDT.getMetadata(playerId, 'callsign') or nil,
+                rank      = MDT.getJobGradeName and MDT.getJobGradeName(playerId) or 'Officer',
                 coords    = { x = coords.x, y = coords.y, z = coords.z },
                 heading   = GetEntityHeading(ped),
                 inVehicle = veh and veh ~= 0,
@@ -483,7 +483,7 @@ local function getTrackingSnapshot(domain)
     return cache
 end
 
-ps.registerCallback(resourceName .. ':server:getTracking', function(source)
+lib.callback.register(resourceName .. ':server:getTracking', function(source)
     local src = source
     if not CheckAuth(src) then
         return { vehicles = {}, bodycams = {} }
@@ -514,17 +514,17 @@ RegisterNetEvent(resourceName .. ':server:cacheVehicle', function(plate, coords,
     if cacheVehicleCooldowns[src] and nowSec - cacheVehicleCooldowns[src] < 5 then return end
     cacheVehicleCooldowns[src] = nowSec
 
-    -- Per-framework duty/police check (QB path and ps/ESX path).
+    -- Per-framework duty/police check (direct QB path and MDT bridge path).
     local QBCore = getQBCore()
     if QBCore then
         local player = QBCore.Functions.GetPlayer(src)
         if not player then return end
         local job = player.PlayerData.job
         if not job or not job.onduty or not IsPoliceJob(job.name, job.type) then return end
-    elseif ps and ps.getJobName then
-        if not (ps.getJobDuty and ps.getJobDuty(src)) then return end
-        local jobName = ps.getJobName(src)
-        local jobType = ps.getJobType and ps.getJobType(src) or nil
+    elseif MDT and MDT.getJobName then
+        if not (MDT.getJobDuty and MDT.getJobDuty(src)) then return end
+        local jobName = MDT.getJobName(src)
+        local jobType = MDT.getJobType and MDT.getJobType(src) or nil
         if not IsPoliceJob(jobName, jobType) then return end
     end
 
@@ -564,7 +564,7 @@ end)
 
 -- ─── Patrols ──────────────────────────────────────────────────────────────
 
-ps.registerCallback(resourceName .. ":server:getPatrols", function(source)
+lib.callback.register(resourceName .. ":server:getPatrols", function(source)
     local src = source
     if not CheckAuth(src) then return {} end
     local domain = GetMdtDomain(src)
@@ -794,9 +794,9 @@ AddEventHandler("playerDropped", function()
             citizenId  = player.PlayerData.citizenid
             officerName = player.PlayerData.charinfo.firstname .. ' ' .. player.PlayerData.charinfo.lastname
         end
-    elseif ps and ps.getIdentifier then
-        citizenId   = ps.getIdentifier(src)
-        officerName = (ps.getPlayerName and ps.getPlayerName(src)) or officerName
+    elseif MDT and MDT.getIdentifier then
+        citizenId   = MDT.getIdentifier(src)
+        officerName = (MDT.getPlayerName and MDT.getPlayerName(src)) or officerName
     end
 
     if not citizenId then return end
@@ -828,9 +828,9 @@ AddEventHandler("playerDropped", function()
     broadcastPatrols()
 
     -- Audit log only if they were actually in a patrol
-    if removedFromPatrol and ps.auditLog then
+    if removedFromPatrol and MDT.auditLog then
         dbg(('%s disconnected from patrol "%s"'):format(officerName, removedFromPatrol))
-        ps.auditLog(src, 'patrol_officer_removed', removedFromId or citizenId, {
+        MDT.auditLog(src, 'patrol_officer_removed', removedFromId or citizenId, {
             officer_name = officerName,
             officer_id   = citizenId,
             removed_from = removedFromPatrol,
@@ -877,7 +877,7 @@ AddEventHandler("onResourceStart", function(res)
     end
     -- Members reset on restart (officers need to be reassigned after a restart)
     MySQL.execute("UPDATE mdt_patrols SET member_ids = '[]'", {})
-    ps.debug(('^2[MDT]^7 Loaded %d patrol(s).')
+    MDT.debug(('^2[MDT]^7 Loaded %d patrol(s).')
         :format(#rows))
 end)
 

@@ -3,7 +3,7 @@ local ok, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() en
 if not ok then QBCore = nil end
 
 -- Send to Jail
-ps.registerCallback(resourceName .. ':server:sendToJail', function(source, payload)
+lib.callback.register(resourceName .. ':server:sendToJail', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'charges_edit') then
@@ -23,7 +23,7 @@ ps.registerCallback(resourceName .. ':server:sendToJail', function(source, paylo
         return { success = false, message = 'Sentence exceeds maximum of ' .. maxSentence .. ' months' }
     end
 
-    local targetPlayer = ps.getPlayerByIdentifier(citizenId)
+    local targetPlayer = MDT.getPlayerByIdentifier(citizenId)
     if not targetPlayer then
         return { success = false, message = 'Player must be online to send to jail' }
     end
@@ -49,10 +49,10 @@ ps.registerCallback(resourceName .. ':server:sendToJail', function(source, paylo
         ['date'] = currentDate
     })
     TriggerClientEvent('police:client:SendToJail', targetSource, sentence)
-    ps.notify(src, 'Sent to jail for ' .. sentence .. ' months', 'success')
+    MDT.notify(src, 'Sent to jail for ' .. sentence .. ' months', 'success')
 
-    if ps.auditLog then
-        ps.auditLog(src, 'sent_to_jail', 'citizen', citizenId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'sent_to_jail', 'citizen', citizenId, {
             sentence = sentence,
         })
     end
@@ -60,7 +60,7 @@ ps.registerCallback(resourceName .. ':server:sendToJail', function(source, paylo
     return { success = true, message = 'Sent to jail for ' .. sentence .. ' months' }
 end)
 
-ps.registerCallback(resourceName .. ':server:giveCitation', function(source, payload)
+lib.callback.register(resourceName .. ':server:giveCitation', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'charges_edit') then
@@ -80,7 +80,7 @@ ps.registerCallback(resourceName .. ':server:giveCitation', function(source, pay
     end
     fine = math.floor(fine)
 
-    local Player = ps.getPlayerByIdentifier(citizenId)
+    local Player = MDT.getPlayerByIdentifier(citizenId)
     if not Player then
         return { success = false, message = 'Player must be online to issue a fine' }
     end
@@ -90,20 +90,20 @@ ps.registerCallback(resourceName .. ':server:giveCitation', function(source, pay
         return { success = false, message = 'Could not resolve player source' }
     end
 
-    local removed = ps.removeMoney(playerSrc, 'bank', fine, 'mdt-fine')
+    local removed = MDT.removeMoney(playerSrc, 'bank', fine, 'mdt-fine')
     if not removed then
         return { success = false, message = 'Could not deduct fine (insufficient funds)' }
     end
 
     -- The fine goes to the department that handed it down, rather than nowhere at all.
-    DepositToDepartment(ps.getJobName(src), fine, 'Court fine')
+    DepositToDepartment(MDT.getJobName(src), fine, 'Court fine')
 
-    ps.notify(playerSrc, '$' .. fine .. ' fine deducted from your bank account', 'error')
-    ps.notify(src, '$' .. fine .. ' fine issued successfully', 'success')
+    MDT.notify(playerSrc, '$' .. fine .. ' fine deducted from your bank account', 'error')
+    MDT.notify(src, '$' .. fine .. ' fine issued successfully', 'success')
 
-    if ps.auditLog then
-        local officerName = ps.getPlayerName(src) or 'Unknown Officer'
-        ps.auditLog(src, 'fine_issued', 'citizen', citizenId, {
+    if MDT.auditLog then
+        local officerName = MDT.getPlayerName(src) or 'Unknown Officer'
+        MDT.auditLog(src, 'fine_issued', 'citizen', citizenId, {
             fine = fine,
             reportId = reportId,
             officerName = officerName,

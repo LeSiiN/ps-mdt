@@ -7,7 +7,7 @@ RegisterNUICallback('viewCamera', function(data, cb)
         return
     end
 
-    ps.debug('viewCamera', data)
+    MDT.debug('viewCamera', data)
 
     local cameraId = data
     if type(data) == 'table' then
@@ -19,7 +19,7 @@ RegisterNUICallback('viewCamera', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:viewCamera', cameraId)
+    local result = MDT.callback(resourceName .. ':server:viewCamera', cameraId)
 
     if result and result.success then
         CloseMDT(true)
@@ -36,7 +36,7 @@ RegisterNUICallback('getCameras', function(_, cb)
         return
     end
 
-    local cameras = ps.callback(resourceName .. ':server:getCameras')
+    local cameras = MDT.callback(resourceName .. ':server:getCameras')
 
     if cameras then
         cb({ success = true, data = cameras })

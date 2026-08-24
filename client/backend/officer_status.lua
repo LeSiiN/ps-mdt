@@ -20,13 +20,13 @@ local resourceName = tostring(GetCurrentResourceName())
 -- ─── NUI → Server ───────────────────────────────────────────────────────────
 
 RegisterNUICallback("getOfficerStatusConfig", function(_, cb)
-    local result = ps.callback(resourceName .. ":server:getOfficerStatusConfig")
+    local result = MDT.callback(resourceName .. ":server:getOfficerStatusConfig")
     cb(result or { statuses = {}, default = "active" })
 end)
 
 RegisterNUICallback("getOfficerStatusBreakdown", function(_, cb)
     if not MDTOpen then cb({ total = 0, statuses = {} }) return end
-    local result = ps.callback(resourceName .. ":server:getOfficerStatusBreakdown")
+    local result = MDT.callback(resourceName .. ":server:getOfficerStatusBreakdown")
     cb(result or { total = 0, statuses = {} })
 end)
 
@@ -84,23 +84,23 @@ if statusCmd and statusCmd.enabled then
     local function requestStatus(entry, note)
         local now = GetGameTimer()
         if (now - lastSent) < cooldownMs then
-            ps.notify('Please wait a moment before changing status again', 'error')
+            MDT.notify('Please wait a moment before changing status again', 'error')
             return
         end
         lastSent = now
         TriggerServerEvent(resourceName .. ':server:setOfficerStatus', entry.id, note)
-        ps.notify(('Status set to %s%s'):format(entry.label, note and (' — ' .. note) or ''), 'success')
+        MDT.notify(('Status set to %s%s'):format(entry.label, note and (' — ' .. note) or ''), 'success')
     end
 
     RegisterCommand(statusCmd.command, function(_, args)
         local key = args[1] and args[1]:lower() or nil
         if not key then
-            ps.notify(('Usage: /%s <%s> [note]'):format(statusCmd.command, validIdsText()), 'inform')
+            MDT.notify(('Usage: /%s <%s> [note]'):format(statusCmd.command, validIdsText()), 'inform')
             return
         end
         local entry = byKey[key]
         if not entry then
-            ps.notify(('Unknown status "%s". Valid: %s'):format(key, validIdsText()), 'error')
+            MDT.notify(('Unknown status "%s". Valid: %s'):format(key, validIdsText()), 'error')
             return
         end
         -- Everything after the status becomes the optional note ("Traffic Stop").

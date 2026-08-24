@@ -33,7 +33,7 @@ RegisterNetEvent(resourceName .. ':server:reportWeaponImpact', function(impact)
     if ped and ped ~= 0 then
         local pedCoords = GetEntityCoords(ped)
         if pedCoords and #(coords - pedCoords) > 250.0 then
-            ps.warn(('Rejected implausible weapon impact from %s (%.0fm away)')
+            MDT.warn(('Rejected implausible weapon impact from %s (%.0fm away)')
                 :format(GetPlayerName(src) or src, #(coords - pedCoords)))
             return
         end
@@ -45,10 +45,10 @@ RegisterNetEvent(resourceName .. ':server:reportWeaponImpact', function(impact)
         -- all means no online static cameras exist; a distance just above the radius means
         -- HitRadius needs raising.
         if nearestDist then
-            ps.debug(('Impact %.2fm from nearest camera (radius %.1fm)')
+            MDT.debug(('Impact %.2fm from nearest camera (radius %.1fm)')
                 :format(nearestDist, cfg().HitRadius or 2.0))
         else
-            ps.debug('Impact received but no camera matched — ' ..
+            MDT.debug('Impact received but no camera matched — ' ..
                 (DescribeCameraRegistry and DescribeCameraRegistry() or 'registry unavailable'))
         end
         return
@@ -61,13 +61,13 @@ RegisterNetEvent(resourceName .. ':server:reportWeaponImpact', function(impact)
     -- Where the camera really is: the prop for prop-backed cameras, the feed
     -- position for virtual ones (whose stored coords describe nothing).
     local at = (CameraHitCoords and CameraHitCoords(camera)) or camera.coords
-    local citizenid = ps.getIdentifier and ps.getIdentifier(src) or nil
-    local playerName = ps.getPlayerName and ps.getPlayerName(src) or (GetPlayerName(src) or 'Unknown')
+    local citizenid = MDT.getIdentifier and MDT.getIdentifier(src) or nil
+    local playerName = MDT.getPlayerName and MDT.getPlayerName(src) or (GetPlayerName(src) or 'Unknown')
 
-    ps.debug(('Camera %s (%s) shot out by %s'):format(camId, label, playerName))
+    MDT.debug(('Camera %s (%s) shot out by %s'):format(camId, label, playerName))
 
-    if ps.auditLog then
-        pcall(ps.auditLog, src, 'camera_tampered', 'camera', camId, {
+    if MDT.auditLog then
+        pcall(MDT.auditLog, src, 'camera_tampered', 'camera', camId, {
             label = label,
             coords = at and { x = at.x, y = at.y, z = at.z } or nil,
         })

@@ -21,7 +21,7 @@ local resourceName = tostring(GetCurrentResourceName())
 function FiveManageUpload(base64Data, filename)
     if not FiveManageApiKey or FiveManageApiKey == '' then
         local msg = 'FiveManage API key not configured. Add to server.cfg: set ps_mdt_fivemanage_key_images "YOUR_KEY"'
-        ps.warn(msg)
+        MDT.warn(msg)
         return nil, msg
     end
 
@@ -33,7 +33,7 @@ function FiveManageUpload(base64Data, filename)
 
     if not rawBase64 or rawBase64 == '' then
         local msg = 'Empty image data received'
-        ps.warn('FiveManage upload: ' .. msg)
+        MDT.warn('FiveManage upload: ' .. msg)
         return nil, msg
     end
 
@@ -47,7 +47,7 @@ function FiveManageUpload(base64Data, filename)
             elseif ok and data and data.url then
                 p:resolve({ url = data.url })
             else
-                ps.warn('FiveManage upload: unexpected response: ' .. tostring(responseText))
+                MDT.warn('FiveManage upload: unexpected response: ' .. tostring(responseText))
                 p:resolve({ url = nil, error = 'Unexpected API response' })
             end
         else
@@ -59,7 +59,7 @@ function FiveManageUpload(base64Data, filename)
             elseif statusCode == 0 or not statusCode then
                 errMsg = 'Could not connect to FiveManage API'
             end
-            ps.warn('FiveManage upload failed: ' .. errMsg)
+            MDT.warn('FiveManage upload failed: ' .. errMsg)
             p:resolve({ url = nil, error = errMsg })
         end
     end, 'POST', json.encode({
@@ -76,7 +76,7 @@ end
 
 
 -- Server callback to upload a mugshot from base64 data (API key stays server-side)
-ps.registerCallback(resourceName .. ':server:uploadMugshotBase64', function(source, base64Data)
+lib.callback.register(resourceName .. ':server:uploadMugshotBase64', function(source, base64Data)
     if not CheckAuth(source) then return { url = nil, error = 'Unauthorized' } end
     if not base64Data or base64Data == '' then
         return { url = nil, error = 'No image data' }
@@ -94,13 +94,13 @@ AddEventHandler(resourceName .. ':server:mugshotUpload', function(citizenid, mug
 
     -- Ensure profile exists
     if not EnsureProfileExists(citizenid) then
-        ps.warn('Failed to create profile for mugshot upload: ' .. citizenid)
+        MDT.warn('Failed to create profile for mugshot upload: ' .. citizenid)
         return
     end
 
     local profile = MySQL.single.await('SELECT id FROM mdt_profiles WHERE citizenid = ?', { citizenid })
     if not profile then
-        ps.warn('Profile not found after ensure for mugshot upload: ' .. citizenid)
+        MDT.warn('Profile not found after ensure for mugshot upload: ' .. citizenid)
         return
     end
 
@@ -118,15 +118,15 @@ AddEventHandler(resourceName .. ':server:mugshotUpload', function(citizenid, mug
         end
     end
 
-    ps.debug('Mugshot upload complete for ' .. citizenid .. ' (' .. #mugshotUrls .. ' photos)')
+    MDT.debug('Mugshot upload complete for ' .. citizenid .. ' (' .. #mugshotUrls .. ' photos)')
 end)
 
 -- Trigger mugshot on a suspect by citizenid (from MDT UI)
-ps.registerCallback(resourceName .. ':server:triggerSuspectMugshot', function(source, citizenid)
+lib.callback.register(resourceName .. ':server:triggerSuspectMugshot', function(source, citizenid)
     if not CheckAuth(source) then return { success = false, message = 'Unauthorized' } end
     if not citizenid then return { success = false, message = 'Missing citizen id' } end
 
-    local targetPlayer = ps.getPlayerByIdentifier(citizenid)
+    local targetPlayer = MDT.getPlayerByIdentifier(citizenid)
     if not targetPlayer then
         return { success = false, message = 'Suspect is not online' }
     end
@@ -141,7 +141,7 @@ ps.registerCallback(resourceName .. ':server:triggerSuspectMugshot', function(so
 end)
 
 -- Upload a profile photo for a suspect via base64 (from MDT UI)
-ps.registerCallback(resourceName .. ':server:uploadSuspectPhoto', function(source, citizenid, imageUrl)
+lib.callback.register(resourceName .. ':server:uploadSuspectPhoto', function(source, citizenid, imageUrl)
     if not CheckAuth(source) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(source, 'evidence_upload') then
         return { success = false, message = 'Insufficient permissions' }
@@ -251,7 +251,7 @@ function FiveManageFlushLogs()
         if statusCode and statusCode >= 200 and statusCode < 300 then
             -- Success - nothing to do
         else
-            ps.warn('FiveManage logs: failed to send batch (' .. #batch .. ' entries) - HTTP ' .. tostring(statusCode))
+            MDT.warn('FiveManage logs: failed to send batch (' .. #batch .. ' entries) - HTTP ' .. tostring(statusCode))
         end
     end, 'POST', payload, {
         ['Content-Type']  = 'application/json',

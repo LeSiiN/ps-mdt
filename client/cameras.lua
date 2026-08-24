@@ -35,7 +35,7 @@ local cameraModelsCache = nil
 
 -- Stop camera view
 local function stopCameraView(notifyServer)
-    ps.debug('Stopping camera view, notifyServer:', notifyServer)
+    MDT.debug('Stopping camera view, notifyServer:', notifyServer)
 
     if isViewingCamera and currentCamera then
         DoScreenFadeOut(250)
@@ -50,14 +50,14 @@ local function stopCameraView(notifyServer)
         isViewingCamera = false
 
         if hiddenCameraEntity and DoesEntityExist(hiddenCameraEntity) then
-            ps.debug('Restoring visibility of camera entity:', hiddenCameraEntity)
+            MDT.debug('Restoring visibility of camera entity:', hiddenCameraEntity)
             SetEntityVisible(hiddenCameraEntity, true, false)
             hiddenCameraEntity = nil
         end
 
         ClearTimecycleModifier()
 
-        ps.debug('Clearing focus area')
+        MDT.debug('Clearing focus area')
         StopTabletAnimation()
         ClearFocus()
 
@@ -66,48 +66,48 @@ local function stopCameraView(notifyServer)
         if notifyServer then
             if currentCameraData and currentCameraData.isBodycam then
                 local bodycamId = currentCameraData.targetSource and tostring(currentCameraData.targetSource) or 'unknown'
-                ps.debug('Notifying server to deactivate bodycam:', bodycamId)
+                MDT.debug('Notifying server to deactivate bodycam:', bodycamId)
                 TriggerServerEvent(resourceName .. ':server:deactivateBodycam', bodycamId)
             elseif currentCameraData and currentCameraData.isDashcam then
                 local dashcamId = currentCameraData.dashcamId or ('dashcam:' .. tostring(currentCameraData.targetSource or 'unknown'))
-                ps.debug('Notifying server to deactivate dashcam:', dashcamId)
+                MDT.debug('Notifying server to deactivate dashcam:', dashcamId)
                 TriggerServerEvent(resourceName .. ':server:deactivateDashcam', dashcamId)
             else
-                ps.debug('Notifying server to deactivate regular camera')
+                MDT.debug('Notifying server to deactivate regular camera')
                 TriggerServerEvent(resourceName .. ':server:deactivateCamera', 'current')
             end
         end
 
         currentCameraData = nil
 
-        ps.debug('Camera view stopped')
+        MDT.debug('Camera view stopped')
     else
-        ps.debug('No active camera view to stop')
+        MDT.debug('No active camera view to stop')
     end
 end
 
 -- Start camera view
 RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
-    ps.debug('Starting camera view with data type:', type(cameraData))
-    ps.debug('Starting camera view with data:', json.encode(cameraData or {}))
+    MDT.debug('Starting camera view with data type:', type(cameraData))
+    MDT.debug('Starting camera view with data:', json.encode(cameraData or {}))
 
     -- Validate
     if not cameraData or type(cameraData) ~= 'table' then
-        ps.error('Invalid camera data received - type: ' .. type(cameraData))
+        MDT.error('Invalid camera data received - type: ' .. type(cameraData))
         return
     end
 
     if not cameraData.coords or not cameraData.rotation then
-        ps.error('Camera data missing coords or rotation')
+        MDT.error('Camera data missing coords or rotation')
         return
     end
 
-    ps.debug('Camera coords:', cameraData.coords)
-    ps.debug('Camera rotation:', cameraData.rotation)
+    MDT.debug('Camera coords:', cameraData.coords)
+    MDT.debug('Camera rotation:', cameraData.rotation)
 
     -- Stop any existing camera view first
     if isViewingCamera and currentCamera then
-        ps.debug('Stopping existing camera view first...')
+        MDT.debug('Stopping existing camera view first...')
         stopCameraView(true)
     end
 
@@ -119,24 +119,24 @@ RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
     -- Set focus area to the camera coordinates to ensure the area is streamed.
     -- Use the feed position if the camera has a decoupled feed, otherwise the prop.
     local focusCoords = cameraData.feedCoords or cameraData.coords
-    ps.debug('Setting focus area to camera coordinates:', focusCoords.x, focusCoords.y, focusCoords.z)
+    MDT.debug('Setting focus area to camera coordinates:', focusCoords.x, focusCoords.y, focusCoords.z)
     SetFocusPosAndVel(focusCoords.x, focusCoords.y, focusCoords.z, 0, 0, 0)
     -- Wait a moment for the focus area to take effect
     Wait(100)
 
     -- Create a camera that views from the entity coords
     local cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
-    ps.debug('CreateCam result:', cam, 'type:', type(cam))
+    MDT.debug('CreateCam result:', cam, 'type:', type(cam))
 
     -- Hide the camera entity if it exists to avoid obscuring the view
     if cameraData.networkId then
         local cameraEntity = NetworkGetEntityFromNetworkId(cameraData.networkId)
         if cameraEntity and DoesEntityExist(cameraEntity) then
-            ps.debug('Hiding camera entity:', cameraEntity, 'with network ID:', cameraData.networkId)
+            MDT.debug('Hiding camera entity:', cameraEntity, 'with network ID:', cameraData.networkId)
             SetEntityVisible(cameraEntity, false, false)
             hiddenCameraEntity = cameraEntity
         else
-            ps.debug('Camera entity not found or does not exist for network ID:', cameraData.networkId)
+            MDT.debug('Camera entity not found or does not exist for network ID:', cameraData.networkId)
         end
     end
 
@@ -153,7 +153,7 @@ RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
             coords = cameraData.feedCoords
             rotation = cameraData.feedRotation
             fov = cameraData.feedFov or 50.0
-            ps.debug('Using decoupled feed transform for camera view')
+            MDT.debug('Using decoupled feed transform for camera view')
             SetCamCoord(cam, coords.x, coords.y, coords.z)
             SetCamRot(cam, rotation.x, rotation.y, rotation.z, 2)
             SetCamFov(cam, fov)
@@ -162,22 +162,22 @@ RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
             rotation = cameraData.rotation
             local needsOffset = cameraData.spawnsModel == true and not cameraData.isBodycam and not cameraData.isDashcam
             local headingOffset = needsOffset and (camCfg.HeadingOffset or 180.0) or 0.0
-            ps.debug('Using prop transform (no feed) for camera view')
+            MDT.debug('Using prop transform (no feed) for camera view')
             SetCamCoord(cam, coords.x, coords.y, coords.z)
             SetCamRot(cam, rotation.x, rotation.y, (rotation.z + headingOffset) % 360.0, 2)
             SetCamFov(cam, 50.0)
         end
 
-        ps.debug('Camera properties set - Position:', tostring(coords), 'Rotation:', tostring(rotation))
+        MDT.debug('Camera properties set - Position:', tostring(coords), 'Rotation:', tostring(rotation))
 
         -- debug shit
         -- local camCoords = GetCamCoord(cam)
         -- local camRot = GetCamRot(cam, 2)
-        -- ps.debug('Verified camera coords:', tostring(camCoords))
-        -- ps.debug('Verified camera rotation:', tostring(camRot))
+        -- MDT.debug('Verified camera coords:', tostring(camCoords))
+        -- MDT.debug('Verified camera rotation:', tostring(camRot))
 
         SetCamActive(cam, true)
-        ps.debug('Camera activated')
+        MDT.debug('Camera activated')
         RenderScriptCams(true, false, 0, true, true)
         currentCamera = cam
         isViewingCamera = true
@@ -189,12 +189,12 @@ RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
         DoScreenFadeIn(250)
         startCameraControlThread()
 
-        ps.debug('Camera view activated at coordinates:', tostring(coords))
+        MDT.debug('Camera view activated at coordinates:', tostring(coords))
     else
-        ps.error('Failed to create camera - CreateCam returned:', tostring(cam))
+        MDT.error('Failed to create camera - CreateCam returned:', tostring(cam))
 
         if hiddenCameraEntity and DoesEntityExist(hiddenCameraEntity) then
-            ps.debug('Restoring visibility of camera entity due to camera creation failure:', hiddenCameraEntity)
+            MDT.debug('Restoring visibility of camera entity due to camera creation failure:', hiddenCameraEntity)
             SetEntityVisible(hiddenCameraEntity, true, false)
             hiddenCameraEntity = nil
         end
@@ -246,7 +246,7 @@ local overlayTimeStr = ''
 local overlayTimeLastSec = -1
 
 local function syncServerTime()
-    local t = ps.callback(resourceName .. ':server:getServerTime')
+    local t = MDT.callback(resourceName .. ':server:getServerTime')
     if t and t.epoch then
         srvBaseEpoch = t.epoch
         srvOffset = t.offset or 0
@@ -652,7 +652,7 @@ end
 local function setupCameraFeed(startCoords, startRot, startFov)
     local cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
     if not cam or cam == 0 then
-        ps.error('setupCameraFeed - failed to create camera')
+        MDT.error('setupCameraFeed - failed to create camera')
         return nil
     end
 
@@ -801,13 +801,13 @@ local function getCameraModels()
     end
 
     -- Fetch models from server
-    local models = ps.callback('ps-mdt:server:getCameraModels')
+    local models = MDT.callback('ps-mdt:server:getCameraModels')
     if models then
         cameraModelsCache = models -- Cache the result
         return models
     else
         -- Fallback in case callback fails
-        ps.error('Failed to fetch camera models from server')
+        MDT.error('Failed to fetch camera models from server')
         return {
             { value = 'security_cam_03', label = 'Security Cam 03 (Default)' }
         }
@@ -817,7 +817,7 @@ end
 -- Function to clear camera models cache (useful if models are updated on server)
 local function clearCameraModelsCache()
     cameraModelsCache = nil
-    ps.debug('Camera models cache cleared')
+    MDT.debug('Camera models cache cleared')
 end
 
 -- Helper func to get the actual model name from the selected key
@@ -829,7 +829,7 @@ local function getModelNameFromKey(selectedKey)
         end
     end
     -- Fallback to a default model if not found
-    ps.warn('Model key not found: ' .. tostring(selectedKey) .. ', using fallback')
+    MDT.warn('Model key not found: ' .. tostring(selectedKey) .. ', using fallback')
     return 'prop_cctv_cam_06a'
 end
 
@@ -869,15 +869,15 @@ function CameraPlacement.showPlacementMenu()
     })
 
     if not input then
-        ps.info('Camera placement cancelled')
-        ps.notify('Camera placement cancelled', 'info')
+        MDT.info('Camera placement cancelled')
+        MDT.notify('Camera placement cancelled', 'info')
         return
     end
 
     -- Validate camera ID format
     if not tostring(input[1]):match("^[a-zA-Z0-9_%-]+$") then
-        ps.warn('Invalid camera ID format', 'error')
-        ps.notify('Camera ID can only contain letters, numbers, underscores, and dashes', 'error')
+        MDT.warn('Invalid camera ID format', 'error')
+        MDT.notify('Camera ID can only contain letters, numbers, underscores, and dashes', 'error')
         return
     end
 
@@ -886,15 +886,15 @@ function CameraPlacement.showPlacementMenu()
     local x, y, z, heading = parseVector4(positionStr)
 
     if not x or not y or not z or not heading then
-        ps.warn('Invalid vector4 format', 'error')
-        ps.notify('Invalid vector4 format. Use: vector4(x, y, z, heading)', 'error')
+        MDT.warn('Invalid vector4 format', 'error')
+        MDT.notify('Invalid vector4 format. Use: vector4(x, y, z, heading)', 'error')
         return
     end
 
     -- Validate coordinate ranges
     if x < -4000 or x > 4000 or y < -4000 or y > 4000 or z < -100 or z > 1000 then
-        ps.warn('Coordinates out of range', 'error')
-        ps.notify('Coordinates out of range. X,Y: -4000 to 4000, Z: -100 to 1000', 'error')
+        MDT.warn('Coordinates out of range', 'error')
+        MDT.notify('Coordinates out of range. X,Y: -4000 to 4000, Z: -100 to 1000', 'error')
         return
     end
 
@@ -903,10 +903,10 @@ function CameraPlacement.showPlacementMenu()
     if heading < 0 then heading = heading + 360 end
 
     -- Validate camera model with server
-    local modelValid = ps.callback('ps-mdt:server:validateCameraModel', tostring(input[3]))
+    local modelValid = MDT.callback('ps-mdt:server:validateCameraModel', tostring(input[3]))
     if not modelValid then
-        ps.warn('Invalid camera model selected: ' .. tostring(input[3]))
-        ps.notify('Invalid camera model selected', 'error')
+        MDT.warn('Invalid camera model selected: ' .. tostring(input[3]))
+        MDT.notify('Invalid camera model selected', 'error')
         return
     end
 
@@ -921,7 +921,7 @@ function CameraPlacement.showPlacementMenu()
 
     -- Send to server for creation
     TriggerServerEvent(resourceName .. ':server:createStaticCamera', cameraData)
-    ps.info('Camera placement request sent to server for:' .. cameraData.camId)
+    MDT.info('Camera placement request sent to server for:' .. cameraData.camId)
 end
 
 -- Get existing cams
@@ -932,8 +932,8 @@ end
 -- Handle camera list response from server
 RegisterNetEvent(resourceName .. ':client:receiveCameraList', function(cameras)
     if not cameras or #cameras == 0 then
-        ps.info('No cameras found')
-        ps.notify('No cameras found', 'info')
+        MDT.info('No cameras found')
+        MDT.notify('No cameras found', 'info')
         return
     end
 
@@ -1081,8 +1081,8 @@ function CameraPlacement.showEditMenu(camera)
     })
 
     if not input then
-        ps.info('Camera edit cancelled')
-        ps.notify('Camera edit cancelled', 'info')
+        MDT.info('Camera edit cancelled')
+        MDT.notify('Camera edit cancelled', 'info')
         return
     end
 
@@ -1091,15 +1091,15 @@ function CameraPlacement.showEditMenu(camera)
     local x, y, z, heading = parseVector4(positionStr)
 
     if not x or not y or not z or not heading then
-        ps.warn('Invalid vector4 format', 'error')
-        ps.notify('Invalid vector4 format. Use: vector4(x, y, z, heading)', 'error')
+        MDT.warn('Invalid vector4 format', 'error')
+        MDT.notify('Invalid vector4 format. Use: vector4(x, y, z, heading)', 'error')
         return
     end
 
     -- Validate coordinate ranges
     if x < -4000 or x > 4000 or y < -4000 or y > 4000 or z < -100 or z > 1000 then
-        ps.warn('Coordinates out of range', 'error')
-        ps.notify('Coordinates out of range. X,Y: -4000 to 4000, Z: -100 to 1000', 'error')
+        MDT.warn('Coordinates out of range', 'error')
+        MDT.notify('Coordinates out of range. X,Y: -4000 to 4000, Z: -100 to 1000', 'error')
         return
     end
 
@@ -1108,10 +1108,10 @@ function CameraPlacement.showEditMenu(camera)
     if heading < 0 then heading = heading + 360 end
 
     -- Validate camera model with server
-    local modelValid = ps.callback('ps-mdt:server:validateCameraModel', tostring(input[2]))
+    local modelValid = MDT.callback('ps-mdt:server:validateCameraModel', tostring(input[2]))
     if not modelValid then
-        ps.warn('Invalid camera model selected: ' .. tostring(input[2]))
-        ps.notify('Invalid camera model selected', 'error')
+        MDT.warn('Invalid camera model selected: ' .. tostring(input[2]))
+        MDT.notify('Invalid camera model selected', 'error')
         return
     end
 
@@ -1125,12 +1125,12 @@ function CameraPlacement.showEditMenu(camera)
     }
 
     -- Send to server for update
-    local result = ps.callback(resourceName .. ':server:updateCamera', updateData)
+    local result = MDT.callback(resourceName .. ':server:updateCamera', updateData)
     if result and result.success then
-        ps.info('Camera update request sent to server for: ' .. camera.camId)
+        MDT.info('Camera update request sent to server for: ' .. camera.camId)
     else
-        ps.warn('Camera update failed for: ' .. camera.camId)
-        ps.notify('Camera update failed', 'error')
+        MDT.warn('Camera update failed for: ' .. camera.camId)
+        MDT.notify('Camera update failed', 'error')
     end
 end
 
@@ -1162,23 +1162,23 @@ function CameraPlacement.createWithGizmo()
     })
 
     if not input then
-        ps.info('Camera creation cancelled')
-        ps.notify('Camera creation cancelled', 'info')
+        MDT.info('Camera creation cancelled')
+        MDT.notify('Camera creation cancelled', 'info')
         return
     end
 
     -- Validate camera ID format
     if not tostring(input[1]):match("^[a-zA-Z0-9_%-]+$") then
-        ps.warn('Invalid camera ID format', 'error')
-        ps.notify('Camera ID can only contain letters, numbers, underscores, and dashes', 'error')
+        MDT.warn('Invalid camera ID format', 'error')
+        MDT.notify('Camera ID can only contain letters, numbers, underscores, and dashes', 'error')
         return
     end
 
     -- Validate camera model with server
-    local modelValid = ps.callback('ps-mdt:server:validateCameraModel', tostring(input[3]))
+    local modelValid = MDT.callback('ps-mdt:server:validateCameraModel', tostring(input[3]))
     if not modelValid then
-        ps.warn('Invalid camera model selected: ' .. tostring(input[3]))
-        ps.notify('Invalid camera model selected', 'error')
+        MDT.warn('Invalid camera model selected: ' .. tostring(input[3]))
+        MDT.notify('Invalid camera model selected', 'error')
         return
     end
 
@@ -1193,26 +1193,26 @@ function CameraPlacement.createWithGizmo()
     local actualModelName = getModelNameFromKey(selectedKey)
     local modelHash = GetHashKey(actualModelName)
 
-    ps.debug('Selected key: ' .. selectedKey .. ', Model name: ' .. actualModelName .. ', Hash: ' .. tostring(modelHash))
+    MDT.debug('Selected key: ' .. selectedKey .. ', Model name: ' .. actualModelName .. ', Hash: ' .. tostring(modelHash))
     lib.requestModel(modelHash)
 
     -- Create temporary object
     local tempObj = CreateObject(modelHash, spawnCoords.x, spawnCoords.y, spawnCoords.z + 1.0, false, false, false)
 
     if not tempObj or tempObj == 0 then
-        ps.error('Failed to create temporary camera object for placement')
-        ps.notify('Failed to create placement object', 'error')
+        MDT.error('Failed to create temporary camera object for placement')
+        MDT.notify('Failed to create placement object', 'error')
         return
     end
-    ps.debug('Created temporary object for gizmo placement')
+    MDT.debug('Created temporary object for gizmo placement')
 
     -- Use gizmo for placement
-    ps.notify('Use the gizmo to position the camera, then press ENTER when done', 'info')
+    MDT.notify('Use the gizmo to position the camera, then press ENTER when done', 'info')
     local gizmoResult = exports[GetCurrentResourceName()]:useGizmo(tempObj)
 
     if not gizmoResult then
-        ps.warn('Gizmo placement cancelled')
-        ps.notify('Camera placement cancelled', 'info')
+        MDT.warn('Gizmo placement cancelled')
+        MDT.notify('Camera placement cancelled', 'info')
         DeleteObject(tempObj)
         return
     end
@@ -1221,13 +1221,13 @@ function CameraPlacement.createWithGizmo()
     local finalCoords = gizmoResult.position
     local finalRotation = gizmoResult.rotation
 
-    ps.debug('Gizmo final position: ' .. tostring(finalCoords))
-    ps.debug('Final rotation: ' .. tostring(finalRotation))
+    MDT.debug('Gizmo final position: ' .. tostring(finalCoords))
+    MDT.debug('Final rotation: ' .. tostring(finalRotation))
 
     -- Step 2: aim the camera feed. The temp prop stays visible so the operator
     -- can see the camera while framing the shot. Start at the prop, looking the
     -- way the lens points (heading + 180).
-    ps.notify('Now aim the camera feed - move/look, then ENTER to confirm', 'info')
+    MDT.notify('Now aim the camera feed - move/look, then ENTER to confirm', 'info')
     local feed = setupCameraFeed(
         vector3(finalCoords.x, finalCoords.y, finalCoords.z),
         vector3(0.0, 0.0, (finalRotation.z + 180.0) % 360.0),
@@ -1239,8 +1239,8 @@ function CameraPlacement.createWithGizmo()
     SetModelAsNoLongerNeeded(modelHash)
 
     if not feed then
-        ps.warn('Camera feed setup cancelled')
-        ps.notify('Camera creation cancelled', 'info')
+        MDT.warn('Camera feed setup cancelled')
+        MDT.notify('Camera creation cancelled', 'info')
         return
     end
 
@@ -1256,15 +1256,15 @@ function CameraPlacement.createWithGizmo()
         feedFov = feed.fov,
     }
 
-    ps.debug('Camera data being sent to server:')
-    ps.debug('  coords: ' .. tostring(cameraData.coords))
-    ps.debug('  rotation: ' .. tostring(cameraData.rotation))
-    ps.debug('  feedCoords: ' .. tostring(cameraData.feedCoords))
+    MDT.debug('Camera data being sent to server:')
+    MDT.debug('  coords: ' .. tostring(cameraData.coords))
+    MDT.debug('  rotation: ' .. tostring(cameraData.rotation))
+    MDT.debug('  feedCoords: ' .. tostring(cameraData.feedCoords))
 
     -- Send to server for creation
     TriggerServerEvent(resourceName .. ':server:createStaticCamera', cameraData)
-    ps.info('Camera placement request sent to server for: ' .. cameraData.camId)
-    ps.notify('Camera created: ' .. cameraData.camLabel, 'success')
+    MDT.info('Camera placement request sent to server for: ' .. cameraData.camId)
+    MDT.notify('Camera created: ' .. cameraData.camLabel, 'success')
 end
 
 -- Position existing camera with gizmo
@@ -1273,29 +1273,29 @@ function CameraPlacement.placeWithGizmo(camera)
     local actualModelName = getModelNameFromKey(camera.model)
     local modelHash = GetHashKey(actualModelName)
 
-    ps.debug('Repositioning camera with key: ' .. camera.model .. ', Model name: ' .. actualModelName .. ', Hash: ' .. tostring(modelHash))
+    MDT.debug('Repositioning camera with key: ' .. camera.model .. ', Model name: ' .. actualModelName .. ', Hash: ' .. tostring(modelHash))
     lib.requestModel(modelHash)
 
     -- Create temporary object at current camera position
     local tempObj = CreateObject(modelHash, camera.coords.x, camera.coords.y, camera.coords.z, false, false, false)
 
     if not tempObj or tempObj == 0 then
-        ps.error('Failed to create temporary camera object for placement')
-        ps.notify('Failed to create placement object', 'error')
+        MDT.error('Failed to create temporary camera object for placement')
+        MDT.notify('Failed to create placement object', 'error')
         return
     end
 
     SetEntityRotation(tempObj, camera.rotation.x, camera.rotation.y, camera.rotation.z, 2, false)
 
-    ps.debug('Created temporary object for gizmo repositioning')
+    MDT.debug('Created temporary object for gizmo repositioning')
 
-    ps.notify('Use the gizmo to reposition camera "' .. camera.camLabel .. '", then press ENTER when done', 'info')
+    MDT.notify('Use the gizmo to reposition camera "' .. camera.camLabel .. '", then press ENTER when done', 'info')
 
     local gizmoResult = exports[GetCurrentResourceName()]:useGizmo(tempObj)
 
     if not gizmoResult then
-        ps.warn('Gizmo placement cancelled')
-        ps.notify('Camera repositioning cancelled', 'info')
+        MDT.warn('Gizmo placement cancelled')
+        MDT.notify('Camera repositioning cancelled', 'info')
         DeleteObject(tempObj)
         return
     end
@@ -1305,8 +1305,8 @@ function CameraPlacement.placeWithGizmo(camera)
     local finalCoords = gizmoResult.position
     local finalRotation = gizmoResult.rotation
 
-    ps.debug('Gizmo final position: ' .. tostring(finalCoords))
-    ps.debug('Final rotation: ' .. tostring(finalRotation))
+    MDT.debug('Gizmo final position: ' .. tostring(finalCoords))
+    MDT.debug('Final rotation: ' .. tostring(finalRotation))
 
     -- Clean up temporary object
     DeleteObject(tempObj)
@@ -1320,13 +1320,13 @@ function CameraPlacement.placeWithGizmo(camera)
     }
 
     -- Send to server for update
-    local result = ps.callback(resourceName .. ':server:updateCamera', updateData)
+    local result = MDT.callback(resourceName .. ':server:updateCamera', updateData)
     if not result or not result.success then
-        ps.warn('Camera update failed for: ' .. camera.camId)
-        ps.notify('Camera update failed', 'error')
+        MDT.warn('Camera update failed for: ' .. camera.camId)
+        MDT.notify('Camera update failed', 'error')
     end
-    ps.info('Camera repositioning request sent to server for: ' .. camera.camId)
-    ps.notify('Camera repositioned at: ' .. string.format('%.2f, %.2f, %.2f', finalCoords.x, finalCoords.y, finalCoords.z), 'success')
+    MDT.info('Camera repositioning request sent to server for: ' .. camera.camId)
+    MDT.notify('Camera repositioned at: ' .. string.format('%.2f, %.2f, %.2f', finalCoords.x, finalCoords.y, finalCoords.z), 'success')
 end
 
 -- Re-aim the camera feed (decoupled from the prop) using the free-fly placer
@@ -1344,11 +1344,11 @@ function CameraPlacement.editFeed(camera)
         startFov = 50.0
     end
 
-    ps.notify('Aim the camera feed for "' .. camera.camLabel .. '", then ENTER to confirm', 'info')
+    MDT.notify('Aim the camera feed for "' .. camera.camLabel .. '", then ENTER to confirm', 'info')
     local feed = setupCameraFeed(startCoords, startRot, startFov)
 
     if not feed then
-        ps.notify('Camera feed edit cancelled', 'info')
+        MDT.notify('Camera feed edit cancelled', 'info')
         return
     end
 
@@ -1359,13 +1359,13 @@ function CameraPlacement.editFeed(camera)
         feedFov = feed.fov,
     }
 
-    local result = ps.callback(resourceName .. ':server:updateCamera', updateData)
+    local result = MDT.callback(resourceName .. ':server:updateCamera', updateData)
     if result and result.success then
-        ps.info('Camera feed updated for: ' .. camera.camId)
-        ps.notify('Camera feed updated', 'success')
+        MDT.info('Camera feed updated for: ' .. camera.camId)
+        MDT.notify('Camera feed updated', 'success')
     else
-        ps.warn('Camera feed update failed for: ' .. camera.camId)
-        ps.notify('Camera feed update failed', 'error')
+        MDT.warn('Camera feed update failed for: ' .. camera.camId)
+        MDT.notify('Camera feed update failed', 'error')
     end
 end
 
@@ -1433,7 +1433,7 @@ end)
 RegisterNetEvent(resourceName .. ':client:dashcamEnded', function(dashcamId)
     if not isViewingCamera or not currentCameraData or not currentCameraData.isDashcam then return end
     if dashcamId and currentCameraData.dashcamId and dashcamId ~= currentCameraData.dashcamId then return end
-    ps.notify('Dashcam ended - unit is no longer driving', 'info')
+    MDT.notify('Dashcam ended - unit is no longer driving', 'info')
     stopCameraView(false)
 end)
 

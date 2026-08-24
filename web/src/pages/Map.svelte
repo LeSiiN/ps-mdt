@@ -56,6 +56,11 @@
     let isEms            = $derived(authService?.jobType === "ems");
 
     let mapContainer: HTMLDivElement | null = null;
+    // Leaflet caches the container size on init. Changing MDT window size or UI
+    // zoom resizes the container without firing a window resize event, so the
+    // cached size goes stale and every projection (clicks included) is off.
+    let mapResizeObserver: ResizeObserver | null = null;
+    let mapResizeRaf: number | null = null;
     let map: L.Map | null = null;
     let mapInitialized = false;
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -1510,24 +1515,47 @@
         return s;
     }
 
+    // Set window.__mdtMapCal = true in the CEF console to log every click's
+    // measured scale, container origin and resulting container point. Use it to
+    // verify alignment after changing UI zoom or window size.
     function mouseEventToLatLng(e: L.LeafletMouseEvent): L.LatLng {
         if (!map || !mapContainer) return e.latlng;
         const oe    = e.originalEvent as MouseEvent;
         const rect  = mapContainer.getBoundingClientRect();
-        const scale = getAncestorScale();
+        const scale = getAncestorScale() || 1;
 
-        // Residual constant correction (in container px) for a getBoundingClientRect
-        // quirk under CSS `zoom`: the measured rect origin is off by a fixed amount
-        // for this layout. NOTE: these are NOT the GTA<->map offsetX/offsetY above —
-        // they're a pixel fudge tied to the MDT's current zoom factor and the map's
-        // placement in the layout. Re-tune if either of those changes.
-        const clickFudgeX = 46;
-        const clickFudgeY = 32;
+        // Under CEF's CSS `zoom`, MouseEvent.clientX/Y are reported in on-screen
+        // (scaled) pixels while getBoundingClientRect() reports the container in
+        // unscaled layout pixels. The two are in different units, so the scale has
+        // to be undone on the absolute coordinate BEFORE subtracting the origin —
+        // not on the difference.
+        //
+        // The previous version subtracted first and then divided, which leaves a
+        // residual error of  rect.left * (1 - 1/scale)  — constant only as long as
+        // the container's position and the zoom factor never move. That is exactly
+        // what the old clickFudgeX/clickFudgeY constants (46 / 32) compensated for,
+        // and exactly why changing window size or content zoom broke the aiming:
+        // both change rect.left/rect.top and/or scale, so a hardcoded residual can
+        // no longer be correct.
+        //
+        //   old: (clientX - rect.left) / scale - fudge,  fudge = rect.left - rect.left/scale
+        //   new:  clientX / scale - rect.left
+        // The two are algebraically identical, but the new form derives the
+        // correction from live measurements instead of baking it in.
+        const x = oe.clientX / scale - rect.left;
+        const y = oe.clientY / scale - rect.top;
 
-        // rect + clientX/Y are on-screen (scaled) px; Leaflet's container point is
-        // in unscaled layout px, so undo the scale on the offset from the edge.
-        const x = ((oe.clientX - rect.left) / scale) - clickFudgeX;
-        const y = ((oe.clientY - rect.top)  / scale) - clickFudgeY;
+        if ((window as any).__mdtMapCal) {
+            console.log("[mdt-map-cal]", {
+                scale,
+                rect: { left: rect.left, top: rect.top, w: rect.width, h: rect.height },
+                offset: { w: mapContainer.offsetWidth, h: mapContainer.offsetHeight },
+                client: { x: oe.clientX, y: oe.clientY },
+                containerPoint: { x, y },
+                leafletOwn: map.mouseEventToContainerPoint(oe),
+            });
+        }
+
         return map.containerPointToLatLng(L.point(x, y));
     }
 
@@ -2390,6 +2418,24 @@
         });
     }
 
+    // Re-measures the Leaflet container after any size change (MDT window size
+    // preset, UI zoom, tab switch). Coalesced onto one animation frame because a
+    // zoom change fires the observer several times in a row.
+    function observeMapResize() {
+        if (!mapContainer || mapResizeObserver || typeof ResizeObserver === "undefined") return;
+
+        mapResizeObserver = new ResizeObserver(() => {
+            if (mapResizeRaf !== null) cancelAnimationFrame(mapResizeRaf);
+            mapResizeRaf = requestAnimationFrame(() => {
+                mapResizeRaf = null;
+                // Do not recentre - invalidateSize(true) would animate the view.
+                if (map) map.invalidateSize(false);
+            });
+        });
+
+        mapResizeObserver.observe(mapContainer);
+    }
+
     // IDENTICAL to original – no changes
     function initializeMap() {
         if (mapInitialized) return;
@@ -2471,6 +2517,9 @@
             showBackToMap = !onMain && !onCayo;
         });
         map.attributionControl.setPrefix(false);
+
+        // Keep Leaflet's cached container size in sync from here on.
+        observeMapResize();
 
         L.imageOverlay("./images/map.jpeg", bounds).addTo(map);
 
@@ -2564,6 +2613,8 @@
         window.removeEventListener("click", handleOutsideClick);
         if (drawingPatrolId) stopDrawing(false);
         removeGhost();
+        if (mapResizeRaf !== null) { cancelAnimationFrame(mapResizeRaf); mapResizeRaf = null; }
+        if (mapResizeObserver) { mapResizeObserver.disconnect(); mapResizeObserver = null; }
         if (map) { map.remove(); map = null; mapInitialized = false; }
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
         if (dirtyDebounce) { clearTimeout(dirtyDebounce); dirtyDebounce = null; }

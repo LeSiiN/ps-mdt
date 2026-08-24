@@ -123,11 +123,11 @@ function IsActionTracked(action)
 end
 
 -- Expose for audit.lua
-ps.isActionTracked = IsActionTracked
-ps.actionCategories = ACTION_CATEGORIES
+MDT.isActionTracked = IsActionTracked
+MDT.actionCategories = ACTION_CATEGORIES
 
 -- Get tracking config callback
-ps.registerCallback(resourceName .. ':server:getAuditTrackingConfig', function(source)
+lib.callback.register(resourceName .. ':server:getAuditTrackingConfig', function(source)
     local src = source
     if not CheckAuth(src) then return '{}' end
     -- Return as JSON string to preserve boolean false values through msgpack
@@ -135,7 +135,7 @@ ps.registerCallback(resourceName .. ':server:getAuditTrackingConfig', function(s
 end)
 
 -- Save tracking config callback
-ps.registerCallback(resourceName .. ':server:saveAuditTrackingConfig', function(source, payload)
+lib.callback.register(resourceName .. ':server:saveAuditTrackingConfig', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -172,7 +172,7 @@ ps.registerCallback(resourceName .. ':server:saveAuditTrackingConfig', function(
 
     trackingConfig = sanitized
 
-    ps.auditLog(src, 'settings_updated', 'settings', 'audit_tracking', sanitized)
+    MDT.auditLog(src, 'settings_updated', 'settings', 'audit_tracking', sanitized)
 
     return { success = true }
 end)
@@ -213,13 +213,13 @@ function GetJailFinesConfig()
     return loadJailFinesConfig()
 end
 
-ps.registerCallback(resourceName .. ':server:getJailFinesConfig', function(source)
+lib.callback.register(resourceName .. ':server:getJailFinesConfig', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
     return GetJailFinesConfig()
 end)
 
-ps.registerCallback(resourceName .. ':server:saveJailFinesConfig', function(source, payload)
+lib.callback.register(resourceName .. ':server:saveJailFinesConfig', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'management_settings') then
@@ -263,8 +263,8 @@ ps.registerCallback(resourceName .. ':server:saveJailFinesConfig', function(sour
 
     jailFinesConfig = sanitized
 
-    if ps.auditLog then
-        ps.auditLog(src, 'settings_updated', 'settings', 'jail_fines', sanitized)
+    if MDT.auditLog then
+        MDT.auditLog(src, 'settings_updated', 'settings', 'jail_fines', sanitized)
     end
 
     return { success = true }
@@ -272,7 +272,7 @@ end)
 
 -- Report Templates Configuration
 
-ps.registerCallback(resourceName .. ':server:getReportTemplates', function(source, data)
+lib.callback.register(resourceName .. ':server:getReportTemplates', function(source, data)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -285,7 +285,7 @@ ps.registerCallback(resourceName .. ':server:getReportTemplates', function(sourc
     return rows or {}
 end)
 
-ps.registerCallback(resourceName .. ':server:saveReportTemplate', function(source, payload)
+lib.callback.register(resourceName .. ':server:saveReportTemplate', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'management_settings') then
@@ -324,14 +324,14 @@ ps.registerCallback(resourceName .. ':server:saveReportTemplate', function(sourc
         })
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'settings_updated', 'settings', 'report_template_' .. tostring(templateId), { name = name, type = tmplType, jobType = jobType })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'settings_updated', 'settings', 'report_template_' .. tostring(templateId), { name = name, type = tmplType, jobType = jobType })
     end
 
     return { success = true, template = { id = templateId, name = name, type = tmplType, content = content, job_type = jobType } }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteReportTemplate', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteReportTemplate', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'management_settings') then
@@ -349,8 +349,8 @@ ps.registerCallback(resourceName .. ':server:deleteReportTemplate', function(sou
 
     MySQL.update.await('DELETE FROM mdt_report_templates WHERE `id` = ?', { id })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'settings_updated', 'settings', 'report_template_' .. tostring(id), { action = 'deleted' })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'settings_updated', 'settings', 'report_template_' .. tostring(id), { action = 'deleted' })
     end
 
     return { success = true }
@@ -363,11 +363,11 @@ end)
 local colorConfigCache = nil
 
 local function getColorSettingsKey(src)
-    local jobName = ps.getJobName and ps.getJobName(src) or 'police'
+    local jobName = MDT.getJobName and MDT.getJobName(src) or 'police'
     return 'colors_' .. (jobName or 'police')
 end
 
-ps.registerCallback(resourceName .. ':server:getColorConfig', function(source)
+lib.callback.register(resourceName .. ':server:getColorConfig', function(source)
     local src = source
     if not CheckAuth(src) then return nil end
 
@@ -390,7 +390,7 @@ ps.registerCallback(resourceName .. ':server:getColorConfig', function(source)
     return nil
 end)
 
-ps.registerCallback(resourceName .. ':server:saveColorConfig', function(source, payload)
+lib.callback.register(resourceName .. ':server:saveColorConfig', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'management_settings') then
@@ -424,8 +424,8 @@ ps.registerCallback(resourceName .. ':server:saveColorConfig', function(source, 
     config._key = settingsKey
     colorConfigCache = config
 
-    if ps.auditLog then
-        ps.auditLog(src, 'settings_updated', 'settings', settingsKey, config)
+    if MDT.auditLog then
+        MDT.auditLog(src, 'settings_updated', 'settings', settingsKey, config)
     end
 
     return { success = true }

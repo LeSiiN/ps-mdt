@@ -1,5 +1,5 @@
 function GetActiveUnits()
-    return ps.getJobCount("police")
+    return MDT.getJobCount("police")
 end
 
 --- Normalise a free-text search query for consistent, predictable LIKE matching
@@ -50,7 +50,7 @@ function GetAssignableCallsign(callsign, citizenid)
         { callsign, citizenid or '' }
     )
     if taken then
-        ps.warn(('Callsign "%s" is already in use - not assigning it to %s'):format(tostring(callsign), tostring(citizenid)))
+        MDT.warn(('Callsign "%s" is already in use - not assigning it to %s'):format(tostring(callsign), tostring(citizenid)))
         return nil
     end
 
@@ -238,7 +238,7 @@ function DepositToDepartment(jobName, amount, reason)
 
     local account = DepartmentAccount(jobName)
     if not account then
-        ps.warn(('[banking] No account for job "%s" and no Fallback set — $%d not deposited.')
+        MDT.warn(('[banking] No account for job "%s" and no Fallback set — $%d not deposited.')
             :format(tostring(jobName), amount))
         return false
     end
@@ -427,8 +427,8 @@ function EnsureColumn(tableName, columnName, definition)
 end
 
 function GetMdtDomain(src)
-    local jobName = ps.getJobName and ps.getJobName(src) or nil
-    local jobType = ps.getJobType and ps.getJobType(src) or nil
+    local jobName = MDT.getJobName and MDT.getJobName(src) or nil
+    local jobType = MDT.getJobType and MDT.getJobType(src) or nil
     return GetDomainForJob(jobName, jobType)
 end
 
@@ -445,7 +445,7 @@ function EnsureProfileExists(citizenid)
     end
 
     -- Try online player first
-    local playerData = ps.getPlayerByIdentifier(citizenid)
+    local playerData = MDT.getPlayerByIdentifier(citizenid)
     if playerData then
         playerData = playerData.PlayerData
         local charinfo = playerData.charinfo
@@ -459,17 +459,17 @@ function EnsureProfileExists(citizenid)
         ]], { citizenid, fullname, callsign })
 
         if success then
-            ps.debug('Auto-created MDT profile for: ' .. citizenid)
+            MDT.debug('Auto-created MDT profile for: ' .. citizenid)
             return true
         end
-        ps.warn('Failed to create MDT profile for: ' .. citizenid)
+        MDT.warn('Failed to create MDT profile for: ' .. citizenid)
         return false
     end
 
     -- Fallback: resolve from players table (offline player)
     local row = MySQL.single.await('SELECT charinfo, metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
     if not row then
-        ps.warn('No player data found for citizenid: ' .. citizenid)
+        MDT.warn('No player data found for citizenid: ' .. citizenid)
         return false
     end
 
@@ -485,10 +485,10 @@ function EnsureProfileExists(citizenid)
     ]], { citizenid, fullname ~= '' and fullname or 'Unknown', callsign })
 
     if success then
-        ps.debug('Auto-created MDT profile for: ' .. citizenid)
+        MDT.debug('Auto-created MDT profile for: ' .. citizenid)
         return true
     end
-    ps.warn('Failed to create MDT profile for: ' .. citizenid)
+    MDT.warn('Failed to create MDT profile for: ' .. citizenid)
     return false
 end
 
@@ -516,7 +516,7 @@ function EnsureProfileData(citizenid, fullname, callsign, badgeNumber, rank, dep
         ]], { fullname, callsign, badgeNumber, rank, department, citizenid })
 
         if not ok then
-            ps.warn(('EnsureProfileData: update failed for %s, retrying without callsign'):format(tostring(citizenid)))
+            MDT.warn(('EnsureProfileData: update failed for %s, retrying without callsign'):format(tostring(citizenid)))
             pcall(MySQL.update.await, [[UPDATE mdt_profiles
                 SET fullname = COALESCE(?, fullname),
                     badge_number = COALESCE(?, badge_number),
@@ -536,7 +536,7 @@ function EnsureProfileData(citizenid, fullname, callsign, badgeNumber, rank, dep
 
     if not okInsert then
         -- Insert failed (most likely the callsign clash). Retry without callsign.
-        ps.warn(('EnsureProfileData: insert failed for %s, retrying without callsign'):format(tostring(citizenid)))
+        MDT.warn(('EnsureProfileData: insert failed for %s, retrying without callsign'):format(tostring(citizenid)))
         okInsert, result = pcall(MySQL.insert.await, [[INSERT INTO mdt_profiles
             (citizenid, fullname, badge_number, rank, department)
             VALUES (?, ?, ?, ?, ?)
@@ -544,7 +544,7 @@ function EnsureProfileData(citizenid, fullname, callsign, badgeNumber, rank, dep
     end
 
     if not okInsert then
-        ps.error(('EnsureProfileData: could not create profile for %s: %s'):format(tostring(citizenid), tostring(result)))
+        MDT.error(('EnsureProfileData: could not create profile for %s: %s'):format(tostring(citizenid), tostring(result)))
         return nil
     end
 
@@ -562,23 +562,23 @@ function GetVehicleOwner(plate)
     -- Sanitise plate input. Trim the padding, keep spaces inside the plate.
     plate = NormalizePlate(plate)
     if not plate then return nil end
-    ps.debug('Fetching vehicle owner for plate: ' .. plate)
+    MDT.debug('Fetching vehicle owner for plate: ' .. plate)
 
     -- Fetch the owner
     local result = MySQL.scalar.await('SELECT citizenid FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
-    ps.debug('Vehicle owner result: ' .. tostring(result))
+    MDT.debug('Vehicle owner result: ' .. tostring(result))
 
     if result then
         -- If a result is found, get the player's name
-        local playerName = ps.getPlayerNameByIdentifier(result)
-        ps.debug('Vehicle owner name: ' .. tostring(playerName))
+        local playerName = MDT.getPlayerNameByIdentifier(result)
+        MDT.debug('Vehicle owner name: ' .. tostring(playerName))
         if playerName and playerName ~= 'Unknown Person' then
             return playerName
         end
     end
 
     -- If no owner or player name is found, return "Unknown Owner"
-    ps.debug('No owner found for plate: ' .. plate)
+    MDT.debug('No owner found for plate: ' .. plate)
     return "Unknown Owner"
 end
 
@@ -641,7 +641,7 @@ function GetWarrantStatus(plate)
     local ownerCid = MySQL.scalar.await('SELECT citizenid FROM player_vehicles WHERE UPPER(REPLACE(plate, \' \', \'\')) = ? LIMIT 1', { plate })
     if not ownerCid then return false, "", "" end
 
-    local ownerName = ps.getPlayerNameByIdentifier(ownerCid) or "Unknown"
+    local ownerName = MDT.getPlayerNameByIdentifier(ownerCid) or "Unknown"
 
     local warrantRow = MySQL.single.await([[
         SELECT reportid
@@ -710,7 +710,7 @@ end
 
 -- Get citizen list with charge counts and weapon counts (batch queries, no N+1)
 function getCitizens(source)
-    if ps.getJobType(source) ~= "leo" then
+    if MDT.getJobType(source) ~= "leo" then
         return {}
     end
 
@@ -740,12 +740,12 @@ function getCitizens(source)
     return result
 end
 
-ps.registerCallback('ps-mdt:hasProfile', function(source)
+lib.callback.register('ps-mdt:hasProfile', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     if not citizenId then
-        ps.warn('No citizen ID found for source: ' .. tostring(src))
+        MDT.warn('No citizen ID found for source: ' .. tostring(src))
         return false
     end
 
@@ -893,8 +893,8 @@ end
 --- The block that applies to a connected player.
 --- @return table|nil cfg, string|nil problem
 function CallsignConfigForPlayer(src)
-    local jobName = ps.getJobName and ps.getJobName(src) or nil
-    local jobType = ps.getJobType and ps.getJobType(src) or nil
+    local jobName = MDT.getJobName and MDT.getJobName(src) or nil
+    local jobType = MDT.getJobType and MDT.getJobType(src) or nil
     return CallsignConfigFor(jobName, jobType)
 end
 
@@ -1087,11 +1087,11 @@ AddEventHandler('onResourceStart', function(res)
             "UPDATE players SET metadata = JSON_SET(metadata, '$.callsign', ?) WHERE citizenid = ?",
             { r.profile_callsign, r.citizenid }
         )
-        ps.warn(('[callsigns] %s: metadata said "%s", profile says "%s" — corrected to the profile.')
+        MDT.warn(('[callsigns] %s: metadata said "%s", profile says "%s" — corrected to the profile.')
             :format(tostring(r.citizenid), tostring(r.meta_callsign), tostring(r.profile_callsign)))
     end
 
-    ps.warn(('[callsigns] Reconciled %d stale callsign(s) in player metadata.'):format(#rows))
+    MDT.warn(('[callsigns] Reconciled %d stale callsign(s) in player metadata.'):format(#rows))
 end)
 
 -- Check every configured callsign block once, on start. A bad range or a number
@@ -1108,19 +1108,19 @@ AddEventHandler('onResourceStart', function(res)
                 kind == 'jobtype' and key or nil
             )
             if not cfg then
-                ps.warn(('[callsigns] %s "%s": %s'):format(kind, tostring(key), tostring(problem)))
+                MDT.warn(('[callsigns] %s "%s": %s'):format(kind, tostring(key), tostring(problem)))
             else
                 -- A number outside the range can never be picked, so listing it there
                 -- means somebody meant something else.
                 for n in pairs(cfg.Reserved) do
                     if n < cfg.Min or n > cfg.Max then
-                        ps.warn(('[callsigns] %s "%s": Reserved %d is outside %d-%d and can never apply.')
+                        MDT.warn(('[callsigns] %s "%s": Reserved %d is outside %d-%d and can never apply.')
                             :format(kind, tostring(key), n, cfg.Min, cfg.Max))
                     end
                 end
                 for n in pairs(cfg.Blocked) do
                     if n < cfg.Min or n > cfg.Max then
-                        ps.warn(('[callsigns] %s "%s": Blocked %d is outside %d-%d and can never apply.')
+                        MDT.warn(('[callsigns] %s "%s": Blocked %d is outside %d-%d and can never apply.')
                             :format(kind, tostring(key), n, cfg.Min, cfg.Max))
                     end
                 end

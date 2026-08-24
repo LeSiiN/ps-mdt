@@ -19,19 +19,19 @@ function CheckAuth(source)
     end
 
     local ok, jobType, jobName = pcall(function()
-        return ps.getJobType(source), ps.getJobName(source)
+        return MDT.getJobType(source), MDT.getJobName(source)
     end)
     if not ok then
         return false
     end
 
-    ps.debug('Checking MDT Authorization')
+    MDT.debug('Checking MDT Authorization')
     local dojCheck = isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
     if jobType ~= Config.PoliceJobType and jobType ~= Config.MedicalJobType and not dojCheck then
-        ps.debug('Access Denied for ID: ' .. tostring(source) .. ', not an authorized job type')
+        MDT.debug('Access Denied for ID: ' .. tostring(source) .. ', not an authorized job type')
         return false
     end
-    ps.debug('Access Granted for ID: ' .. tostring(source) .. ', job type: ' .. tostring(jobType))
+    MDT.debug('Access Granted for ID: ' .. tostring(source) .. ', job type: ' .. tostring(jobType))
     return true
 end
 
@@ -115,9 +115,9 @@ function CheckPermission(source, permName)
     if not source or not permName then return false end
 
     -- Boss always has all permissions
-    if ps.isBoss and ps.isBoss(source) then return true end
+    if MDT.isBoss and MDT.isBoss(source) then return true end
 
-    local jobData = ps.getJobData and ps.getJobData(source) or nil
+    local jobData = MDT.getJobData and MDT.getJobData(source) or nil
     local isBoss = false
     local gradeValue = 0
 
@@ -132,7 +132,7 @@ function CheckPermission(source, permName)
 
     if isBoss then return true end
 
-    local jobName = ps.getJobName(source) or 'police'
+    local jobName = MDT.getJobName(source) or 'police'
     local gradeStr = tostring(gradeValue)
 
     local mode = permissionDefaultsMode()
@@ -162,11 +162,11 @@ end
 
 local function upsertProfileSession(src, action)
     if not src then return end
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then return end
 
     -- On logout — and especially on playerDropped — the player is already gone from the
-    -- framework, so any live ps.* lookup (getMetadata, getPlayerName, getJobData) indexes
+    -- framework, so any live MDT.* lookup (getMetadata, getPlayerName, getJobData) indexes
     -- a nil player and errors. The logout branch below only needs the profile id anyway,
     -- so we resolve just that from the DB and skip everything that touches the live player.
     if action ~= 'login' then
@@ -194,20 +194,20 @@ local function upsertProfileSession(src, action)
             },
         })
         if not okTx then
-            ps.warn('Failed to update logout session (transaction): ' .. tostring(errTx))
+            MDT.warn('Failed to update logout session (transaction): ' .. tostring(errTx))
         end
         return
     end
 
     -- Login path: the player is online, so live lookups are safe.
-    local fullName = ps.getPlayerName(src)
-    local job = ps.getJobData and ps.getJobData(src) or nil
-    local jobName = job and job.name or ps.getJobName(src)
-    local jobGrade = job and job.grade and job.grade.name or ps.getJobGradeName(src)
+    local fullName = MDT.getPlayerName(src)
+    local job = MDT.getJobData and MDT.getJobData(src) or nil
+    local jobName = job and job.name or MDT.getJobName(src)
+    local jobGrade = job and job.grade and job.grade.name or MDT.getJobGradeName(src)
 
     local existing = MySQL.scalar.await(
         'SELECT callsign FROM mdt_profiles WHERE citizenid = ? LIMIT 1', { citizenid })
-    local metaCallsign = ps.getMetadata(src, 'callsign')
+    local metaCallsign = MDT.getMetadata(src, 'callsign')
 
     local callsign
     if existing and existing ~= '' then
@@ -215,7 +215,7 @@ local function upsertProfileSession(src, action)
         -- Heal the cache so the uniqueness check (which reads player metadata) and the
         -- TopBar readout stop showing the stale number.
         if metaCallsign ~= existing then
-            local Player = ps.getPlayerByIdentifier(citizenid)
+            local Player = MDT.getPlayerByIdentifier(citizenid)
             if Player and Player.Functions and Player.Functions.SetMetaData then
                 Player.Functions.SetMetaData('callsign', existing)
                 PersistLiveMetadata(Player, citizenid)
@@ -235,7 +235,7 @@ local function upsertProfileSession(src, action)
     )
 
     if not ok or not profileId then
-        ps.warn('Failed to upsert profile session for ' .. tostring(citizenid) .. ': ' .. tostring(profileId))
+        MDT.warn('Failed to upsert profile session for ' .. tostring(citizenid) .. ': ' .. tostring(profileId))
         return
     end
 
@@ -262,7 +262,7 @@ local function upsertProfileSession(src, action)
         },
     })
     if not okTx then
-        ps.warn('Failed to create login session (transaction): ' .. tostring(errTx))
+        MDT.warn('Failed to create login session (transaction): ' .. tostring(errTx))
     end
 end
 
@@ -286,26 +286,26 @@ end
 RegisterNetEvent('ps-mdt:server:trackLogin', function()
     local src = source
     upsertProfileSession(src, 'login')
-    if ps.auditLog then
-        ps.auditLog(src, 'mdt_login', 'profile', ps.getIdentifier(src), {})
+    if MDT.auditLog then
+        MDT.auditLog(src, 'mdt_login', 'profile', MDT.getIdentifier(src), {})
     end
     -- FiveManage duty log
-    local officerName = ps.getPlayerName(src) or 'Unknown'
-    local citizenid = ps.getIdentifier(src) or 'N/A'
-    local jobName = ps.getJobName(src) or 'Unknown'
+    local officerName = MDT.getPlayerName(src) or 'Unknown'
+    local citizenid = MDT.getIdentifier(src) or 'N/A'
+    local jobName = MDT.getJobName(src) or 'Unknown'
     SendDutyLog(officerName, citizenid, 'login', jobName)
 end)
 
 RegisterNetEvent('ps-mdt:server:trackLogout', function()
     local src = source
     upsertProfileSession(src, 'logout')
-    if ps.auditLog then
-        ps.auditLog(src, 'mdt_logout', 'profile', ps.getIdentifier(src), {})
+    if MDT.auditLog then
+        MDT.auditLog(src, 'mdt_logout', 'profile', MDT.getIdentifier(src), {})
     end
     -- FiveManage duty log
-    local officerName = ps.getPlayerName(src) or 'Unknown'
-    local citizenid = ps.getIdentifier(src) or 'N/A'
-    local jobName = ps.getJobName(src) or 'Unknown'
+    local officerName = MDT.getPlayerName(src) or 'Unknown'
+    local citizenid = MDT.getIdentifier(src) or 'N/A'
+    local jobName = MDT.getJobName(src) or 'Unknown'
     SendDutyLog(officerName, citizenid, 'logout', jobName)
 end)
 
@@ -317,7 +317,7 @@ AddEventHandler('playerDropped', function()
     pcall(upsertProfileSession, src, 'logout')
 end)
 
-ps.registerCallback(tostring(GetCurrentResourceName())..':server:checkAuth', function(source)
+lib.callback.register(tostring(GetCurrentResourceName())..':server:checkAuth', function(source)
     local civAccess = Config.CivilianAccess and Config.CivilianAccess.enabled
     local isAuthed = CheckAuth(source)
     if isAuthed then
@@ -333,12 +333,12 @@ ps.registerCallback(tostring(GetCurrentResourceName())..':server:checkAuth', fun
 end)
 
 -- Get the current player's permissions based on their job + grade
-ps.registerCallback(tostring(GetCurrentResourceName())..':server:getMyPermissions', function(source)
+lib.callback.register(tostring(GetCurrentResourceName())..':server:getMyPermissions', function(source)
     local src = source
     if not CheckAuth(src) then return { permissions = {} } end
 
-    local jobName = ps.getJobName(src) or 'police'
-    local jobData = ps.getJobData and ps.getJobData(src) or nil
+    local jobName = MDT.getJobName(src) or 'police'
+    local jobData = MDT.getJobData and MDT.getJobData(src) or nil
     local gradeValue = 0
     local isBoss = false
 
@@ -352,7 +352,7 @@ ps.registerCallback(tostring(GetCurrentResourceName())..':server:getMyPermission
     end
 
     -- Boss gets all permissions
-    if isBoss or (ps.isBoss and ps.isBoss(src)) then
+    if isBoss or (MDT.isBoss and MDT.isBoss(src)) then
         local allPerms = (Config and Config.ManagementPermissions) or {}
         return { permissions = allPerms, isBoss = true }
     end

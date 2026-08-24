@@ -1,7 +1,7 @@
 local resourceName = tostring(GetCurrentResourceName())
 
 -- Delete ICU Record (ambulance/EMS)
-ps.registerCallback(resourceName .. ':server:deleteICU', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteICU', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     payload = payload or {}
@@ -18,8 +18,8 @@ ps.registerCallback(resourceName .. ':server:deleteICU', function(source, payloa
     end
     MySQL.update.await('DELETE FROM mdt_bolos WHERE id = ?', { id })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'icu_deleted', 'icu', tostring(id), {})
+    if MDT.auditLog then
+        MDT.auditLog(src, 'icu_deleted', 'icu', tostring(id), {})
     end
 
     return { success = true, message = 'ICU record deleted' }

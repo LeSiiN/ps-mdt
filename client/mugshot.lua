@@ -97,7 +97,7 @@ function CaptureMugshot(citizenid)
 
     local sbState = GetResourceState('screenshot-basic')
     if sbState ~= 'started' then
-        ps.notify('screenshot-basic is not running', 'error')
+        MDT.notify('screenshot-basic is not running', 'error')
         return nil
     end
 
@@ -172,7 +172,7 @@ RegisterNUICallback('mugshotCameraAction', function(data, cb)
                         return
                     end
                     -- Send base64 to server for upload (API key stays server-side)
-                    local result = ps.callback(resourceName .. ':server:uploadMugshotBase64', base64Data)
+                    local result = MDT.callback(resourceName .. ':server:uploadMugshotBase64', base64Data)
                     if result and result.url then
                         p:resolve(result.url)
                     else

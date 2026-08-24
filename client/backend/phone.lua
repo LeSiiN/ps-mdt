@@ -25,6 +25,6 @@ RegisterNetEvent(resourceName .. ':client:phoneExport', function(resource, metho
         exports[resource][method](exports[resource], table.unpack(args or {}))
     end)
     if not ok then
-        ps.debug('phoneExport failed:', method, tostring(err))
+        MDT.debug('phoneExport failed:', method, tostring(err))
     end
 end)

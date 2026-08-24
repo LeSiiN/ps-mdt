@@ -32,7 +32,7 @@ end
 
 -- One of 'police' | 'ems' | 'doj' for the caller.
 local function applicantBucketForSrc(src)
-    local jobName = ps.getJobName and ps.getJobName(src) or nil
+    local jobName = MDT.getJobName and MDT.getJobName(src) or nil
     if isDojJob(jobName) then return 'doj' end
     return GetMdtDomain(src) == 'ems' and 'ems' or 'police'
 end
@@ -141,7 +141,7 @@ end
 
 -- Applicant-facing: the questions for a department's form. NO auth — any civilian can
 -- open an application form. Returns the department label too so the form can title itself.
-ps.registerCallback(resourceName .. ':server:getApplicationForm', function(source, department)
+lib.callback.register(resourceName .. ':server:getApplicationForm', function(source, department)
     if not isEnabled() then return { success = false, message = 'Applications are disabled' } end
     if not isKnownDepartment(department) then
         return { success = false, message = 'Unknown department' }
@@ -159,7 +159,7 @@ end)
 -- ── Submitting an application ─────────────────────────────────────────────────
 local SubmitCooldown = {}   -- [citizenid .. ':' .. department] = GetGameTimer()
 
-ps.registerCallback(resourceName .. ':server:submitApplication', function(source, payload)
+lib.callback.register(resourceName .. ':server:submitApplication', function(source, payload)
     if not isEnabled() then return { success = false, message = 'Applications are disabled' } end
 
     local src = source
@@ -169,7 +169,7 @@ ps.registerCallback(resourceName .. ':server:submitApplication', function(source
         return { success = false, message = 'Unknown department' }
     end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then return { success = false, message = 'Missing citizen id' } end
 
     -- Per-department anti-spam.
@@ -226,7 +226,7 @@ ps.registerCallback(resourceName .. ':server:submitApplication', function(source
         snapshot[#snapshot + 1] = { label = q.label, type = q.type, answer = answer }
     end
 
-    local applicantName = ps.getPlayerName(src) or 'Unknown'
+    local applicantName = MDT.getPlayerName(src) or 'Unknown'
     local phone = GetCitizenPhoneNumber and GetCitizenPhoneNumber(citizenid, nil) or nil
 
     local id = MySQL.insert.await([[
@@ -250,7 +250,7 @@ end)
 
 -- The configured departments, for the editor's tab strip. Auth-gated like the rest of
 -- the editor.
-ps.registerCallback(resourceName .. ':server:getApplicationDepartments', function(source)
+lib.callback.register(resourceName .. ':server:getApplicationDepartments', function(source)
     if not CheckAuth(source) then return { success = false, departments = {} } end
     -- Scope to the caller's domain: LSPD sees police (+ DOJ), EMS sees EMS. Without this
     -- an LSPD officer could open — and edit — EMS's application questions.
@@ -276,7 +276,7 @@ local function canManage(src)
 end
 
 -- List questions for a department, for the editor.
-ps.registerCallback(resourceName .. ':server:getApplicationQuestions', function(source, department)
+lib.callback.register(resourceName .. ':server:getApplicationQuestions', function(source, department)
     if not canManage(source) then return { success = false, message = 'Unauthorized' } end
     if not isKnownDepartment(department) then return { success = false, message = 'Unknown department' } end
     if not isDepartmentInDomain(source, department) then return { success = false, message = 'Unauthorized' } end
@@ -310,7 +310,7 @@ local function sanitizeQuestion(q)
     }
 end
 
-ps.registerCallback(resourceName .. ':server:saveApplicationQuestion', function(source, payload)
+lib.callback.register(resourceName .. ':server:saveApplicationQuestion', function(source, payload)
     if not canManage(source) then return { success = false, message = 'Unauthorized' } end
     payload = payload or {}
     local department = payload.department
@@ -343,7 +343,7 @@ ps.registerCallback(resourceName .. ':server:saveApplicationQuestion', function(
     return { success = true, id = id }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteApplicationQuestion', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteApplicationQuestion', function(source, payload)
     if not canManage(source) then return { success = false, message = 'Unauthorized' } end
     payload = payload or {}
     if not payload.id then return { success = false, message = 'Missing question id' } end
@@ -361,7 +361,7 @@ ps.registerCallback(resourceName .. ':server:deleteApplicationQuestion', functio
 end)
 
 -- Persist a new order: payload.order is an array of question ids in the desired sequence.
-ps.registerCallback(resourceName .. ':server:reorderApplicationQuestions', function(source, payload)
+lib.callback.register(resourceName .. ':server:reorderApplicationQuestions', function(source, payload)
     if not canManage(source) then return { success = false, message = 'Unauthorized' } end
     payload = payload or {}
     local department = payload.department
@@ -391,7 +391,7 @@ end
 
 -- List applications, newest first, scoped to the caller's domain and optionally filtered
 -- by status. Answers aren't decoded here — the list only needs headers.
-ps.registerCallback(resourceName .. ':server:getApplications', function(source, payload)
+lib.callback.register(resourceName .. ':server:getApplications', function(source, payload)
     if not canReview(source) then return { success = false, applications = {} } end
     payload = payload or {}
 
@@ -427,7 +427,7 @@ ps.registerCallback(resourceName .. ':server:getApplications', function(source, 
 end)
 
 -- Full detail of one application, including the decoded answer snapshot.
-ps.registerCallback(resourceName .. ':server:getApplication', function(source, payload)
+lib.callback.register(resourceName .. ':server:getApplication', function(source, payload)
     if not canReview(source) then return { success = false } end
     payload = payload or {}
     if not payload.id then return { success = false, message = 'Missing id' } end
@@ -483,7 +483,7 @@ local function notifyDecision(row, status, note)
 end
 
 -- Accept or reject. A note is optional and travels to the applicant with the decision.
-ps.registerCallback(resourceName .. ':server:decideApplication', function(source, payload)
+lib.callback.register(resourceName .. ':server:decideApplication', function(source, payload)
     if not canReview(source) then return { success = false, message = 'Unauthorized' } end
     payload = payload or {}
     local id = payload.id
@@ -504,8 +504,8 @@ ps.registerCallback(resourceName .. ':server:decideApplication', function(source
     if not allowed then return { success = false, message = 'Not found' } end
 
     local note = type(payload.note) == 'string' and payload.note:sub(1, 1000) or nil
-    local reviewerCid = ps.getIdentifier(source)
-    local reviewerName = ps.getPlayerName(source) or 'Unknown'
+    local reviewerCid = MDT.getIdentifier(source)
+    local reviewerName = MDT.getPlayerName(source) or 'Unknown'
 
     MySQL.update.await([[
         UPDATE mdt_applications
@@ -516,8 +516,8 @@ ps.registerCallback(resourceName .. ':server:decideApplication', function(source
     -- Fire-and-forget the applicant notification; a mail failure must not fail the review.
     pcall(notifyDecision, row, status, note)
 
-    if ps.auditLog then
-        ps.auditLog(source, 'mdt_application_' .. status, 'application',
+    if MDT.auditLog then
+        MDT.auditLog(source, 'mdt_application_' .. status, 'application',
             row.application_number or tostring(id), {})
     end
 

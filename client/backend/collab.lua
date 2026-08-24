@@ -3,14 +3,14 @@ local resourceName = tostring(GetCurrentResourceName())
 -- Join a report editing session
 RegisterNUICallback('joinReportSession', function(data, cb)
     if not data or not data.reportId then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:joinReportSession', data.reportId)
+    local result = MDT.callback(resourceName .. ':server:joinReportSession', data.reportId)
     cb(result or { success = false })
 end)
 
 -- Leave a report editing session
 RegisterNUICallback('leaveReportSession', function(data, cb)
     if not data or not data.reportId then cb({ success = true }) return end
-    local result = ps.callback(resourceName .. ':server:leaveReportSession', data.reportId)
+    local result = MDT.callback(resourceName .. ':server:leaveReportSession', data.reportId)
     cb(result or { success = true })
 end)
 

@@ -3,7 +3,7 @@
 -- Check if a job is an LEO job (checks against Config.PoliceJobType from the core)
 local function isLEOJob(jobName)
     if not jobName then
-        return ps.getJobType() == Config.PoliceJobType
+        return MDT.getJobType() == Config.PoliceJobType
     end
     if Config.PoliceJobs then
         for _, job in ipairs(Config.PoliceJobs) do
@@ -34,7 +34,7 @@ end)
 exports('openCivilianMDT', function()
     if MDTOpen then return end
     MDTOpen = true
-    local playerData = ps.getPlayerData()
+    local playerData = MDT.getPlayerData()
     SendNUI('setVisible', { visible = true, debugMode = Config.Debug, dateTime = Config.DateTime })
     SendNUI('updateAuth', {
         authorized = true,

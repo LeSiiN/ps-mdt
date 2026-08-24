@@ -35,7 +35,7 @@ end)
 RegisterNUICallback('getApplicationForm', function(data, cb)
     data = data or {}
     if not data.department then cb({ success = false, message = 'Missing department' }) return end
-    local result = ps.callback(resourceName .. ':server:getApplicationForm', data.department)
+    local result = MDT.callback(resourceName .. ':server:getApplicationForm', data.department)
     cb(result or { success = false })
 end)
 
@@ -45,7 +45,7 @@ RegisterNUICallback('submitApplication', function(data, cb)
         cb({ success = false, message = 'Missing department' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:submitApplication', data)
+    local result = MDT.callback(resourceName .. ':server:submitApplication', data)
     cb(result or { success = false })
 end)
 
@@ -58,50 +58,50 @@ end)
 -- These back Management → Applications and are only meaningful with the MDT open.
 RegisterNUICallback('getApplicationDepartments', function(_, cb)
     if not MDTOpen then cb({ success = false, departments = {} }) return end
-    local result = ps.callback(resourceName .. ':server:getApplicationDepartments')
+    local result = MDT.callback(resourceName .. ':server:getApplicationDepartments')
     cb(result or { success = false, departments = {} })
 end)
 
 RegisterNUICallback('getApplicationQuestions', function(data, cb)
     if not MDTOpen then cb({ success = false, questions = {} }) return end
     data = data or {}
-    local result = ps.callback(resourceName .. ':server:getApplicationQuestions', data.department)
+    local result = MDT.callback(resourceName .. ':server:getApplicationQuestions', data.department)
     cb(result or { success = false, questions = {} })
 end)
 
 RegisterNUICallback('saveApplicationQuestion', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:saveApplicationQuestion', data)
+    local result = MDT.callback(resourceName .. ':server:saveApplicationQuestion', data)
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('deleteApplicationQuestion', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:deleteApplicationQuestion', data)
+    local result = MDT.callback(resourceName .. ':server:deleteApplicationQuestion', data)
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('reorderApplicationQuestions', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:reorderApplicationQuestions', data)
+    local result = MDT.callback(resourceName .. ':server:reorderApplicationQuestions', data)
     cb(result or { success = false })
 end)
 
 -- ── Reviewing applications (Roster → Applications) ────────────────────────────
 RegisterNUICallback('getApplications', function(data, cb)
     if not MDTOpen then cb({ success = false, applications = {} }) return end
-    local result = ps.callback(resourceName .. ':server:getApplications', data or {})
+    local result = MDT.callback(resourceName .. ':server:getApplications', data or {})
     cb(result or { success = false, applications = {} })
 end)
 
 RegisterNUICallback('getApplication', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:getApplication', data or {})
+    local result = MDT.callback(resourceName .. ':server:getApplication', data or {})
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('decideApplication', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:decideApplication', data or {})
+    local result = MDT.callback(resourceName .. ':server:decideApplication', data or {})
     cb(result or { success = false })
 end)

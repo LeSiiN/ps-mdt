@@ -2,14 +2,14 @@ local resourceName = tostring(GetCurrentResourceName())
 
 -- Get all bulletin posts for the officer's department
 RegisterNUICallback('getBulletinPosts', function(data, cb)
-    local result = ps.callback(resourceName .. ':server:getBulletinPosts')
+    local result = MDT.callback(resourceName .. ':server:getBulletinPosts')
     cb(result or {})
 end)
 
 -- Create a new bulletin post
 RegisterNUICallback('createBulletinPost', function(data, cb)
     if not data then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:createBulletinPost', data)
+    local result = MDT.callback(resourceName .. ':server:createBulletinPost', data)
     cb(result or { success = false })
 end)
 
@@ -18,21 +18,21 @@ RegisterNUICallback('updateBulletinPost', function(data, cb)
     if not data or not data.id then cb({ success = false }) return end
     local postId = data.id
     data.id = nil
-    local result = ps.callback(resourceName .. ':server:updateBulletinPost', postId, data)
+    local result = MDT.callback(resourceName .. ':server:updateBulletinPost', postId, data)
     cb(result or { success = false })
 end)
 
 -- Delete a bulletin post
 RegisterNUICallback('deleteBulletinPost', function(data, cb)
     if not data or not data.id then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:deleteBulletinPost', data.id)
+    local result = MDT.callback(resourceName .. ':server:deleteBulletinPost', data.id)
     cb(result or { success = false })
 end)
 
 -- Toggle pin on a bulletin post (supervisor only)
 RegisterNUICallback('toggleBulletinPin', function(data, cb)
     if not data or not data.id then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:toggleBulletinPin', data.id)
+    local result = MDT.callback(resourceName .. ':server:toggleBulletinPin', data.id)
     cb(result or { success = false })
 end)
 
@@ -40,7 +40,7 @@ end)
 
 -- Get all categories for the current job
 RegisterNUICallback('getBulletinCategories', function(data, cb)
-    local result = ps.callback(resourceName .. ':server:getBulletinCategories')
+    local result = MDT.callback(resourceName .. ':server:getBulletinCategories')
     cb(result or {})
 end)
 
@@ -50,7 +50,7 @@ RegisterNUICallback('addBulletinCategory', function(data, cb)
         cb({ success = false, error = 'Missing required fields' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:addBulletinCategory', data)
+    local result = MDT.callback(resourceName .. ':server:addBulletinCategory', data)
     cb(result or { success = false })
 end)
 
@@ -60,7 +60,7 @@ RegisterNUICallback('updateBulletinCategory', function(data, cb)
         cb({ success = false, error = 'Missing category value' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:updateBulletinCategory', data)
+    local result = MDT.callback(resourceName .. ':server:updateBulletinCategory', data)
     cb(result or { success = false })
 end)
 
@@ -70,7 +70,7 @@ RegisterNUICallback('removeBulletinCategory', function(data, cb)
         cb({ success = false, error = 'Missing category value' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:removeBulletinCategory', data)
+    local result = MDT.callback(resourceName .. ':server:removeBulletinCategory', data)
     cb(result or { success = false })
 end)
 
@@ -81,6 +81,6 @@ RegisterNUICallback('reorderBulletinCategories', function(data, cb)
         return
     end
     -- Pass the whole data table so server can read data.order reliably
-    local result = ps.callback(resourceName .. ':server:reorderBulletinCategories', data)
+    local result = MDT.callback(resourceName .. ':server:reorderBulletinCategories', data)
     cb(result or { success = false })
 end)

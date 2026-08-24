@@ -2,7 +2,7 @@ local resourceName = tostring(GetCurrentResourceName())
 
 RegisterNUICallback('getCharges', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local callbacks = ps.callback('ps-mdt:getChargeList', false)
+    local callbacks = MDT.callback('ps-mdt:getChargeList', false)
     cb(callbacks)
 end)
 
@@ -17,7 +17,7 @@ RegisterNUICallback('processFine', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:processFine', data)
+    local result = MDT.callback(resourceName .. ':server:processFine', data)
     cb(result or { success = false, message = 'Failed to process fine' })
 end)
 
@@ -32,7 +32,7 @@ RegisterNUICallback('updateCharge', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:updateCharge', data)
+    local result = MDT.callback(resourceName .. ':server:updateCharge', data)
     cb(result or { success = false, message = 'Failed to update charge' })
 end)
 
@@ -42,7 +42,7 @@ RegisterNUICallback('addCharge', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:createCharge', data)
+    local result = MDT.callback(resourceName .. ':server:createCharge', data)
     cb(result or { success = false, message = 'Failed to create charge' })
 end)
 
@@ -55,12 +55,12 @@ RegisterNUICallback('deleteCharge', function(data, cb)
         cb({ success = false, message = 'Missing charge code' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:deleteCharge', data)
+    local result = MDT.callback(resourceName .. ':server:deleteCharge', data)
     cb(result or { success = false, message = 'Failed to delete charge' })
 end)
 
 RegisterNUICallback('getChargeCategories', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local result = ps.callback(resourceName .. ':server:getChargeCategories', false)
+    local result = MDT.callback(resourceName .. ':server:getChargeCategories', false)
     cb(result or {})
 end)

@@ -1,7 +1,8 @@
 Config = {}
-ps = exports.ps_lib:init()
 
 -- Basic Settings
+-- Debug output can also be switched on without editing this file, via
+-- `setr ps_mdt_debug 1` in server.cfg or the /mdtdebug 1 console command.
 Config.Debug = false -- Enable/disable debug mode (boolean)
 Config.OnlyShowOnDuty = true -- Only allow the MDT to be opened when on duty (boolean)
 
@@ -1311,13 +1312,13 @@ Config.DepartmentBanking = {
     -- replaced with the real values, anything else is passed through as written. That
     -- covers scripts that want the arguments in a different order, or extra ones.
     Export = {
-        resource = 'qb-banking',
-        method   = 'AddMoney',
-        args     = { 'account', 'amount', 'reason' },
+        --resource = 'qb-banking',
+        --method   = 'AddMoney',
+        --args     = { 'account', 'amount', 'reason' },
 
         -- Renewed-Banking:
-        --   resource = 'Renewed-Banking', method = 'addAccountMoney',
-        --   args = { 'account', 'amount' }
+        resource = 'Renewed-Banking', method = 'addAccountMoney',
+        args = { 'account', 'amount' }
         --
         -- okokBanking:
         --   resource = 'okokBanking', method = 'AddMoney',

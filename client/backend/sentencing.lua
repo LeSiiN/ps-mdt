@@ -12,7 +12,7 @@ RegisterNUICallback('sendToJail', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:sendToJail', data)
+    local result = MDT.callback(resourceName .. ':server:sendToJail', data)
     cb(result or { success = false, message = 'Failed to send to jail' })
 end)
 
@@ -28,6 +28,6 @@ RegisterNUICallback('giveCitation', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:giveCitation', data)
+    local result = MDT.callback(resourceName .. ':server:giveCitation', data)
     cb(result or { success = false, message = 'Failed to give citation' })
 end)

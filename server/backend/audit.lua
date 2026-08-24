@@ -8,9 +8,9 @@ local function getActorData(src)
         }
     end
 
-    local citizenid = ps.getIdentifier(src)
-    local name = ps.getPlayerName(src) or 'Unknown'
-    local callsign = ps.getMetadata(src, 'callsign')
+    local citizenid = MDT.getIdentifier(src)
+    local name = MDT.getPlayerName(src) or 'Unknown'
+    local callsign = MDT.getMetadata(src, 'callsign')
     if callsign and callsign ~= '' then
         name = callsign .. ' ' .. name
     end
@@ -23,7 +23,7 @@ end
 
 local function writeAuditLog(src, action, entityType, entityId, details)
     -- Check if this action's category is tracked
-    if ps.isActionTracked and not ps.isActionTracked(action) then
+    if MDT.isActionTracked and not MDT.isActionTracked(action) then
         return
     end
 
@@ -54,9 +54,9 @@ local function writeAuditLog(src, action, entityType, entityId, details)
     end
 end
 
-ps.auditLog = writeAuditLog
+MDT.auditLog = writeAuditLog
 
-ps.registerCallback(resourceName .. ':server:getAuditLogs', function(source, params)
+lib.callback.register(resourceName .. ':server:getAuditLogs', function(source, params)
     local src = source
     if not CheckAuth(src) then return { items = {}, total = 0 } end
 
@@ -125,7 +125,7 @@ ps.registerCallback(resourceName .. ':server:getAuditLogs', function(source, par
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:getAuditLogsByCase', function(source, caseId, page, limit)
+lib.callback.register(resourceName .. ':server:getAuditLogsByCase', function(source, caseId, page, limit)
     local src = source
     if not CheckAuth(src) then return {} end
 

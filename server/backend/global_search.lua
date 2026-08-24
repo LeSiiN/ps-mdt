@@ -35,7 +35,7 @@ local function likeTerm(q)
     return '%' .. q .. '%'
 end
 
-ps.registerCallback(resourceName .. ':server:globalSearch', function(source, payload)
+lib.callback.register(resourceName .. ':server:globalSearch', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { results = {} } end
 
@@ -48,8 +48,8 @@ ps.registerCallback(resourceName .. ':server:globalSearch', function(source, pay
     local function add(e) results[#results + 1] = e end
 
     -- Everything the report access clause needs, resolved once.
-    local identifier = ps.getIdentifier(src)
-    local job        = ps.getJobName(src)
+    local identifier = MDT.getIdentifier(src)
+    local job        = MDT.getJobName(src)
     local jobType    = GetEffectiveJobType(src)
     local accessArgs = { jobType, jobType, jobType, identifier, job, jobType }
 

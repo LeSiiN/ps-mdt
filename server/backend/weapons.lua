@@ -110,7 +110,7 @@ end
 
 exports('registerWeapon', registerWeapon)
 
-ps.registerCallback('ps-mdt:server:getWeapons', function(source)
+lib.callback.register('ps-mdt:server:getWeapons', function(source)
     if not CheckAuth(source) then return {} end
     local weapons = MySQL.query.await('SELECT * FROM mdt_weapons') or {}
     local newData = {}
@@ -138,10 +138,10 @@ ps.registerCallback('ps-mdt:server:getWeapons', function(source)
     end
 
     for k, v in pairs(weapons) do
-        -- Resolve owner name: batched mdt_profiles lookup first, then ps_lib fallback
+        -- Resolve owner name: batched mdt_profiles lookup first, then framework fallback
         local ownerName = 'Unknown'
         if v.owner and v.owner ~= '' then
-            ownerName = nameByOwner[v.owner] or ps.getPlayerNameByIdentifier(v.owner) or 'Unknown'
+            ownerName = nameByOwner[v.owner] or MDT.getPlayerNameByIdentifier(v.owner) or 'Unknown'
         end
 
         -- Normalize weapon model to lowercase for class table lookup
@@ -177,7 +177,7 @@ ps.registerCallback('ps-mdt:server:getWeapons', function(source)
     return { weapons = newData, bolos = weaponBolo }
 end)
 
-ps.registerCallback(resourceName .. ':server:getWeaponOwnershipHistory', function(source, payload)
+lib.callback.register(resourceName .. ':server:getWeaponOwnershipHistory', function(source, payload)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -199,12 +199,12 @@ ps.registerCallback(resourceName .. ':server:getWeaponOwnershipHistory', functio
     return rows or {}
 end)
 
-ps.registerCallback(resourceName .. ':server:getWeaponConfig', function(source)
+lib.callback.register(resourceName .. ':server:getWeaponConfig', function(source)
     if not CheckAuth(source) then return { weapons = {} } end
     return { weapons = Config.Weapons }
 end)
 
-ps.registerCallback(resourceName .. ':server:saveWeaponFlags', function(source, serial, flags)
+lib.callback.register(resourceName .. ':server:saveWeaponFlags', function(source, serial, flags)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not serial or serial == '' then return { success = false } end
@@ -229,7 +229,7 @@ ps.registerCallback(resourceName .. ':server:saveWeaponFlags', function(source, 
 end)
 
 -- Save/Edit Weapon Info (from NUI)
-ps.registerCallback(resourceName .. ':server:saveWeaponInfo', function(source, payload)
+lib.callback.register(resourceName .. ':server:saveWeaponInfo', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -262,7 +262,7 @@ ps.registerCallback(resourceName .. ':server:saveWeaponInfo', function(source, p
         MySQL.insert.await([[
             INSERT INTO mdt_weapon_ownership_history (serial, owner, weapon_model, weapon_class, information, changed_by, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        ]], { serial, owner, weapModel, weapClass, notes, ps.getIdentifier(src), 'ownership_transfer' })
+        ]], { serial, owner, weapModel, weapClass, notes, MDT.getIdentifier(src), 'ownership_transfer' })
     else
         MySQL.insert.await([[
             INSERT INTO mdt_weapons (serial, scratched, owner, information, weaponClass, weaponModel)
@@ -272,11 +272,11 @@ ps.registerCallback(resourceName .. ':server:saveWeaponInfo', function(source, p
         MySQL.insert.await([[
             INSERT INTO mdt_weapon_ownership_history (serial, owner, weapon_model, weapon_class, information, changed_by, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        ]], { serial, owner, weapModel, weapClass, notes, ps.getIdentifier(src), 'manual_entry' })
+        ]], { serial, owner, weapModel, weapClass, notes, MDT.getIdentifier(src), 'manual_entry' })
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, existing and 'weapon_updated' or 'weapon_created', 'weapon', serial, {
+    if MDT.auditLog then
+        MDT.auditLog(src, existing and 'weapon_updated' or 'weapon_created', 'weapon', serial, {
             owner = owner,
             model = weapModel,
         })
@@ -286,7 +286,7 @@ ps.registerCallback(resourceName .. ':server:saveWeaponInfo', function(source, p
 end)
 
 -- Delete Weapon Record
-ps.registerCallback(resourceName .. ':server:deleteWeapon', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteWeapon', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -307,15 +307,15 @@ ps.registerCallback(resourceName .. ':server:deleteWeapon', function(source, pay
         deleted = MySQL.update.await('DELETE FROM mdt_weapons WHERE serial = ?', { serial })
     end
 
-    if deleted and deleted > 0 and ps.auditLog then
-        ps.auditLog(src, 'weapon_deleted', 'weapon', serial or tostring(id), {})
+    if deleted and deleted > 0 and MDT.auditLog then
+        MDT.auditLog(src, 'weapon_deleted', 'weapon', serial or tostring(id), {})
     end
 
     return { success = deleted and deleted > 0, message = deleted > 0 and 'Weapon deleted' or 'Weapon not found' }
 end)
 
 -- Scan player inventory for weapons (for self-register)
-ps.registerCallback(resourceName .. ':server:getWeaponInfo', function(source)
+lib.callback.register(resourceName .. ':server:getWeaponInfo', function(source)
     local src = source
     if not QBCore then return {} end
     local Player = QBCore.Functions.GetPlayer(src)
@@ -382,7 +382,7 @@ CreateThread(function()
                 exports[resourceName]:registerWeapon(owner, payload.itemName, payload.metadata.serial, 'Purchased from shop')
             end)
             if not success then
-                ps.warn('Error auto-registering weapon: ' .. tostring(err))
+                MDT.warn('Error auto-registering weapon: ' .. tostring(err))
             end
         end)
         return true
@@ -404,7 +404,7 @@ CreateThread(function()
                     exports[resourceName]:registerWeapon(owner, payload.item.name, payload.metadata.serial, 'Purchased from shop')
                 end)
                 if not success then
-                    ps.warn('Error auto-registering created weapon: ' .. tostring(err))
+                    MDT.warn('Error auto-registering created weapon: ' .. tostring(err))
                 end
             end)
             return true
@@ -469,7 +469,7 @@ do
                         exports[resourceName]:registerWeapon(_cid, _model, _serial, 'Purchased from shop')
                     end)
                     if not ok then
-                        ps.warn('Auto-register weapon failed: ' .. tostring(err))
+                        MDT.warn('Auto-register weapon failed: ' .. tostring(err))
                     end
                 end)
             end
@@ -496,13 +496,13 @@ AddEventHandler(resourceName .. ':server:selfRegisterWeapon', function(serial, i
 
     -- Derive owner server-side from player data instead of trusting client
     local Player = QBCore and QBCore.Functions.GetPlayer(src)
-    local serverOwner = Player and Player.PlayerData.citizenid or ps.getIdentifier(src)
+    local serverOwner = Player and Player.PlayerData.citizenid or MDT.getIdentifier(src)
 
     local success, err = pcall(function()
         exports[resourceName]:registerWeapon(serverOwner, weapModel or 'unknown', serial, notes or 'Self Registered')
     end)
 
     if success then
-        ps.notify(src, 'Weapon registered in police database', 'success')
+        MDT.notify(src, 'Weapon registered in police database', 'success')
     end
 end)

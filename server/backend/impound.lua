@@ -43,7 +43,7 @@ end
 ---@param name string
 ---@param handler function
 local function registerImpoundCallback(name, handler)
-    ps.registerCallback(resourceName .. ':server:' .. name, function(source, payload)
+    lib.callback.register(resourceName .. ':server:' .. name, function(source, payload)
         if not ImpoundEnabled() then
             -- `enabled = false` as well as `disabled = true`: the civilian view
             -- tests `enabled !== false`, so a refusal without it reads as
@@ -219,14 +219,14 @@ local function cleanPlate(plate)
 end
 
 local function officerInfo(src)
-    local cid = ps.getIdentifier and ps.getIdentifier(src) or nil
+    local cid = MDT.getIdentifier and MDT.getIdentifier(src) or nil
     local name
     local ok, res = pcall(function()
-        return (ps.getCharInfo('firstname', src) or '') .. ' ' .. (ps.getCharInfo('lastname', src) or '')
+        return (MDT.getCharInfo(src, 'firstname') or '') .. ' ' .. (MDT.getCharInfo(src, 'lastname') or '')
     end)
     if ok and res then name = res:gsub('^%s+', ''):gsub('%s+$', '') end
     if name == '' then name = nil end
-    return cid, (name or ps.getPlayerName(src) or 'Unknown')
+    return cid, (name or MDT.getPlayerName(src) or 'Unknown')
 end
 
 -- Fetch the active impound row for a vehicle id (or nil).
@@ -313,7 +313,7 @@ local function doImpound(src, payload)
         holdType, holdUntil, holdLabel,
         -- The department is stored WITH the impound, not looked up when the fee is paid:
         -- a citizen can settle the bill days later, with nobody from that shift online.
-        cid, officerName, ps.getJobName(src), os.time(),
+        cid, officerName, MDT.getJobName(src), os.time(),
     })
 
     -- Recovering the car closes any active BOLO on it.
@@ -343,9 +343,9 @@ local function doImpound(src, payload)
     body = body .. '\n\nSpeak to an officer to arrange release. The longer it stays with us, the more it will cost you.'
     mailOwner(vehicle.citizenid, ('Vehicle impounded — %s'):format(plate), body)
 
-    if ps.auditLog then
+    if MDT.auditLog then
         local lot = getLot(lotId)
-        ps.auditLog(src, 'vehicle_impounded', 'vehicle', plate, {
+        MDT.auditLog(src, 'vehicle_impounded', 'vehicle', plate, {
             plate        = plate,
             reason       = reason,
             fee          = fee,
@@ -377,7 +377,7 @@ end)
 -- them to press Collect. These two let the owner do it themselves.
 --
 -- Security model, same as every other civilian callback: the citizenid comes from the
--- SESSION (ps.getIdentifier), never from the payload. A client can name any plate it
+-- SESSION (MDT.getIdentifier), never from the payload. A client can name any plate it
 -- likes; if the vehicle isn't theirs, nothing happens. And the money always comes from
 -- the caller — you cannot pay a bill out of somebody else's account.
 --
@@ -395,7 +395,7 @@ registerImpoundCallback('getMyImpounds', function(source)
     local src = source
     if not civilianPayEnabled() then return { success = false, enabled = false, impounds = {} } end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid or citizenid == '' then
         return { success = false, message = 'Could not identify you', impounds = {} }
     end
@@ -449,7 +449,7 @@ registerImpoundCallback('payMyImpoundFee', function(source, payload)
     local src = source
     if not civilianPayEnabled() then return { success = false, message = 'Not available' } end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid or citizenid == '' then
         return { success = false, message = 'Could not identify you' }
     end
@@ -483,7 +483,7 @@ registerImpoundCallback('payMyImpoundFee', function(source, payload)
     end
 
     local account = impoundCfg().FeeAccount or 'bank'
-    local removed = ps.removeMoney(src, account, owed, 'mdt-impound-fee')
+    local removed = MDT.removeMoney(src, account, owed, 'mdt-impound-fee')
     if not removed then
         -- Give the claim back, or an unpayable bill would be marked settled.
         MySQL.update.await('UPDATE mdt_impound SET fee_paid = 0 WHERE id = ?', { row.id })
@@ -505,8 +505,8 @@ registerImpoundCallback('payMyImpoundFee', function(source, payload)
     receipt = receipt .. '\n\nAn officer can now release your vehicle.'
     mailOwner(citizenid, ('Impound fee paid — %s'):format(plate), receipt)
 
-    if ps.auditLog then
-        ps.auditLog(src, 'vehicle_impound_fee_paid', 'vehicle', plate, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'vehicle_impound_fee_paid', 'vehicle', plate, {
             plate        = plate,
             fee          = row.fee,
             storage      = storage,
@@ -550,7 +550,7 @@ registerImpoundCallback('payImpoundFee', function(source, payload)
     end
 
     -- The owner pays. They must be online for money to be taken.
-    local owner = vehicle.citizenid and ps.getPlayerByIdentifier(vehicle.citizenid) or nil
+    local owner = vehicle.citizenid and MDT.getPlayerByIdentifier(vehicle.citizenid) or nil
     if not owner then
         return { success = false, message = 'Vehicle owner must be online to pay the fee' }
     end
@@ -591,19 +591,19 @@ registerImpoundCallback('payImpoundFee', function(source, payload)
     end
 
     local account = impoundCfg().FeeAccount or 'bank'
-    local removed = ps.removeMoney(ownerSrc, account, owed, 'mdt-impound-fee')
+    local removed = MDT.removeMoney(ownerSrc, account, owed, 'mdt-impound-fee')
     if not removed then
         MySQL.update.await('UPDATE mdt_impound SET fee_paid = 0 WHERE id = ?', { row.id })
         return { success = false, message = 'Owner could not cover the fee' }
     end
 
     -- Straight into the collecting department's account. It used to just evaporate.
-    DepositToDepartment(row.officer_job or ps.getJobName(src), owed,
+    DepositToDepartment(row.officer_job or MDT.getJobName(src), owed,
         ('Impound fee — %s'):format(plate))
 
     -- Money leaving an account warrants immediate feedback, so the on-screen note
     -- stays; the e-mail is the receipt they can actually go back and read.
-    ps.notify(ownerSrc, ('$%d impound fee charged for %s'):format(owed, plate), 'error')
+    MDT.notify(ownerSrc, ('$%d impound fee charged for %s'):format(owed, plate), 'error')
 
     local receipt = ('$%d has been charged for the release of %s.'):format(owed, plate)
     if storage > 0 then
@@ -613,8 +613,8 @@ registerImpoundCallback('payImpoundFee', function(source, payload)
     receipt = receipt .. '\n\nYour vehicle can now be released.'
     mailOwner(vehicle.citizenid, ('Impound fee paid — %s'):format(plate), receipt)
 
-    if ps.auditLog then
-        ps.auditLog(src, 'vehicle_impound_fee_paid', 'vehicle', plate, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'vehicle_impound_fee_paid', 'vehicle', plate, {
             plate        = plate,
             fee          = row.fee,
             storage      = storage,
@@ -706,8 +706,8 @@ registerImpoundCallback('releaseImpound', function(source, payload)
         ('Your vehicle %s has been released from the impound lot.\n\nIt is back in your garage.')
             :format(plate))
 
-    if ps.auditLog then
-        ps.auditLog(src, override and 'vehicle_impound_override' or 'vehicle_released', 'vehicle', plate, {
+    if MDT.auditLog then
+        MDT.auditLog(src, override and 'vehicle_impound_override' or 'vehicle_released', 'vehicle', plate, {
             plate           = plate,
             lot             = lotId,
             override        = override,
@@ -742,14 +742,14 @@ local function onSiteCfg()
     return (impoundCfg().OnSite) or {}
 end
 
--- Pay an officer. ps.addMoney doesn't exist on the bridge, so go through the
+-- Pay an officer. MDT.addMoney doesn't exist on the bridge, so go through the
 -- framework player object — the same object charges.lua already gets back from
--- ps.getPlayerByIdentifier, which is proven to work here.
+-- MDT.getPlayerByIdentifier, which is proven to work here.
 local function payOfficer(src, account, amount, reason)
     if amount <= 0 then return true end
 
-    local cid = ps.getIdentifier and ps.getIdentifier(src) or nil
-    local Player = cid and ps.getPlayerByIdentifier(cid) or nil
+    local cid = MDT.getIdentifier and MDT.getIdentifier(src) or nil
+    local Player = cid and MDT.getPlayerByIdentifier(cid) or nil
 
     if Player and Player.Functions and Player.Functions.AddMoney then
         local ok = pcall(Player.Functions.AddMoney, account, amount, reason)
@@ -769,7 +769,7 @@ local function payOfficer(src, account, amount, reason)
     end)
 
     if not ok then
-        ps.warn(('[impound] could not pay $%d to source %s'):format(amount, tostring(src)))
+        MDT.warn(('[impound] could not pay $%d to source %s'):format(amount, tostring(src)))
     end
     return ok
 end
@@ -980,7 +980,7 @@ registerImpoundCallback('cleanupVehicle', function(source, payload)
     end
 
     local cfg = onSiteCfg().Cleanup or {}
-    local cid = ps.getIdentifier and ps.getIdentifier(src) or nil
+    local cid = MDT.getIdentifier and MDT.getIdentifier(src) or nil
     if not cid then return { success = false, message = 'Player not found' } end
 
     local state = CleanupState[cid] or { last = 0, count = 0 }
@@ -1014,8 +1014,8 @@ registerImpoundCallback('cleanupVehicle', function(source, payload)
         end
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'vehicle_cleanup', 'vehicle', plate or 'unknown', {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'vehicle_cleanup', 'vehicle', plate or 'unknown', {
             plate        = plate,
             reward       = reward,
             capped       = capped,
@@ -1038,7 +1038,7 @@ end)
 -- Counters are per session; drop them when the officer leaves.
 AddEventHandler('playerDropped', function()
     local src = source
-    local cid = ps.getIdentifier and ps.getIdentifier(src) or nil
+    local cid = MDT.getIdentifier and MDT.getIdentifier(src) or nil
     if cid then CleanupState[cid] = nil end
 end)
 
@@ -1120,7 +1120,7 @@ end)
 -- Registered directly rather than through the wrapper: this is the one call the
 -- interface makes to find out whether the feature exists, so a blanket refusal
 -- would leave it unable to distinguish "switched off" from "request failed".
-ps.registerCallback(resourceName .. ':server:getImpoundConfig', function(source)
+lib.callback.register(resourceName .. ':server:getImpoundConfig', function(source)
     if not ImpoundEnabled() then
         return { enabled = false, reasons = {}, lots = {}, durations = {} }
     end
@@ -1176,5 +1176,5 @@ CreateThread(function()
         ]], { v.id, v.plate, 'Impounded outside the MDT', defaultLotId(), 'System', os.time() })
     end
 
-    ps.debug(('[impound] adopted %d vehicle(s) that were impounded outside the MDT'):format(#orphans))
+    MDT.debug(('[impound] adopted %d vehicle(s) that were impounded outside the MDT'):format(#orphans))
 end)

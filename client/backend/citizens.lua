@@ -2,19 +2,19 @@ local resourceName = tostring(GetCurrentResourceName())
 
 -- Civilian self-profile (no MDTOpen check needed, civilians don't use full MDT)
 RegisterNUICallback('getMyProfile', function(data, cb)
-    local result = ps.callback(resourceName .. ':server:getMyProfile')
+    local result = MDT.callback(resourceName .. ':server:getMyProfile')
     cb(result or { success = false })
 end)
 
 -- Civilian impound self-service. Same reasoning as getMyProfile: everything is scoped
 -- server-side to the caller's own citizenid, so there's nothing here to guard.
 RegisterNUICallback('getMyImpounds', function(data, cb)
-    local result = ps.callback(resourceName .. ':server:getMyImpounds')
+    local result = MDT.callback(resourceName .. ':server:getMyImpounds')
     cb(result or { success = false, impounds = {} })
 end)
 
 RegisterNUICallback('payMyImpoundFee', function(data, cb)
-    local result = ps.callback(resourceName .. ':server:payMyImpoundFee', data or {})
+    local result = MDT.callback(resourceName .. ':server:payMyImpoundFee', data or {})
     cb(result or { success = false, message = 'Payment failed' })
 end)
 
@@ -24,7 +24,7 @@ RegisterNUICallback('getProperty', function(data, cb)
         cb({ success = false, message = 'Missing property id' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:getProperty', data.property_id)
+    local result = MDT.callback(resourceName .. ':server:getProperty', data.property_id)
     if not result or not result.success then
         cb(result or { success = false, message = 'Property not found' })
         return
@@ -56,13 +56,13 @@ RegisterNUICallback('getCitizens', function(data, cb)
         data = {page = 1}
     end
     local page = data.page or 1 -- Default to page 1 if not provided
-    local ok, result = pcall(ps.callback, resourceName..':server:getCitizens', page)
+    local ok, result = pcall(MDT.callback, resourceName..':server:getCitizens', page)
     if not ok or type(result) ~= 'table' then
-        ps.warn('[getCitizens] Server callback failed: ' .. tostring(result))
+        MDT.warn('[getCitizens] Server callback failed: ' .. tostring(result))
         cb({})
         return
     end
-    ps.debug(('[getCitizens] Triggered NUI callback on client for page %d'):format(page), result)
+    MDT.debug(('[getCitizens] Triggered NUI callback on client for page %d'):format(page), result)
     cb(result)
 end)
 
@@ -77,7 +77,7 @@ RegisterNUICallback('searchCitizens', function(data, cb)
         cb({})
         return
     end
-    local result = ps.callback(resourceName..':server:searchCitizens', query)
+    local result = MDT.callback(resourceName..':server:searchCitizens', query)
     cb(result)
 end)
 
@@ -96,14 +96,14 @@ RegisterNUICallback('getBolos', function(data, cb)
     if boloType == 'all' then
         boloStatus = boloStatus or 'all'
     end
-    local result = ps.callback(resourceName..':server:getBOLO', boloType, boloStatus)
-    ps.debug('[getBolos] Fetched BOLOs:', result)
+    local result = MDT.callback(resourceName..':server:getBOLO', boloType, boloStatus)
+    MDT.debug('[getBolos] Fetched BOLOs:', result)
     cb(result)
 end)
 
 RegisterNUICallback('createBolo', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:createBolo', data)
+    local result = MDT.callback(resourceName .. ':server:createBolo', data)
     cb(result or { success = false })
 end)
 
@@ -113,7 +113,7 @@ RegisterNUICallback('deleteBolo', function(data, cb)
         cb({ success = false, message = 'Missing BOLO ID' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:deleteBolo', data)
+    local result = MDT.callback(resourceName .. ':server:deleteBolo', data)
     cb(result or { success = false })
 end)
 
@@ -123,7 +123,7 @@ RegisterNUICallback('updateBoloStatus', function(data, cb)
         cb({ success = false, message = 'Missing BOLO ID or status' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:updateBoloStatus', data)
+    local result = MDT.callback(resourceName .. ':server:updateBoloStatus', data)
     cb(result or { success = false })
 end)
 
@@ -133,7 +133,7 @@ RegisterNUICallback('getCitizenTimeline', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getCitizenTimeline', data)
+    local result = MDT.callback(resourceName .. ':server:getCitizenTimeline', data)
 
     cb(result or {
         entries = {},
@@ -161,7 +161,7 @@ RegisterNUICallback('getCitizen', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getCitizenProfile', data.citizenid)
+    local result = MDT.callback(resourceName .. ':server:getCitizenProfile', data.citizenid)
     if result then
         cb(result)
     else
@@ -178,7 +178,7 @@ RegisterNUICallback('getCitizenCharges', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getCitizenCharges', data.citizenid, data.page or 1)
+    local result = MDT.callback(resourceName .. ':server:getCitizenCharges', data.citizenid, data.page or 1)
     cb(result or { charges = {}, hasMore = false })
 end)
 
@@ -189,7 +189,7 @@ RegisterNUICallback('updateCitizenLicense', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:updateCitizenLicense', data)
+    local result = MDT.callback(resourceName .. ':server:updateCitizenLicense', data)
     if result then
         cb(result)
     else
@@ -203,7 +203,7 @@ RegisterNUICallback('updateCitizenCustomLicense', function(data, cb)
         cb({ success = false, message = 'Missing citizen id or license id' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:updateCitizenCustomLicense', data)
+    local result = MDT.callback(resourceName .. ':server:updateCitizenCustomLicense', data)
     cb(result or { success = false, message = 'Failed to update custom license' })
 end)
 
@@ -213,7 +213,7 @@ RegisterNUICallback('updateCitizen', function(data, cb)
         cb({ success = false, message = 'Missing citizen id' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:updateCitizen', data)
+    local result = MDT.callback(resourceName .. ':server:updateCitizen', data)
     cb(result or { success = false, message = 'Failed to update citizen' })
 end)
 
@@ -223,16 +223,16 @@ RegisterNUICallback('addCitizenTag', function(data, cb)
         cb({ success = false, message = 'Missing citizen id or tag' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:addCitizenTag', data)
+    local result = MDT.callback(resourceName .. ':server:addCitizenTag', data)
     cb(result or { success = false })
 end)
 
 -- Available citizen tags for the profile picker, scoped to the viewer's domain.
 RegisterNUICallback('getCitizenTags', function(_, cb)
     if not MDTOpen then cb({ success = false, data = {} }) return end
-    local jobType = ps.getJobType()
+    local jobType = MDT.getJobType()
     local mdtJobType = jobType == Config.MedicalJobType and 'ems' or 'leo'
-    local tags = ps.callback(resourceName .. ':server:getCitizenTags', mdtJobType)
+    local tags = MDT.callback(resourceName .. ':server:getCitizenTags', mdtJobType)
     cb({ success = true, data = tags or {} })
 end)
 
@@ -242,7 +242,7 @@ RegisterNUICallback('removeCitizenTag', function(data, cb)
         cb({ success = false, message = 'Missing citizen id or tag' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:removeCitizenTag', data)
+    local result = MDT.callback(resourceName .. ':server:removeCitizenTag', data)
     cb(result or { success = false })
 end)
 
@@ -252,7 +252,7 @@ RegisterNUICallback('addCitizenGallery', function(data, cb)
         cb({ success = false, message = 'Missing citizen id or image' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:addCitizenGallery', data)
+    local result = MDT.callback(resourceName .. ':server:addCitizenGallery', data)
     cb(result or { success = false })
 end)
 
@@ -262,7 +262,7 @@ RegisterNUICallback('removeCitizenGallery', function(data, cb)
         cb({ success = false, message = 'Missing citizen id or image' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:removeCitizenGallery', data)
+    local result = MDT.callback(resourceName .. ':server:removeCitizenGallery', data)
     cb(result or { success = false })
 end)
 
@@ -273,7 +273,7 @@ RegisterNUICallback('updateCitizenFingerprint', function(data, cb)
         cb({ success = false, message = 'Missing citizen id' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:updateCitizenFingerprint', data.citizenid, data.fingerprint or '')
+    local result = MDT.callback(resourceName .. ':server:updateCitizenFingerprint', data.citizenid, data.fingerprint or '')
     cb(result or { success = false })
 end)
 
@@ -284,7 +284,7 @@ RegisterNUICallback('updateCitizenDNA', function(data, cb)
         cb({ success = false, message = 'Missing citizen id' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:updateCitizenDNA', data.citizenid, data.dna or '')
+    local result = MDT.callback(resourceName .. ':server:updateCitizenDNA', data.citizenid, data.dna or '')
     cb(result or { success = false })
 end)
 
@@ -295,7 +295,7 @@ RegisterNUICallback('addSuspectFingerprint', function(data, cb)
         cb({ success = false, message = 'Missing citizen id' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:addSuspectFingerprint', data.citizenid)
+    local result = MDT.callback(resourceName .. ':server:addSuspectFingerprint', data.citizenid)
     cb(result or { success = false, message = 'Failed to add fingerprint' })
 end)
 
@@ -322,6 +322,6 @@ RegisterNUICallback('uploadSuspectPhoto', function(data, cb)
         cb({ success = false, message = 'Missing citizen id or image data' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:uploadSuspectPhoto', data.citizenid, data.image)
+    local result = MDT.callback(resourceName .. ':server:uploadSuspectPhoto', data.citizenid, data.image)
     cb(result or { success = false, message = 'Failed to upload photo' })
 end)

@@ -3,7 +3,7 @@ local resourceName = tostring(GetCurrentResourceName())
 local dispatchMessages = {}
 
 -- Send dispatch message
-ps.registerCallback(resourceName .. ':server:sendDispatchMessage', function(source, payload)
+lib.callback.register(resourceName .. ':server:sendDispatchMessage', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -15,9 +15,9 @@ ps.registerCallback(resourceName .. ':server:sendDispatchMessage', function(sour
         return { success = false, message = 'Empty message' }
     end
 
-    local citizenid = ps.getIdentifier(src)
-    local callsign = ps.getMetadata(src, 'callsign') or '000'
-    local name = ps.getPlayerName(src) or 'Unknown'
+    local citizenid = MDT.getIdentifier(src)
+    local callsign = MDT.getMetadata(src, 'callsign') or '000'
+    local name = MDT.getPlayerName(src) or 'Unknown'
 
     local pfp = MySQL.scalar.await('SELECT profilepicture FROM mdt_profiles WHERE citizenid = ? LIMIT 1', { citizenid })
 
@@ -37,13 +37,13 @@ ps.registerCallback(resourceName .. ':server:sendDispatchMessage', function(sour
 end)
 
 -- Get dispatch messages
-ps.registerCallback(resourceName .. ':server:getDispatchMessages', function(source)
+lib.callback.register(resourceName .. ':server:getDispatchMessages', function(source)
     if not CheckAuth(source) then return {} end
     return dispatchMessages
 end)
 
 -- Get call responses from ps-dispatch
-ps.registerCallback(resourceName .. ':server:getCallResponses', function(source, callid)
+lib.callback.register(resourceName .. ':server:getCallResponses', function(source, callid)
     if not CheckAuth(source) then return {} end
 
     if GetResourceState('ps-dispatch') == 'started' then
@@ -57,7 +57,7 @@ ps.registerCallback(resourceName .. ':server:getCallResponses', function(source,
 end)
 
 -- Send call response
-ps.registerCallback(resourceName .. ':server:sendCallResponse', function(source, payload)
+lib.callback.register(resourceName .. ':server:sendCallResponse', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false } end
 
@@ -70,7 +70,7 @@ ps.registerCallback(resourceName .. ':server:sendCallResponse', function(source,
         return { success = false }
     end
 
-    local name = ps.getPlayerName(src) or 'Unknown'
+    local name = MDT.getPlayerName(src) or 'Unknown'
 
     if GetResourceState('ps-dispatch') == 'started' then
         TriggerEvent('dispatch:sendCallResponse', src, callid, message, time, function(isGood)
@@ -84,7 +84,7 @@ ps.registerCallback(resourceName .. ':server:sendCallResponse', function(source,
 end)
 
 -- Signal 100 (Panic / Emergency)
-ps.registerCallback(resourceName .. ':server:signal100', function(source, payload)
+lib.callback.register(resourceName .. ':server:signal100', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -96,15 +96,15 @@ ps.registerCallback(resourceName .. ':server:signal100', function(source, payloa
 
     TriggerClientEvent(resourceName .. ':client:sig100', -1, radio, active)
 
-    if ps.auditLog then
-        ps.auditLog(src, active and 'signal100_activated' or 'signal100_deactivated', 'dispatch', radio, {})
+    if MDT.auditLog then
+        MDT.auditLog(src, active and 'signal100_activated' or 'signal100_deactivated', 'dispatch', radio, {})
     end
 
     return { success = true, message = active and 'Signal 100 activated' or 'Signal 100 cleared' }
 end)
 
 -- Attached Units Query
-ps.registerCallback(resourceName .. ':server:getAttachedUnits', function(source, callid)
+lib.callback.register(resourceName .. ':server:getAttachedUnits', function(source, callid)
     if not CheckAuth(source) then return {} end
     if not callid then return {} end
 

@@ -2,8 +2,8 @@ local resourceName = tostring(GetCurrentResourceName())
 
 local function resolvePoliceJobName(source)
     local jobName = (Config and Config.PoliceJobs and Config.PoliceJobs[1]) or 'police'
-    if source and ps and ps.getJobName then
-        local playerJob = ps.getJobName(source)
+    if source and MDT and MDT.getJobName then
+        local playerJob = MDT.getJobName(source)
         if playerJob then
             jobName = playerJob
         end
@@ -45,8 +45,8 @@ local function getPoliceJobDefinition(source)
         end
     end
 
-    if ps and ps.getSharedJobData then
-        local job = ps.getSharedJobData(jobName)
+    if MDT and MDT.getSharedJobData then
+        local job = MDT.getSharedJobData(jobName)
         if job then
             return jobName, job
         end
@@ -130,14 +130,14 @@ local function getEffectiveRolePermissions(jobName, gradeKey, isBoss, stored)
     return normalizePermissionList(merged)
 end
 
-ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(source)
+lib.callback.register(resourceName .. ':server:getPermissionRoles', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 
     local jobName, job = getPoliceJobDefinition(src)
     local hasBossAccess = false
-    if ps and ps.getJobData then
-        local jobData = ps.getJobData(src)
+    if MDT and MDT.getJobData then
+        local jobData = MDT.getJobData(src)
         if jobData and jobData.grade then
             if type(jobData.grade) == 'table' then
                 hasBossAccess = jobData.grade.isboss == true or jobData.grade.isBoss == true or jobData.grade.boss == true
@@ -150,10 +150,10 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
             end
         end
     end
-    ps.debug('[getPermissionRoles] jobName', jobName, 'job', job and job.label or 'nil')
+    MDT.debug('[getPermissionRoles] jobName', jobName, 'job', job and job.label or 'nil')
     if not job or not job.grades then
-        ps.debug('[getPermissionRoles] no job grades, using fallback')
-        local isBoss = ps and ps.isBoss and ps.isBoss(src) or false
+        MDT.debug('[getPermissionRoles] no job grades, using fallback')
+        local isBoss = MDT and MDT.isBoss and MDT.isBoss(src) or false
         local fallbackPermissions = getEffectiveRolePermissions(jobName, 0, isBoss, nil)
         return {
             job = jobName,
@@ -172,7 +172,7 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
 
     local roles = {}
     local storedRows = MySQL.query.await('SELECT grade, permissions FROM mdt_permission_roles WHERE job = ?', { jobName }) or {}
-    ps.debug('[getPermissionRoles] stored rows', storedRows and #storedRows or 0)
+    MDT.debug('[getPermissionRoles] stored rows', storedRows and #storedRows or 0)
     local storedByGrade = {}
     for _, row in ipairs(storedRows) do
         if row.grade ~= nil then
@@ -186,7 +186,7 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
     for _ in pairs(grades or {}) do
         gradeCount = gradeCount + 1
     end
-    ps.debug('[getPermissionRoles] grade count', gradeCount)
+    MDT.debug('[getPermissionRoles] grade count', gradeCount)
     for gradeKeyString, gradeData in pairs(grades) do
         local isBoss = hasBossAccess or isBossGrade(gradeData)
         local stored = storedByGrade[gradeKeyString]
@@ -205,8 +205,8 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
         }
     end
 
-    if #roles == 0 and ps and ps.getJobData then
-        local jobData = ps.getJobData(src)
+    if #roles == 0 and MDT and MDT.getJobData then
+        local jobData = MDT.getJobData(src)
         if jobData then
             local gradeValue = jobData.grade
             local gradeLabel = nil
@@ -249,7 +249,7 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:updatePermissionRole', function(source, payload)
+lib.callback.register(resourceName .. ':server:updatePermissionRole', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'management_permissions') then
@@ -294,7 +294,7 @@ ps.registerCallback(resourceName .. ':server:updatePermissionRole', function(sou
         end
     end
 
-    local updatedBy = ps.getIdentifier(src)
+    local updatedBy = MDT.getIdentifier(src)
     MySQL.update.await([[
         INSERT INTO mdt_permission_roles (job, grade, permissions, updated_by)
         VALUES (?, ?, ?, ?)
@@ -304,7 +304,7 @@ ps.registerCallback(resourceName .. ':server:updatePermissionRole', function(sou
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:getTags', function(source, data)
+lib.callback.register(resourceName .. ':server:getTags', function(source, data)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -341,7 +341,7 @@ end)
 local VALID_TAG_TYPES = { report = true, officer = true, citizen = true }
 local VALID_TAG_JOBS = { leo = true, ems = true, all = true }
 
-ps.registerCallback(resourceName .. ':server:createTag', function(source, payload)
+lib.callback.register(resourceName .. ':server:createTag', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -375,7 +375,7 @@ ps.registerCallback(resourceName .. ':server:createTag', function(source, payloa
     return { success = true, id = id }
 end)
 
-ps.registerCallback(resourceName .. ':server:updateTag', function(source, payload)
+lib.callback.register(resourceName .. ':server:updateTag', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -422,7 +422,7 @@ end)
 
 -- AWARDS MANAGEMENT -------------------------------------------
 
-ps.registerCallback(resourceName .. ':server:getAwardConfigs', function(source)
+lib.callback.register(resourceName .. ':server:getAwardConfigs', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -447,7 +447,7 @@ ps.registerCallback(resourceName .. ':server:getAwardConfigs', function(source)
     return result
 end)
 
-ps.registerCallback(resourceName .. ':server:saveAward', function(source, payload)
+lib.callback.register(resourceName .. ':server:saveAward', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'management_permissions') then
@@ -493,7 +493,7 @@ ps.registerCallback(resourceName .. ':server:saveAward', function(source, payloa
     return { success = true, id = id }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteAward', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteAward', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -507,16 +507,16 @@ ps.registerCallback(resourceName .. ':server:deleteAward', function(source, payl
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:getAwardsData', function(source, payload)
+lib.callback.register(resourceName .. ':server:getAwardsData', function(source, payload)
     local src = source
     if not CheckAuth(src) then return nil end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then return nil end
 
     -- Get officer info
-    local playerName = ps.getName(src) or 'Unknown'
-    local jobData = ps.getJobData(src)
+    local playerName = MDT.getName(src) or 'Unknown'
+    local jobData = MDT.getJobData(src)
     local callsign = ''
     local rank = ''
     if jobData then
@@ -690,7 +690,7 @@ end)
 
 -- CUSTOM LICENSES MANAGEMENT -------------------------------------------
 
-ps.registerCallback(resourceName .. ':server:getCustomLicenses', function(source)
+lib.callback.register(resourceName .. ':server:getCustomLicenses', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -709,7 +709,7 @@ ps.registerCallback(resourceName .. ':server:getCustomLicenses', function(source
     return result
 end)
 
-ps.registerCallback(resourceName .. ':server:saveCustomLicense', function(source, payload)
+lib.callback.register(resourceName .. ':server:saveCustomLicense', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -746,7 +746,7 @@ ps.registerCallback(resourceName .. ':server:saveCustomLicense', function(source
     return { success = true, id = id }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteCustomLicense', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteCustomLicense', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -760,7 +760,7 @@ ps.registerCallback(resourceName .. ':server:deleteCustomLicense', function(sour
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteTag', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteTag', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 

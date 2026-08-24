@@ -40,8 +40,8 @@ end
 ---@param src number
 ---@return string
 local function getDisplayName(src)
-    local callsign = ps.getMetadata(src, 'callsign')
-    local name = ps.getPlayerName(src) or 'Unknown'
+    local callsign = MDT.getMetadata(src, 'callsign')
+    local name = MDT.getPlayerName(src) or 'Unknown'
     if callsign and callsign ~= '' then
         return callsign .. ' ' .. name
     end
@@ -306,7 +306,7 @@ end
 
 --- Resolve a number without creating anything, so the officer sees who they are
 --- about to request surveillance on before they submit.
-ps.registerCallback(resourceName .. ':server:lookupPhoneNumber', function(source, number)
+lib.callback.register(resourceName .. ':server:lookupPhoneNumber', function(source, number)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not enabled() then return { success = false, error = 'Phone tracking is disabled' } end
@@ -321,7 +321,7 @@ ps.registerCallback(resourceName .. ':server:lookupPhoneNumber', function(source
     return { success = true, citizenid = citizenid, name = name }
 end)
 
-ps.registerCallback(resourceName .. ':server:requestPhoneTrack', function(source, payload)
+lib.callback.register(resourceName .. ':server:requestPhoneTrack', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not enabled() then return { success = false, error = 'Phone tracking is disabled' } end
@@ -351,7 +351,7 @@ ps.registerCallback(resourceName .. ':server:requestPhoneTrack', function(source
         return { success = false, error = 'There is already an open request for that number' }
     end
 
-    local officerCitizenid = ps.getIdentifier(src)
+    local officerCitizenid = MDT.getIdentifier(src)
     local officerName = getDisplayName(src)
     local autoApprove = cfg().RequireApproval == false
 
@@ -367,8 +367,8 @@ ps.registerCallback(resourceName .. ':server:requestPhoneTrack', function(source
 
     if not id then return { success = false, error = 'Failed to create request' } end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'phone_track_requested', 'phone_track', id, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'phone_track_requested', 'phone_track', id, {
             number = number, citizenid = citizenid, auto_approved = autoApprove,
         })
     end
@@ -387,7 +387,7 @@ ps.registerCallback(resourceName .. ':server:requestPhoneTrack', function(source
     return { success = true, id = id, citizenid = citizenid, name = name, pending = not autoApprove }
 end)
 
-ps.registerCallback(resourceName .. ':server:reviewPhoneTrack', function(source, track_id, decision, reason)
+lib.callback.register(resourceName .. ':server:reviewPhoneTrack', function(source, track_id, decision, reason)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'phone_track_review') then
@@ -403,7 +403,7 @@ ps.registerCallback(resourceName .. ':server:reviewPhoneTrack', function(source,
     local row = MySQL.single.await('SELECT * FROM mdt_phone_tracks WHERE id = ? AND status = ?', { track_id, 'pending' })
     if not row then return { success = false, error = 'Request not found or already reviewed' } end
 
-    local reviewerCitizenid = ps.getIdentifier(src)
+    local reviewerCitizenid = MDT.getIdentifier(src)
     local reviewerName = getDisplayName(src)
 
     -- Approval grants a warrant with a shelf life; it does not switch anything
@@ -417,8 +417,8 @@ ps.registerCallback(resourceName .. ':server:reviewPhoneTrack', function(source,
         WHERE id = ?
     ]], { decision, reviewerCitizenid, reviewerName, reason or '', decision, validFor, track_id })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'phone_track_' .. decision, 'phone_track', track_id, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'phone_track_' .. decision, 'phone_track', track_id, {
             number = row.number, citizenid = row.citizenid, reason = reason or '',
         })
     end
@@ -428,7 +428,7 @@ end)
 
 --- Cancel a running or pending track early. The requesting officer may pull
 --- their own; a reviewer may pull anyone's.
-ps.registerCallback(resourceName .. ':server:cancelPhoneTrack', function(source, track_id)
+lib.callback.register(resourceName .. ':server:cancelPhoneTrack', function(source, track_id)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -440,7 +440,7 @@ ps.registerCallback(resourceName .. ':server:cancelPhoneTrack', function(source,
     ]], { track_id })
     if not row then return { success = false, error = 'Track not found or already closed' } end
 
-    local mine = row.requesting_officer == ps.getIdentifier(src)
+    local mine = row.requesting_officer == MDT.getIdentifier(src)
     if not mine and not CheckPermission(src, 'phone_track_review') then
         return { success = false, error = 'You cannot cancel another officer\'s request' }
     end
@@ -451,8 +451,8 @@ ps.registerCallback(resourceName .. ':server:cancelPhoneTrack', function(source,
         MySQL.update.await('UPDATE mdt_phone_tracks SET status = ? WHERE id = ?', { 'cancelled', track_id })
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'phone_track_cancelled', 'phone_track', track_id, { number = row.number })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'phone_track_cancelled', 'phone_track', track_id, { number = row.number })
     end
 
     return { success = true }
@@ -460,7 +460,7 @@ end)
 
 --- Execute an approved warrant. This is the trigger the officer pulls, and the
 --- only place a track ever starts.
-ps.registerCallback(resourceName .. ':server:startPhoneTrack', function(source, track_id)
+lib.callback.register(resourceName .. ':server:startPhoneTrack', function(source, track_id)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not enabled() then return { success = false, error = 'Phone tracking is disabled' } end
@@ -476,7 +476,7 @@ ps.registerCallback(resourceName .. ':server:startPhoneTrack', function(source, 
 
     -- Only the officer who asked for it. A warrant is granted to a person on
     -- the strength of their justification, not to the department at large.
-    if row.requesting_officer ~= ps.getIdentifier(src) then
+    if row.requesting_officer ~= MDT.getIdentifier(src) then
         return { success = false, error = 'This warrant was granted to another officer' }
     end
 
@@ -512,8 +512,8 @@ ps.registerCallback(resourceName .. ':server:startPhoneTrack', function(source, 
 
     beginTracking(row)
 
-    if ps.auditLog then
-        ps.auditLog(src, 'phone_track_started', 'phone_track', track_id, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'phone_track_started', 'phone_track', track_id, {
             number = row.number, citizenid = row.citizenid,
         })
     end
@@ -535,7 +535,7 @@ CreateThread(function()
 end)
 
 --- Pending requests, for the judge's review queue.
-ps.registerCallback(resourceName .. ':server:getPhoneTrackRequests', function(source)
+lib.callback.register(resourceName .. ':server:getPhoneTrackRequests', function(source)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'phone_track_review') then
@@ -555,7 +555,7 @@ end)
 
 --- Everything the requesting side needs: this officer's own requests plus the
 --- tracks currently running.
-ps.registerCallback(resourceName .. ':server:getPhoneTracks', function(source)
+lib.callback.register(resourceName .. ':server:getPhoneTracks', function(source)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'phone_track_request') then
@@ -572,7 +572,7 @@ ps.registerCallback(resourceName .. ':server:getPhoneTracks', function(source)
                     ELSE NULL END AS approval_seconds_left
         FROM mdt_phone_tracks WHERE requesting_officer = ?
         ORDER BY created_at DESC LIMIT 25
-    ]], { ps.getIdentifier(src) }) or {}
+    ]], { MDT.getIdentifier(src) }) or {}
 
     return { success = true, mine = mine, active = GetActivePhoneTracks() }
 end)

@@ -30,8 +30,8 @@ end
 -- finally the raw job name. Avoids showing the internal id like "police" as DEPT.
 local function deptLabel(jobName, jobObj)
     if jobObj and jobObj.label and jobObj.label ~= '' then return jobObj.label end
-    if jobName and ps.getSharedJobData then
-        local shared = ps.getSharedJobData(jobName)
+    if jobName and MDT.getSharedJobData then
+        local shared = MDT.getSharedJobData(jobName)
         if shared and shared.label and shared.label ~= '' then return shared.label end
     end
     return jobName
@@ -118,19 +118,19 @@ end
 
 local function checkDuty(citizenid, matchFn)
     matchFn = matchFn or IsPoliceJob
-    local player = ps.getPlayerByIdentifier(citizenid)
+    local player = MDT.getPlayerByIdentifier(citizenid)
     if not player then return 'Off Duty' end
 
     local src = player.source or (player.PlayerData and player.PlayerData.source)
     if not src then return 'Off Duty' end
 
-    if matchFn(ps.getJobName(src), ps.getJobType(src)) and ps.getJobDuty(src) then
+    if matchFn(MDT.getJobName(src), MDT.getJobType(src)) and MDT.getJobDuty(src) then
         return 'On Duty'
     end
     return 'Off Duty'
 end
 
-ps.registerCallback('ps-mdt:server:getRosterList', function(source)
+lib.callback.register('ps-mdt:server:getRosterList', function(source)
     -- Without this a civilian reached the roster: GetMdtDomain resolves any non-EMS job
     -- (mechanic, unemployed, anyone) to 'police', so the fallback path handed out the
     -- full police roster — names, ranks, callsigns — to whoever asked.
@@ -187,9 +187,9 @@ ps.registerCallback('ps-mdt:server:getRosterList', function(source)
             local callsign = metadata.callsign or 'N/A'
             local firstName = charinfo.firstname or 'N/A'
             local lastName = charinfo.lastname or 'N/A'
-            local rank = job.grade and job.grade.name or employee.grade and ps.getSharedJobGradeData(jobName or defaultDept, employee.grade, 'name') or 'Officer'
+            local rank = job.grade and job.grade.name or employee.grade and MDT.getSharedJobGradeData(jobName or defaultDept, employee.grade, 'name') or 'Officer'
             local status = checkDuty(citizenid, matchFn)
-            local onlinePlayer = ps.getPlayerByIdentifier(citizenid)
+            local onlinePlayer = MDT.getPlayerByIdentifier(citizenid)
             local onlineSrc = onlinePlayer and (onlinePlayer.source or (onlinePlayer.PlayerData and onlinePlayer.PlayerData.source)) or nil
             rosterList[#rosterList + 1] = {
                 id = #rosterList + 1,
@@ -223,11 +223,11 @@ ps.registerCallback('ps-mdt:server:getRosterList', function(source)
 end)
 
 -- Get available officer tags/certifications (filtered by job type)
-ps.registerCallback('ps-mdt:server:getOfficerTags', function(source)
+lib.callback.register('ps-mdt:server:getOfficerTags', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 
-    local jobType = ps.getJobType(src)
+    local jobType = MDT.getJobType(src)
     local rows
     if jobType and (jobType == 'leo' or jobType == 'ems') then
         rows = MySQL.query.await([[
@@ -247,7 +247,7 @@ ps.registerCallback('ps-mdt:server:getOfficerTags', function(source)
 end)
 
 -- Update officer certifications
-ps.registerCallback('ps-mdt:server:updateOfficerCertifications', function(source, payload)
+lib.callback.register('ps-mdt:server:updateOfficerCertifications', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'roster_manage_certifications') then
@@ -271,7 +271,7 @@ ps.registerCallback('ps-mdt:server:updateOfficerCertifications', function(source
 end)
 
 -- Get job grades for a specific department
-ps.registerCallback('ps-mdt:server:getJobGrades', function(source, payload)
+lib.callback.register('ps-mdt:server:getJobGrades', function(source, payload)
     local src = source
     if not CheckAuth(src) then return {} end
     if not CheckPermission(src, 'roster_manage_officers') then return {} end
@@ -279,7 +279,7 @@ ps.registerCallback('ps-mdt:server:getJobGrades', function(source, payload)
     payload = payload or {}
     local jobName = payload.job or 'police'
 
-    local jobData = ps.getSharedJob(jobName)
+    local jobData = MDT.getSharedJob(jobName)
     if not jobData or not jobData.grades then return {} end
 
     local grades = {}
@@ -297,7 +297,7 @@ end)
 
 -- Promote/demote an officer (change their job grade)
 -- Set a player's job/grade directly through the active framework.
--- The ps bridge's setJob path depends on a setPlayerData export that isn't
+-- The framework bridge's setJob path depends on a setPlayerData export that isn't
 -- present on this server, so promote/terminate calls silently failed. We talk to
 -- QBX first (the roster already uses qbx_core), then fall back to QBCore.
 ---@return boolean ok
@@ -324,7 +324,7 @@ local function setOfficerJob(targetSrc, jobName, grade)
     return false
 end
 
-ps.registerCallback('ps-mdt:server:promoteOfficer', function(source, payload)
+lib.callback.register('ps-mdt:server:promoteOfficer', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'roster_manage_officers') then
@@ -341,13 +341,13 @@ ps.registerCallback('ps-mdt:server:promoteOfficer', function(source, payload)
     end
 
     -- Validate the grade exists
-    local gradeData = ps.getSharedJobGrade(jobName, newGrade)
+    local gradeData = MDT.getSharedJobGrade(jobName, newGrade)
     if not gradeData then
         return { success = false, message = 'Invalid grade for this job' }
     end
 
     -- Find the target player (must be online for QBCore SetJob)
-    local targetPlayer = ps.getPlayerByIdentifier(citizenid)
+    local targetPlayer = MDT.getPlayerByIdentifier(citizenid)
     if not targetPlayer then
         return { success = false, message = 'Officer must be online to change rank' }
     end
@@ -368,8 +368,8 @@ ps.registerCallback('ps-mdt:server:promoteOfficer', function(source, payload)
 
     local gradeName = gradeData.name or ('Grade ' .. newGrade)
 
-    if ps.auditLog then
-        ps.auditLog(src, 'officer_promoted', 'officers', citizenid, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'officer_promoted', 'officers', citizenid, {
             job = jobName,
             grade = newGrade,
             gradeName = gradeName,
@@ -380,7 +380,7 @@ ps.registerCallback('ps-mdt:server:promoteOfficer', function(source, payload)
 end)
 
 -- Fire an officer (set their job to unemployed)
-ps.registerCallback('ps-mdt:server:fireOfficer', function(source, payload)
+lib.callback.register('ps-mdt:server:fireOfficer', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'roster_manage_officers') then
@@ -394,7 +394,7 @@ ps.registerCallback('ps-mdt:server:fireOfficer', function(source, payload)
         return { success = false, message = 'Missing citizen ID' }
     end
 
-    local targetPlayer = ps.getPlayerByIdentifier(citizenid)
+    local targetPlayer = MDT.getPlayerByIdentifier(citizenid)
     if not targetPlayer then
         return { success = false, message = 'Officer must be online to be terminated' }
     end
@@ -421,8 +421,8 @@ ps.registerCallback('ps-mdt:server:fireOfficer', function(source, payload)
         cleanup = CleanupPersonnelData(citizenid)
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'officer_fired', 'officers', citizenid, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'officer_fired', 'officers', citizenid, {
             dataDeleted = payload.deleteData and true or false,
             cleanupSteps = cleanup and cleanup.steps or nil,
         })
@@ -445,7 +445,7 @@ end)
 --- Officers change department, go on leave, or simply hand a number over. Until now the
 --- only way to free a callsign was to terminate the officer, so numbers stayed locked to
 --- people who weren't using them and a small range silently filled up with dead entries.
-ps.registerCallback('ps-mdt:server:releaseOfficerCallsign', function(source, payload)
+lib.callback.register('ps-mdt:server:releaseOfficerCallsign', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'roster_manage_officers') then
@@ -463,8 +463,8 @@ ps.registerCallback('ps-mdt:server:releaseOfficerCallsign', function(source, pay
     -- other way round let PersistLiveMetadata write the old callsign straight back.
     ClearCallsign(citizenid)
 
-    if ps.auditLog then
-        ps.auditLog(src, 'callsign_changed', 'officers', citizenid, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'callsign_changed', 'officers', citizenid, {
             callsign     = nil,
             released     = current,
             action_label = current
@@ -476,7 +476,7 @@ ps.registerCallback('ps-mdt:server:releaseOfficerCallsign', function(source, pay
     return { success = true, message = current and ('Released ' .. current) or 'Callsign cleared' }
 end)
 
-ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payload)
+lib.callback.register('ps-mdt:server:updateOfficerCallsign', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'roster_manage_officers') then
@@ -537,10 +537,10 @@ ps.registerCallback('ps-mdt:server:updateOfficerCallsign', function(source, payl
     local resourceName = GetCurrentResourceName()
     TriggerClientEvent(resourceName .. ':client:updateCallsign', Player.PlayerData.source, newCallsign)
 
-    if ps.auditLog then
+    if MDT.auditLog then
         -- Handing out a reserved number is a different act from handing out a spare
         -- one, so it doesn't get filed as the same thing.
-        ps.auditLog(src, 'callsign_changed', 'officers', citizenid, {
+        MDT.auditLog(src, 'callsign_changed', 'officers', citizenid, {
             callsign     = newCallsign,
             reserved     = reservedReason,
             action_label = reservedReason

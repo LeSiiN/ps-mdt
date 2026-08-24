@@ -6,7 +6,7 @@ local resourceName = tostring(GetCurrentResourceName())
 
 RegisterNUICallback('getHearings', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local result = ps.callback(resourceName .. ':server:getHearings', {
+    local result = MDT.callback(resourceName .. ':server:getHearings', {
         from = data and data.from,
         to   = data and data.to,
     })
@@ -15,7 +15,7 @@ end)
 
 RegisterNUICallback('getHearing', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:getHearing', {
+    local result = MDT.callback(resourceName .. ':server:getHearing', {
         hearingId = data and data.hearingId,
     })
     cb(result or { success = false })
@@ -23,13 +23,13 @@ end)
 
 RegisterNUICallback('createHearing', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:createHearing', data or {})
+    local result = MDT.callback(resourceName .. ':server:createHearing', data or {})
     cb(result or { success = false, error = 'Failed to create hearing' })
 end)
 
 RegisterNUICallback('createHearingFromWarrant', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:createHearingFromWarrant', {
+    local result = MDT.callback(resourceName .. ':server:createHearingFromWarrant', {
         reportId = data and data.reportId,
     })
     cb(result or { success = false, error = 'Failed to create hearing' })
@@ -37,7 +37,7 @@ end)
 
 RegisterNUICallback('updateHearing', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:updateHearing', {
+    local result = MDT.callback(resourceName .. ':server:updateHearing', {
         hearingId = data and data.hearingId,
         data      = data and data.data,
     })
@@ -46,7 +46,7 @@ end)
 
 RegisterNUICallback('deleteHearing', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:deleteHearing', {
+    local result = MDT.callback(resourceName .. ':server:deleteHearing', {
         hearingId = data and data.hearingId,
     })
     cb(result or { success = false, error = 'Failed to delete hearing' })
@@ -54,13 +54,13 @@ end)
 
 RegisterNUICallback('addHearingAttendee', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:addHearingAttendee', data or {})
+    local result = MDT.callback(resourceName .. ':server:addHearingAttendee', data or {})
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('removeHearingAttendee', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:removeHearingAttendee', {
+    local result = MDT.callback(resourceName .. ':server:removeHearingAttendee', {
         attendeeId = data and data.attendeeId,
     })
     cb(result or { success = false })
@@ -68,7 +68,7 @@ end)
 
 RegisterNUICallback('setHearingStatus', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:setHearingStatus', {
+    local result = MDT.callback(resourceName .. ':server:setHearingStatus', {
         hearingId = data and data.hearingId,
         status    = data and data.status,
     })
@@ -77,13 +77,13 @@ end)
 
 RegisterNUICallback('getAttendeeGroups', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local result = ps.callback(resourceName .. ':server:getAttendeeGroups', {})
+    local result = MDT.callback(resourceName .. ':server:getAttendeeGroups', {})
     cb(result or {})
 end)
 
 RegisterNUICallback('getGroupMembers', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:getGroupMembers', {
+    local result = MDT.callback(resourceName .. ':server:getGroupMembers', {
         groupId = data and data.groupId,
     })
     cb(result or { success = false })
@@ -91,7 +91,7 @@ end)
 
 RegisterNUICallback('addHearingAttendeesBulk', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:addHearingAttendeesBulk', {
+    local result = MDT.callback(resourceName .. ':server:addHearingAttendeesBulk', {
         hearingId = data and data.hearingId,
         attendees = data and data.attendees,
     })
@@ -100,7 +100,7 @@ end)
 
 RegisterNUICallback('getMissedHearings', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local result = ps.callback(resourceName .. ':server:getMissedHearings', {})
+    local result = MDT.callback(resourceName .. ':server:getMissedHearings', {})
     cb(result or {})
 end)
 

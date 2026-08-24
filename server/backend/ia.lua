@@ -63,7 +63,7 @@ end
 local ComplaintCooldown = {}
 
 AddEventHandler('playerDropped', function()
-    local cid = ps.getIdentifier and ps.getIdentifier(source) or nil
+    local cid = MDT.getIdentifier and MDT.getIdentifier(source) or nil
     if cid then ComplaintCooldown[cid] = nil end
 end)
 
@@ -103,11 +103,11 @@ local function resolveOfficer(name, badge)
     return nil -- no match, or ambiguous: better unassigned than wrong
 end
 
-ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, data)
+lib.callback.register(resourceName .. ':server:submitComplaint', function(source, data)
     local src = source
     data = data or {}
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then
         return { success = false, error = 'Missing citizen id' }
     end
@@ -201,12 +201,12 @@ ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, 
 end)
 
 -- Get paginated list of IA complaints
-ps.registerCallback(resourceName .. ':server:getIAComplaints', function(source, pageNum, filters)
+lib.callback.register(resourceName .. ':server:getIAComplaints', function(source, pageNum, filters)
     local src = source
     filters = filters or {}
 
     if not CheckAuth(src) then
-        ps.debug('getIAComplaints: CheckAuth failed for source ' .. tostring(src))
+        MDT.debug('getIAComplaints: CheckAuth failed for source ' .. tostring(src))
         return { complaints = {}, hasMore = false }
     end
 
@@ -254,7 +254,7 @@ ps.registerCallback(resourceName .. ':server:getIAComplaints', function(source, 
     local ok, rows = pcall(MySQL.query.await, query, values)
 
     if not ok then
-        ps.warn('[getIAComplaints] query failed: ' .. tostring(rows))
+        MDT.warn('[getIAComplaints] query failed: ' .. tostring(rows))
         return { complaints = {}, hasMore = false }
     end
 
@@ -265,7 +265,7 @@ ps.registerCallback(resourceName .. ':server:getIAComplaints', function(source, 
 end)
 
 -- Get single IA complaint with notes
-ps.registerCallback(resourceName .. ':server:getIAComplaint', function(source, data)
+lib.callback.register(resourceName .. ':server:getIAComplaint', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -300,7 +300,7 @@ end)
 -- Matches on the officer's citizenid where the complaint carries one, and still
 -- falls back to the name so complaints filed before the link existed (or ones IA
 -- never managed to assign) don't vanish from the profile.
-ps.registerCallback(resourceName .. ':server:getIAHistoryForOfficer', function(source, officerName, officerCid)
+lib.callback.register(resourceName .. ':server:getIAHistoryForOfficer', function(source, officerName, officerCid)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -330,7 +330,7 @@ ps.registerCallback(resourceName .. ':server:getIAHistoryForOfficer', function(s
 end)
 
 -- Update IA complaint details (officer, badge, date, location)
-ps.registerCallback(resourceName .. ':server:updateIAComplaintInfo', function(source, complaintId, updates)
+lib.callback.register(resourceName .. ':server:updateIAComplaintInfo', function(source, complaintId, updates)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -381,7 +381,7 @@ ps.registerCallback(resourceName .. ':server:updateIAComplaintInfo', function(so
 end)
 
 -- Update IA complaint status
-ps.registerCallback(resourceName .. ':server:updateIAStatus', function(source, complaintId, status)
+lib.callback.register(resourceName .. ':server:updateIAStatus', function(source, complaintId, status)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -392,7 +392,7 @@ ps.registerCallback(resourceName .. ':server:updateIAStatus', function(source, c
 
     local ok, err = pcall(MySQL.update.await, 'UPDATE mdt_ia_complaints SET status = ? WHERE id = ?', { status, complaintId })
     if not ok then
-        ps.warn('[updateIAStatus] Failed: ' .. tostring(err))
+        MDT.warn('[updateIAStatus] Failed: ' .. tostring(err))
         return { success = false, error = 'Failed to update status: ' .. tostring(err) }
     end
 
@@ -402,7 +402,7 @@ ps.registerCallback(resourceName .. ':server:updateIAStatus', function(source, c
 end)
 
 -- Assign an investigator to an IA complaint (or unassign with '__unassign__')
-ps.registerCallback(resourceName .. ':server:assignIAComplaint', function(source, complaintId, assigneeCitizenId)
+lib.callback.register(resourceName .. ':server:assignIAComplaint', function(source, complaintId, assigneeCitizenId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -430,7 +430,7 @@ ps.registerCallback(resourceName .. ':server:assignIAComplaint', function(source
 end)
 
 -- Add a note to an IA complaint
-ps.registerCallback(resourceName .. ':server:addIANote', function(source, complaintId, content)
+lib.callback.register(resourceName .. ':server:addIANote', function(source, complaintId, content)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -439,7 +439,7 @@ ps.registerCallback(resourceName .. ':server:addIANote', function(source, compla
         return { success = false, error = 'Invalid complaint or empty note' }
     end
 
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local authorName = profile and profile.fullname or 'Unknown'
 
@@ -452,7 +452,7 @@ ps.registerCallback(resourceName .. ':server:addIANote', function(source, compla
 end)
 
 -- Delete a note from an IA complaint
-ps.registerCallback(resourceName .. ':server:deleteIANote', function(source, noteId, complaintId)
+lib.callback.register(resourceName .. ':server:deleteIANote', function(source, noteId, complaintId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 

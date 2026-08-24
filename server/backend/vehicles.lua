@@ -243,7 +243,7 @@ local function countSetItems(set)
     return count
 end
 
-ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
+lib.callback.register(resourceName .. ':server:GetVehicles', function(source)
     local startTime = os.clock()
     local src = source
     if not CheckAuth(src) then return end
@@ -334,7 +334,7 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
             model = v.vehicle,
             label = vehicleData and vehicleData.name or 'Unknown Vehicle',
             plate = plate,
-            owner = ps.getPlayerNameByIdentifier(v.citizenid) or 'Unknown',
+            owner = MDT.getPlayerNameByIdentifier(v.citizenid) or 'Unknown',
             class = formatLabel(vehicleData and vehicleData.category or 'Unknown'),
             type = formatLabel(vehicleData and vehicleData.type or 'Unknown'),
             flags = flags,
@@ -351,13 +351,13 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
 
     local endTime = os.clock()
     local elapsedTime = (endTime - startTime) * 1000
-    ps.debug(string.format("getVehicles callback executed in %.2f ms", elapsedTime))
+    MDT.debug(string.format("getVehicles callback executed in %.2f ms", elapsedTime))
 
     if vehicles[1] then
-        ps.debug('[getVehicles] Sample vehicle data structure:', vehicles[1])
+        MDT.debug('[getVehicles] Sample vehicle data structure:', vehicles[1])
     end
     if bolos[1] then
-        ps.debug('[getVehicles] Sample bolo data structure:', bolos[1])
+        MDT.debug('[getVehicles] Sample bolo data structure:', bolos[1])
     end
 
     return {
@@ -372,7 +372,7 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:UpdateVehicle', function(source, payload)
+lib.callback.register(resourceName .. ':server:UpdateVehicle', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -429,8 +429,8 @@ ps.registerCallback(resourceName .. ':server:UpdateVehicle', function(source, pa
 
     MySQL.update.await(('UPDATE player_vehicles SET %s WHERE plate = ?'):format(table.concat(updates, ', ')), values)
 
-    if ps.auditLog then
-        ps.auditLog(src, 'vehicle_updated', 'vehicle', plate, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'vehicle_updated', 'vehicle', plate, {
             plate = plate,
             points = points,
             information = payload.information,
@@ -440,7 +440,7 @@ ps.registerCallback(resourceName .. ':server:UpdateVehicle', function(source, pa
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:GetVehicle', function(source, plate)
+lib.callback.register(resourceName .. ':server:GetVehicle', function(source, plate)
     local src = source
     if not CheckAuth(src) then return end
 
@@ -513,7 +513,7 @@ ps.registerCallback(resourceName .. ':server:GetVehicle', function(source, plate
             label = vehicleData and vehicleData.name or 'Unknown Vehicle',
             brand = vehicleData and vehicleData.brand or nil,
             plate = plateUpper,
-            owner = ps.getPlayerNameByIdentifier(row.citizenid) or 'Unknown',
+            owner = MDT.getPlayerNameByIdentifier(row.citizenid) or 'Unknown',
             class = formatLabel(vehicleData and vehicleData.category or 'Unknown'),
             type = formatLabel(vehicleData and vehicleData.type or 'Unknown'),
             image = (row.image and row.image ~= '' and row.image) or ('https://docs.fivem.net/vehicles/' .. row.vehicle .. '.webp'),

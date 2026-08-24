@@ -1,6 +1,6 @@
 # ps-mdt v3
 
-Police MDT (Mobile Data Terminal) for FiveM. Built with Svelte 5 and Lua. Works on QBCore and QBX through the ps_lib abstraction layer.
+Police MDT (Mobile Data Terminal) for FiveM. Built with Svelte 5 and Lua. Works on QBCore and Qbox (qbx_core) out of the box — no framework setting to pick, and no framework abstraction resource to install.
 
 ## What is this
 
@@ -12,10 +12,17 @@ These need to be running on your server:
 
 | Resource | Why |
 |----------|-----|
-| [ps_lib](https://github.com/Project-Sloth/ps_lib) | Framework abstraction layer |
 | [oxmysql](https://github.com/overextended/oxmysql) | Database |
-| [ox_lib](https://github.com/overextended/ox_lib) | Utility library |
-| [screenshot-basic](https://github.com/citizenfx/screenshot-basic) | Mugshot capture |
+| [ox_lib](https://github.com/overextended/ox_lib) | Callbacks and notifications |
+| qb-core **or** qbx_core | Framework |
+
+> **ps_lib is no longer required.** As of this version everything it provided — logging, callbacks,
+> notifications and framework getters — lives in `bridge/` inside this resource and is built on
+> ox_lib plus the standard qb-core API. If you were only running ps_lib for ps-mdt, you can remove it.
+>
+> On Qbox this works through the qb-core compatibility layer that `qbx_core` ships (`provide 'qb-core'`).
+> That layer is on by default. If you have `setr qbx:enablebridge false` in your `server.cfg`, remove it —
+> ps-mdt will print an explicit error on startup telling you so.
 
 
 Optional but HIGHLY RECOMMENDED:
@@ -23,7 +30,8 @@ Optional but HIGHLY RECOMMENDED:
 | Resource | Why |
 |----------|-----|
 | [ps-dispatch](https://github.com/Project-Sloth/ps-dispatch) | Dispatch integration |
-| [ps-multijob](https://github.com/Project-Sloth/ps-multijob) | Officers Bodycam |
+| [lsn-radar](https://github.com/LeSiiN/lsn-radar) | Very Good Radar with all features needed|
+| [ps-multijob](https://github.com/Project-Sloth/ps-multijob) | Officers Bodycam ( Optional, works anyways )|
 
 ## Installation
 No backwards compatibility with ps-mdtv1.
@@ -69,25 +77,7 @@ lawyer = {
 
 Run `sql/qbcore.sql` or `sql/qbx.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
 
-### 3. Set your FiveManage API keys
-
-Image uploads (mugshots, evidence photos, suspect photos) and activity log forwarding go through [FiveManage](https://www.fivemanage.com/). You need API keys from their site.
-
-Add these lines to your `server.cfg`:
-
-```
-set ps_mdt_fivemanage_key_images "YOUR_IMAGES_API_KEY_HERE"
-set ps_mdt_fivemanage_key_logs   "YOUR_LOGS_API_KEY_HERE"
-```
-
-| Convar | What it does |
-|--------|-------------|
-| `ps_mdt_fivemanage_key_images` | Used for uploading mugshots, evidence photos, and suspect photos |
-| `ps_mdt_fivemanage_key_logs` | Used for forwarding audit trail activity to FiveManage Logs |
-
-Both are optional. Without the images key you won't be able to upload any images. Without the logs key the audit trail still works locally in the database, it just won't forward to FiveManage.
-
-### 4. Build the frontend
+### 3. Build the frontend ( not needed if downloaded release version )
 
 If you grabbed a release with `web/dist` already in it, skip this step.
 
@@ -102,7 +92,6 @@ npm run build
 ### 5. Add to server.cfg
 
 ```
-ensure ps_lib
 ensure oxmysql
 ensure ox_lib
 ensure ps-mdt

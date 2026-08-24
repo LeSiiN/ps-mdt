@@ -100,8 +100,8 @@ local function normalizeRole(r)
 end
 
 local function getOfficerDisplayName(src)
-    local callsign = ps.getMetadata(src, 'callsign')
-    local name = ps.getPlayerName(src) or 'Unknown'
+    local callsign = MDT.getMetadata(src, 'callsign')
+    local name = MDT.getPlayerName(src) or 'Unknown'
     if callsign and tostring(callsign) ~= '' then
         return tostring(callsign) .. ' ' .. name
     end
@@ -213,8 +213,8 @@ local function dispatchCreateEmails(hearing, targets)
 
     local maxR = tonumber(cfg.Email.MaxRecipients) or 25
     if #targets > maxR then
-        if ps.debug then
-            ps.debug(('[court] %d invitees > Email.MaxRecipients (%d); skipping invite e-mails, reminder SMS will still fire')
+        if MDT.debug then
+            MDT.debug(('[court] %d invitees > Email.MaxRecipients (%d); skipping invite e-mails, reminder SMS will still fire')
                 :format(#targets, maxR))
         end
         return
@@ -239,7 +239,7 @@ end
 -- ============================================================================
 
 -- Fetch hearings within a datetime range (calendar uses this for the visible month)
-ps.registerCallback(resourceName .. ':server:getHearings', function(source, payload)
+lib.callback.register(resourceName .. ':server:getHearings', function(source, payload)
     local src = source
     if not CheckAuth(src) then return {} end
     if not canViewCalendar(src) then return {} end
@@ -276,7 +276,7 @@ ps.registerCallback(resourceName .. ':server:getHearings', function(source, payl
 end)
 
 -- Fetch a single hearing with its attendees
-ps.registerCallback(resourceName .. ':server:getHearing', function(source, payload)
+lib.callback.register(resourceName .. ':server:getHearing', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not canViewCalendar(src) then return { success = false, error = 'No permission' } end
@@ -309,12 +309,12 @@ end)
 
 -- Hearings whose reminder fired while this officer was offline (missed),
 -- surfaced once on the next MDT open. Marks them delivered so they show once.
-ps.registerCallback(resourceName .. ':server:getMissedHearings', function(source)
+lib.callback.register(resourceName .. ':server:getMissedHearings', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
     if not canViewCalendar(src) then return {} end
 
-    local cid = ps.getIdentifier(src)
+    local cid = MDT.getIdentifier(src)
     if not cid then return {} end
 
     local rows = MySQL.query.await([[
@@ -343,7 +343,7 @@ end)
 --  Create
 -- ============================================================================
 
-ps.registerCallback(resourceName .. ':server:createHearing', function(source, payload)
+lib.callback.register(resourceName .. ':server:createHearing', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -363,7 +363,7 @@ ps.registerCallback(resourceName .. ':server:createHearing', function(source, pa
         return { success = false, error = 'Date/time is required' }
     end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then return { success = false, error = 'Missing citizen id' } end
 
     local caseId, caseOk = resolveCaseId(payload.case_id)
@@ -431,8 +431,8 @@ ps.registerCallback(resourceName .. ':server:createHearing', function(source, pa
         notes = payload.notes,
     }, inviteTargets)
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_hearing_created', 'court_hearing', hearingId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_hearing_created', 'court_hearing', hearingId, {
             title = payload.title, category = category, scheduled_at = payload.scheduled_at,
         })
     end
@@ -448,7 +448,7 @@ end)
 -- defendant from the warrant row and pre-links warrant_reportid so completing
 -- the hearing later auto-resolves the linked BOLO (see setHearingStatus). The
 -- NUI only needs to pass the reportId — one click from the warrants list.
-ps.registerCallback(resourceName .. ':server:createHearingFromWarrant', function(source, payload)
+lib.callback.register(resourceName .. ':server:createHearingFromWarrant', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -478,13 +478,13 @@ ps.registerCallback(resourceName .. ':server:createHearingFromWarrant', function
     if not w then return { success = false, error = 'No active warrant for that report' } end
 
     local name = ((w.firstname or '') .. ' ' .. (w.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
-    if name == '' then name = ps.getPlayerNameByIdentifier(w.citizenid) or 'Unknown' end
+    if name == '' then name = MDT.getPlayerNameByIdentifier(w.citizenid) or 'Unknown' end
 
     -- Default the hearing a few days out at a round hour so it lands cleanly on the calendar.
     local leadDays = tonumber(courtCfg().WarrantHearingLeadDays) or 2
     local scheduledAt = os.date('%Y-%m-%d 10:00:00', os.time() + (leadDays * 24 * 60 * 60))
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     local hearingId = MySQL.insert.await([[
         INSERT INTO mdt_court_hearings
             (title, category, hearing_type, warrant_reportid, defendant_cid, defendant_name,
@@ -507,8 +507,8 @@ ps.registerCallback(resourceName .. ':server:createHearingFromWarrant', function
 
     if not hearingId then return { success = false, error = 'Failed to create hearing' } end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_hearing_from_warrant', 'court_hearing', hearingId, { reportId = reportId, defendant = w.citizenid })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_hearing_from_warrant', 'court_hearing', hearingId, { reportId = reportId, defendant = w.citizenid })
     end
     return { success = true, hearingId = hearingId, scheduled_at = scheduledAt, defendant_name = name }
 end)
@@ -545,7 +545,7 @@ function CreateWarrantHearingForReport(src, reportId, opts)
     if not w then return nil, 'No active warrant for that report' end
 
     local name = ((w.firstname or '') .. ' ' .. (w.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
-    if name == '' then name = ps.getPlayerNameByIdentifier(w.citizenid) or 'Unknown' end
+    if name == '' then name = MDT.getPlayerNameByIdentifier(w.citizenid) or 'Unknown' end
 
     -- Use the DOJ-provided date/time when valid, otherwise fall back to a sensible
     -- default a couple of days out at a round hour.
@@ -557,7 +557,7 @@ function CreateWarrantHearingForReport(src, reportId, opts)
         scheduledAt = os.date('%Y-%m-%d 10:00:00', os.time() + (leadDays * 24 * 60 * 60))
     end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     local hearingId = MySQL.insert.await([[
         INSERT INTO mdt_court_hearings
             (title, category, hearing_type, warrant_reportid, defendant_cid, defendant_name,
@@ -580,8 +580,8 @@ function CreateWarrantHearingForReport(src, reportId, opts)
     })
     if not hearingId then return nil, 'Failed to create hearing' end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_hearing_from_warrant', 'court_hearing', hearingId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_hearing_from_warrant', 'court_hearing', hearingId, {
             reportId = reportId, defendant = w.citizenid, scheduled_at = scheduledAt,
         })
     end
@@ -596,7 +596,7 @@ function RemoveWarrantHearingsForReport(reportId)
     return MySQL.update.await('DELETE FROM mdt_court_hearings WHERE warrant_reportid = ?', { reportId }) or 0
 end
 
-ps.registerCallback(resourceName .. ':server:updateHearing', function(source, payload)
+lib.callback.register(resourceName .. ':server:updateHearing', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -661,8 +661,8 @@ ps.registerCallback(resourceName .. ':server:updateHearing', function(source, pa
     )
     if not ok then return { success = false, error = 'Failed to update hearing' } end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_hearing_updated', 'court_hearing', hearingId, data)
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_hearing_updated', 'court_hearing', hearingId, data)
     end
 
     return { success = true }
@@ -672,7 +672,7 @@ end)
 --  Delete
 -- ============================================================================
 
-ps.registerCallback(resourceName .. ':server:deleteHearing', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteHearing', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -690,8 +690,8 @@ ps.registerCallback(resourceName .. ':server:deleteHearing', function(source, pa
     local ok = MySQL.update.await('DELETE FROM mdt_court_hearings WHERE id = ?', { hearingId })
     if not ok then return { success = false, error = 'Failed to delete hearing' } end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_hearing_deleted', 'court_hearing', hearingId, {})
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_hearing_deleted', 'court_hearing', hearingId, {})
     end
 
     return { success = true }
@@ -701,7 +701,7 @@ end)
 --  Attendees
 -- ============================================================================
 
-ps.registerCallback(resourceName .. ':server:addHearingAttendee', function(source, payload)
+lib.callback.register(resourceName .. ':server:addHearingAttendee', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -726,8 +726,8 @@ ps.registerCallback(resourceName .. ':server:addHearingAttendee', function(sourc
         ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), role = VALUES(role)
     ]], { hearingId, payload.citizenid, payload.display_name, normalizeRole(payload.role) })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_attendee_added', 'court_hearing', hearingId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_attendee_added', 'court_hearing', hearingId, {
             citizenid = payload.citizenid, role = payload.role,
         })
     end
@@ -735,7 +735,7 @@ ps.registerCallback(resourceName .. ':server:addHearingAttendee', function(sourc
     return { success = true, id = id }
 end)
 
-ps.registerCallback(resourceName .. ':server:removeHearingAttendee', function(source, payload)
+lib.callback.register(resourceName .. ':server:removeHearingAttendee', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -762,7 +762,7 @@ end)
 --  Completing a hearing deletes it (configurable via Config.Court.AutoStatus).
 -- ============================================================================
 
-ps.registerCallback(resourceName .. ':server:setHearingStatus', function(source, payload)
+lib.callback.register(resourceName .. ':server:setHearingStatus', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -791,8 +791,8 @@ ps.registerCallback(resourceName .. ':server:setHearingStatus', function(source,
         local affected = MySQL.update.await(
             "UPDATE mdt_bolos SET status = 'resolved' WHERE reportId = ? AND status = 'active'",
             { rid })
-        if affected and affected > 0 and ps.auditLog then
-            ps.auditLog(src, 'bolo_auto_resolved', 'court_hearing', hearingId, { reportId = rid, count = affected })
+        if affected and affected > 0 and MDT.auditLog then
+            MDT.auditLog(src, 'bolo_auto_resolved', 'court_hearing', hearingId, { reportId = rid, count = affected })
         end
     end
 
@@ -802,11 +802,11 @@ ps.registerCallback(resourceName .. ':server:setHearingStatus', function(source,
         local auto = courtCfg().AutoStatus or {}
         if auto.DeleteOnComplete == false then
             MySQL.update.await('UPDATE mdt_court_hearings SET status = ? WHERE id = ?', { 'completed', hearingId })
-            if ps.auditLog then ps.auditLog(src, 'court_hearing_completed', 'court_hearing', hearingId, {}) end
+            if MDT.auditLog then MDT.auditLog(src, 'court_hearing_completed', 'court_hearing', hearingId, {}) end
             return { success = true, status = 'completed', deleted = false }
         end
         MySQL.update.await('DELETE FROM mdt_court_hearings WHERE id = ?', { hearingId })
-        if ps.auditLog then ps.auditLog(src, 'court_hearing_completed', 'court_hearing', hearingId, { deleted = true }) end
+        if MDT.auditLog then MDT.auditLog(src, 'court_hearing_completed', 'court_hearing', hearingId, { deleted = true }) end
         return { success = true, status = 'completed', deleted = true }
     end
 
@@ -818,8 +818,8 @@ ps.registerCallback(resourceName .. ':server:setHearingStatus', function(source,
     local ok = MySQL.update.await('UPDATE mdt_court_hearings SET status = ? WHERE id = ?', { target, hearingId })
     if not ok then return { success = false, error = 'Failed to update status' } end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_hearing_status', 'court_hearing', hearingId, { from = existing.status, to = target })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_hearing_status', 'court_hearing', hearingId, { from = existing.status, to = target })
     end
     return { success = true, status = target }
 end)
@@ -829,7 +829,7 @@ end)
 -- ============================================================================
 
 -- List the configured groups (id + label + the role members get).
-ps.registerCallback(resourceName .. ':server:getAttendeeGroups', function(source)
+lib.callback.register(resourceName .. ':server:getAttendeeGroups', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
     if not canViewCalendar(src) then return {} end
@@ -845,7 +845,7 @@ ps.registerCallback(resourceName .. ':server:getAttendeeGroups', function(source
 end)
 
 -- Resolve the members of one group into a list of stageable attendees.
-ps.registerCallback(resourceName .. ':server:getGroupMembers', function(source, payload)
+lib.callback.register(resourceName .. ':server:getGroupMembers', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not canViewCalendar(src) then return { success = false, error = 'No permission' } end
@@ -916,7 +916,7 @@ ps.registerCallback(resourceName .. ':server:getGroupMembers', function(source, 
 end)
 
 -- Bulk-add attendees to an existing hearing (used by group quick-add in edit mode).
-ps.registerCallback(resourceName .. ':server:addHearingAttendeesBulk', function(source, payload)
+lib.callback.register(resourceName .. ':server:addHearingAttendeesBulk', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -970,8 +970,8 @@ ps.registerCallback(resourceName .. ':server:addHearingAttendeesBulk', function(
         end
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_attendees_bulk_added', 'court_hearing', hearingId, { count = #added })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_attendees_bulk_added', 'court_hearing', hearingId, { count = #added })
     end
     return { success = true, added = added }
 end)
@@ -1046,8 +1046,8 @@ local function runReminders()
             'UPDATE mdt_court_attendees SET notified_at = NOW(), delivered_at = NOW() WHERE id = ?',
             { row.attendee_id }
         )
-        if sent and ps.debug then
-            ps.debug(('[court] reminder SMS sent to %s for hearing %s'):format(row.citizenid, row.hearing_id))
+        if sent and MDT.debug then
+            MDT.debug(('[court] reminder SMS sent to %s for hearing %s'):format(row.citizenid, row.hearing_id))
         end
         if delay > 0 then Wait(delay) end
     end

@@ -23,13 +23,13 @@ local function _isEmsJob(jobName, jobType)
 end
 
 RegisterNUICallback('checkAuth', function(_, cb)
-    local jobType = ps.getJobType()
-    local jobName = ps.getJob() and ps.getJob().name or ''
+    local jobType = MDT.getJobType()
+    local jobName = MDT.getJob() and MDT.getJob().name or ''
     local isDoj = _isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
     local isAuthorized = jobType == Config.PoliceJobType or _isEmsJob(jobName, jobType) or isDoj
     local mdtJobType = isDoj and 'doj' or (_isEmsJob(jobName, jobType) and 'ems' or 'leo')
-    local onDuty = ps.getJobDuty() or false
-    local playerData = ps.getPlayerData()
+    local onDuty = MDT.getJobDuty() or false
+    local playerData = MDT.getPlayerData()
 
     local isCivilian = false
     if not isAuthorized and Config.CivilianAccess and Config.CivilianAccess.enabled then
@@ -57,19 +57,19 @@ RegisterNUICallback('getMyPermissions', function(_, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getMyPermissions')
+    local result = MDT.callback(resourceName .. ':server:getMyPermissions')
     cb(result or { permissions = {}, isBoss = false })
 end)
 
 function NUIUpdateAuth()
-    local jobType = ps.getJobType()
-    local jobName = ps.getJob() and ps.getJob().name or ''
+    local jobType = MDT.getJobType()
+    local jobName = MDT.getJob() and MDT.getJob().name or ''
     local isDoj = _isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
     local isAuthorized = jobType == Config.PoliceJobType or _isEmsJob(jobName, jobType) or isDoj
     local mdtJobType = isDoj and 'doj' or (_isEmsJob(jobName, jobType) and 'ems' or 'leo')
-    local playerData = ps.getPlayerData()
+    local playerData = MDT.getPlayerData()
     SendNUI('updateAuth', {
-        authorized = isAuthorized and (ps.getJobDuty() or false),
+        authorized = isAuthorized and (MDT.getJobDuty() or false),
         playerData = type(playerData) == 'table' and {
             citizenid = playerData.citizenid,
             job = playerData.job,
@@ -79,31 +79,31 @@ function NUIUpdateAuth()
             } or nil,
         } or nil,
         isLEO = isAuthorized,
-        onDuty = ps.getJobDuty() or false,
+        onDuty = MDT.getJobDuty() or false,
         jobType = mdtJobType,
     })
 end
 
 RegisterNUICallback('closeUI', function(_, cb)
-    -- ps.debug('MDT closeUI triggered via NUI callback')
+    -- MDT.debug('MDT closeUI triggered via NUI callback')
     PlayMDTSound('close')
     cb({})
     CloseMDT()
 end)
 
 RegisterNUICallback('signOut', function(_, cb)
-    -- ps.debug('MDT signOut triggered via NUI callback')
+    -- MDT.debug('MDT signOut triggered via NUI callback')
     PlayMDTSound('close')
     cb({})
     CloseMDT()
-    ps.notify('Signed out of MDT', 'success')
+    MDT.notify('Signed out of MDT', 'success')
 end)
 
 RegisterNUICallback('toggleDuty', function(_, cb)
-    -- ps.debug('MDT toggleDuty triggered via NUI callback')
+    -- MDT.debug('MDT toggleDuty triggered via NUI callback')
     PlayMDTSound('buttonClick')
     cb({})
-    TriggerServerEvent('ps_lib:server:toggleDuty')
+    TriggerServerEvent('ps-mdt:server:toggleDuty')
 end)
 
 -- DASHBOARD (aggregate) -----------------------------------
@@ -114,14 +114,14 @@ RegisterNUICallback('getDashboard', function(_, cb)
         cb({})
         return
     end
-    local data = ps.callback(resourceName .. ':server:getDashboard')
+    local data = MDT.callback(resourceName .. ':server:getDashboard')
     cb(data or {})
 end)
 
 -- JOB DATA -----------------------------------------------
 RegisterNUICallback('getJobData', function(_, cb)
-    local jobData = ps.callback(resourceName .. ':server:getJobData')
-     ps.debug('[getJobData] Triggered NUI callback on client', jobData)
+    local jobData = MDT.callback(resourceName .. ':server:getJobData')
+     MDT.debug('[getJobData] Triggered NUI callback on client', jobData)
     cb(jobData or {})
 end)
 
@@ -131,7 +131,7 @@ RegisterNUICallback('getReportStatistics', function(_, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local reportStats = ps.callback(resourceName .. ':server:getReportStatistics')
+    local reportStats = MDT.callback(resourceName .. ':server:getReportStatistics')
     cb(reportStats)
 end)
 
@@ -143,8 +143,8 @@ RegisterNUICallback('getTimeStatistics', function(_, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local timeStats = ps.callback(resourceName .. ':server:getTimeStatistics')
-    -- ps.debug('[getTimeStatistics] Triggered NUI callback on client', timeStats)
+    local timeStats = MDT.callback(resourceName .. ':server:getTimeStatistics')
+    -- MDT.debug('[getTimeStatistics] Triggered NUI callback on client', timeStats)
     cb(timeStats)
 end)
 
@@ -155,9 +155,9 @@ RegisterNUICallback('getActiveWarrants', function(_, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local activeWarrants = ps.callback(resourceName .. ':server:getActiveWarrants')
+    local activeWarrants = MDT.callback(resourceName .. ':server:getActiveWarrants')
 
-    -- ps.debug('[getActiveWarrants] Triggered NUI callback on client',activeWarrants)
+    -- MDT.debug('[getActiveWarrants] Triggered NUI callback on client',activeWarrants)
     cb(activeWarrants)
 end)
 
@@ -165,7 +165,7 @@ end)
 RegisterNUICallback('viewWarrant', function(data, cb)
     cb({})
     TriggerServerEvent(resourceName..':server:viewWarrant', data.warrantId)
-    -- ps.debug(('Viewing Warrant ID: %s'):format(data.warrantId))
+    -- MDT.debug(('Viewing Warrant ID: %s'):format(data.warrantId))
 end)
 
 
@@ -176,8 +176,8 @@ RegisterNUICallback('getBulletins', function(_, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local bulletins = ps.callback(resourceName .. ':server:getBulletins')
-     ps.debug('[getBulletins] Triggered NUI callback on client',bulletins )
+    local bulletins = MDT.callback(resourceName .. ':server:getBulletins')
+     MDT.debug('[getBulletins] Triggered NUI callback on client',bulletins )
     cb(bulletins)
 end)
 
@@ -188,7 +188,7 @@ RegisterNUICallback('createBulletin', function(data, cb)
         cb({ success = false, message = 'Content is required' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:createBulletin', data)
+    local result = MDT.callback(resourceName .. ':server:createBulletin', data)
     cb(result or { success = false })
 end)
 
@@ -198,12 +198,12 @@ RegisterNUICallback('deleteBulletin', function(data, cb)
         cb({ success = false, message = 'Missing bulletin ID' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:deleteBulletin', data)
+    local result = MDT.callback(resourceName .. ':server:deleteBulletin', data)
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('getBulletinCategories', function(_, cb)
-    local result = ps.callback(resourceName .. ':server:getBulletinCategories', false)
+    local result = MDT.callback(resourceName .. ':server:getBulletinCategories', false)
     cb(result or {})
 end)
 
@@ -224,7 +224,7 @@ RegisterNUICallback('saveBulletinCategories', function(data, cb)
         end
     end
  
-    local result = ps.callback('mdt:server:saveBulletinCategories', false, data.categories)
+    local result = MDT.callback('mdt:server:saveBulletinCategories', false, data.categories)
     cb(result or { success = false, message = 'Server error' })
 end)
 
@@ -237,7 +237,7 @@ RegisterNUICallback('getRecentReports', function(data, cb)
     end
     local page = data and data.page or nil
     local limit = data and data.limit or nil
-    local recentReports = ps.callback(resourceName .. ':server:getRecentReports', page, limit)
+    local recentReports = MDT.callback(resourceName .. ':server:getRecentReports', page, limit)
     cb(recentReports)
 end)
 
@@ -248,7 +248,7 @@ RegisterNUICallback('getActiveBolos', function(_, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local activeBolos = ps.callback(resourceName .. ':server:getActiveBolos')
+    local activeBolos = MDT.callback(resourceName .. ':server:getActiveBolos')
     cb(activeBolos)
 end)
 
@@ -256,7 +256,7 @@ end)
 RegisterNUICallback('viewReport', function(data, cb)
     cb({})
     TriggerServerEvent(resourceName..':server:viewReport', data.reportId)
-    -- ps.debug(('Viewing Report ID: %s'):format(data.reportId))
+    -- MDT.debug(('Viewing Report ID: %s'):format(data.reportId))
 end)
 
 -- ACTIVE UNITS ---------------------------------------
@@ -266,8 +266,8 @@ RegisterNUICallback('getActiveUnits', function(_, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local activeUnits = ps.callback(resourceName .. ':server:getActiveUnits')
-    -- ps.debug('[getActiveUnits] Active Units Data:', activeUnits)
+    local activeUnits = MDT.callback(resourceName .. ':server:getActiveUnits')
+    -- MDT.debug('[getActiveUnits] Active Units Data:', activeUnits)
     cb(activeUnits)
 end)
 
@@ -278,17 +278,17 @@ end)
 local function buildPlayerData()
     return {
         charinfo = {
-            firstname = ps.getCharInfo('firstname'),
-            lastname = ps.getCharInfo('lastname'),
+            firstname = MDT.getCharInfo('firstname'),
+            lastname = MDT.getCharInfo('lastname'),
         },
         metadata = {
-            callsign = ps.getMetadata('callsign'),
+            callsign = MDT.getMetadata('callsign'),
         },
-        citizenid = ps.getIdentifier(),
+        citizenid = MDT.getIdentifier(),
         job = {
-            type = ps.getJobData('type'),
-            name = ps.getJobData('name'),
-            label = ps.getJobData('label'),
+            type = MDT.getJobData('type'),
+            name = MDT.getJobData('name'),
+            label = MDT.getJobData('label'),
         },
     }
 end
@@ -376,7 +376,7 @@ RegisterNUICallback('getUsageMetrics', function(_, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getUsageMetrics')
+    local result = MDT.callback(resourceName .. ':server:getUsageMetrics')
     cb(result or {})
 end)
 
@@ -386,7 +386,7 @@ RegisterNUICallback("attachToDispatch", function(data, cb)
     local id = type(data) == 'table' and data.id or data
     local isManual = type(data) == 'table' and data.manual or false
     if isManual then
-        ps.callback(resourceName .. ':server:selfDispatchAttach', { dispatch_id = id, action = 'attach' })
+        MDT.callback(resourceName .. ':server:selfDispatchAttach', { dispatch_id = id, action = 'attach' })
     else
         providerAttach(id)
     end
@@ -417,7 +417,7 @@ RegisterNUICallback("detachFromDispatch", function(data, cb)
     local id = type(data) == 'table' and data.id or data
     local isManual = type(data) == 'table' and data.manual or false
     if isManual then
-        ps.callback(resourceName .. ':server:selfDispatchAttach', { dispatch_id = id, action = 'detach' })
+        MDT.callback(resourceName .. ':server:selfDispatchAttach', { dispatch_id = id, action = 'detach' })
     else
         providerDetach(id)
         Wait(100) -- give non-1of1 servers time to update the server-side table before the cb
@@ -430,19 +430,19 @@ RegisterNUICallback("routeToDispatch", function(data, cb)
     local coords = data.coords or data.origin
     if not coords then
         cb('ok')
-        ps.notify('No location data for this dispatch', 'error')
+        MDT.notify('No location data for this dispatch', 'error')
         return
     end
     local x = tonumber(coords.x) or tonumber(coords[1])
     local y = tonumber(coords.y) or tonumber(coords[2])
     if not x or not y then
         cb('ok')
-        ps.notify('Invalid location data', 'error')
+        MDT.notify('Invalid location data', 'error')
         return
     end
     SetNewWaypoint(x, y)
     cb('ok')
-    ps.notify('Set Route to Dispatch Location', 'success')
+    MDT.notify('Set Route to Dispatch Location', 'success')
 end)
 -- ---------------------------------------------------------------------------
 -- Dispatcher assignment (runs on the ASSIGNED player's client).
@@ -484,17 +484,17 @@ RegisterNetEvent(resourceName .. ':client:dispatchAssign', function(data)
 
     -- 10-code for the notify comes resolved from the server (both provider
     -- and MDT-created calls). Never look it up here: a blocking
-    -- GetRecentDispatch inside this handler can race the NUI's own list
-    -- refresh through ps_lib's name-keyed callbacks (10s timeout).
+    -- GetRecentDispatch inside this handler stalls it behind a server
+    -- round-trip while the NUI is already waiting on its own list refresh.
     local code = type(data.code) == 'string' and data.code ~= '' and data.code or nil
     local what = code and ('Dispatch assigned you: %s'):format(code) or 'Dispatch assigned you to a call'
     if waypointSet then what = what .. ' — waypoint set' end
 
     local note = type(data.note) == 'string' and data.note ~= '' and data.note or nil
     if note then
-        ps.notify(('%s. Note: %s'):format(what, note), 'success')
+        MDT.notify(('%s. Note: %s'):format(what, note), 'success')
     else
-        ps.notify(what, 'success')
+        MDT.notify(what, 'success')
     end
 end)
 
@@ -509,13 +509,13 @@ end)
 RegisterNetEvent(resourceName .. ':client:dispatchNoteNotify', function(data)
     data = data or {}
     local text = type(data.text) == 'string' and data.text or ''
-    ps.notify('Dispatch updated the note on your call: ' .. text, 'inform')
+    MDT.notify('Dispatch updated the note on your call: ' .. text, 'inform')
 end)
 
 -- Dispatcher-side NUI bridge: assign/detach a set of units to a call.
 RegisterNUICallback('assignToDispatch', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:assignToDispatch', data or {})
+    local result = MDT.callback(resourceName .. ':server:assignToDispatch', data or {})
     cb(result or { success = false })
 end)
 
@@ -528,19 +528,19 @@ end)
 
 RegisterNUICallback('dismissDispatch', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:dismissDispatch', data or {})
+    local result = MDT.callback(resourceName .. ':server:dismissDispatch', data or {})
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('setDispatchNote', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:setDispatchNote', data or {})
+    local result = MDT.callback(resourceName .. ':server:setDispatchNote', data or {})
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('deleteDispatchNote', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:deleteDispatchNote', data or {})
+    local result = MDT.callback(resourceName .. ':server:deleteDispatchNote', data or {})
     cb(result or { success = false })
 end)
 
@@ -564,6 +564,6 @@ end)
 
 RegisterNUICallback('createManualDispatch', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    local result = ps.callback(resourceName .. ':server:createManualDispatch', data or {})
+    local result = MDT.callback(resourceName .. ':server:createManualDispatch', data or {})
     cb(result or { success = false })
 end)

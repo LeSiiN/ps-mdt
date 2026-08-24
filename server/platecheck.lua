@@ -153,7 +153,7 @@ local function mayRunPlateCheck(src)
         allowed = { Config.PoliceJobType }
     end
 
-    local ok, jobType = pcall(ps.getJobType, src)
+    local ok, jobType = pcall(MDT.getJobType, src)
     if not ok then return false end
     for _, allowedType in ipairs(allowed) do
         if allowedType == jobType then return true end
@@ -261,7 +261,7 @@ local function runPlateQueries(normalized, candidates)
             :gsub('^%s+', ''):gsub('%s+$', '')
         if name ~= '' then result.owner = name end
         if not result.owner and ownerCid then
-            result.owner = ps.getPlayerNameByIdentifier(ownerCid) or nil
+            result.owner = MDT.getPlayerNameByIdentifier(ownerCid) or nil
         end
 
         if isTruthy(vehicle.stolen) then
@@ -416,7 +416,7 @@ local function cachedLookup(normalized, candidates)
 
     local ok, result = pcall(runPlateQueries, normalized, candidates)
     if not ok then
-        ps.debug('platecheck: lookup failed for', normalized, tostring(result))
+        MDT.debug('platecheck: lookup failed for', normalized, tostring(result))
         result = { plate = normalized, found = false, hits = {} }
     end
 
@@ -644,10 +644,10 @@ function MdtPlateCheckAlert(src, plate, coords, plateIndex)
     -- The audit trail records the FULL result, not the officer's filtered
     -- view: what the database answered is the fact worth keeping.
     local root = Config.PlateCheck or {}
-    if root.audit and ps.auditLog and (wantAlert or root.auditEveryScan) then
+    if root.audit and MDT.auditLog and (wantAlert or root.auditEveryScan) then
         -- auditLog performs a blocking insert; never make the scanner wait.
         CreateThread(function()
-            ps.auditLog(src, 'plate_check', 'vehicle', normalized, {
+            MDT.auditLog(src, 'plate_check', 'vehicle', normalized, {
                 plate = normalized,
                 hits = #result.hits,
                 action_label = #result.hits > 0
@@ -704,7 +704,7 @@ function MdtPlateCheckAlert(src, plate, coords, plateIndex)
             alertTime = cfg.alertTime or 12,
         })
     end)
-    if not ok then ps.debug('PlateCheckAlert: dispatch alert failed:', tostring(err)) end
+    if not ok then MDT.debug('PlateCheckAlert: dispatch alert failed:', tostring(err)) end
 
     result.alerted = ok == true
     return result

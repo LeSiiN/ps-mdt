@@ -1,8 +1,8 @@
 local resourceName = tostring(GetCurrentResourceName())
 
 function GetEffectiveJobType(src)
-    local jobType = ps.getJobType(src)
-    local jobName = ps.getJobName(src)
+    local jobType = MDT.getJobType(src)
+    local jobName = MDT.getJobName(src)
     if Config.DojJobs then
         for _, name in ipairs(Config.DojJobs) do
             if name == jobName then return 'doj' end
@@ -39,8 +39,8 @@ local function checkReportAccess(src, reportId)
         return false
     end
 
-    local identifier = ps.getIdentifier(src)
-    local job = ps.getJobName(src)
+    local identifier = MDT.getIdentifier(src)
+    local job = MDT.getJobName(src)
     local jobType = GetEffectiveJobType(src)
 
     if not identifier then
@@ -73,7 +73,7 @@ local function buildFullName(firstname, lastname, citizenid)
     if full ~= '' then
         return full
     end
-    return ps.getPlayerNameByIdentifier(citizenid) or 'Unknown'
+    return MDT.getPlayerNameByIdentifier(citizenid) or 'Unknown'
 end
 
 
@@ -218,12 +218,12 @@ function BuildReportAccessClause()
 end
 
 
-ps.registerCallback(resourceName .. ':server:getReports', function(source, page, filters)
+lib.callback.register(resourceName .. ':server:getReports', function(source, page, filters)
     local src = source
     if not CheckAuth(src) then return end
 
-    local identifier = ps.getIdentifier(src)
-    local job = ps.getJobName(src)
+    local identifier = MDT.getIdentifier(src)
+    local job = MDT.getJobName(src)
     local jobType = GetEffectiveJobType(src)
 
     local pageNumber = tonumber(page) or 1
@@ -282,12 +282,12 @@ ps.registerCallback(resourceName .. ':server:getReports', function(source, page,
     return { reports = reports or {}, total = total }
 end)
 
-ps.registerCallback(resourceName..':server:getReport', function(source, reportid)
+lib.callback.register(resourceName..':server:getReport', function(source, reportid)
     local src = source
 	if not CheckAuth(src) then return end
 
-	local identifier = ps.getIdentifier(src)
-    local job = ps.getJobName(src)
+	local identifier = MDT.getIdentifier(src)
+    local job = MDT.getJobName(src)
     local jobType = GetEffectiveJobType(src)
 
     local result = MySQL.query.await([[
@@ -420,21 +420,21 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
     end)
 
     if not enrichOk then
-        ps.warn(('[getReport] Failed to enrich involved data: %s'):format(tostring(enrichErr)))
+        MDT.warn(('[getReport] Failed to enrich involved data: %s'):format(tostring(enrichErr)))
     end
 
     return report
 end)
 
-ps.registerCallback(resourceName .. ':server:searchPlayers', function(source, query)
+lib.callback.register(resourceName .. ':server:searchPlayers', function(source, query)
     local src = source
     if not CheckAuth(src) then return end
 
     local norm, likeQuery = NormalizeSearch(query)
     if not likeQuery then return {} end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'search_players', 'search', nil, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'search_players', 'search', nil, {
             query = norm
         })
     end
@@ -479,7 +479,7 @@ ps.registerCallback(resourceName .. ':server:searchPlayers', function(source, qu
     return results
 end)
 
-ps.registerCallback(resourceName .. ':server:searchOfficers', function(source, query)
+lib.callback.register(resourceName .. ':server:searchOfficers', function(source, query)
     local src = source
     if not CheckAuth(src) then return end
 
@@ -488,8 +488,8 @@ ps.registerCallback(resourceName .. ':server:searchOfficers', function(source, q
         return {}
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'search_officers', 'search', nil, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'search_officers', 'search', nil, {
             query = norm
         })
     end
@@ -558,7 +558,7 @@ ps.registerCallback(resourceName .. ':server:searchOfficers', function(source, q
     return results
 end)
 
-ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(source, query)
+lib.callback.register(resourceName .. ':server:searchVehiclesForReport', function(source, query)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -620,33 +620,33 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
     return results
 end)
 
-ps.registerCallback(resourceName..':server:saveReport', function(source, reportData)
+lib.callback.register(resourceName..':server:saveReport', function(source, reportData)
     local src = source
     if not CheckAuth(src) then return end
     if not RateLimitAction(src, 'createReport') then return end
 
-    local identifier = ps.getIdentifier(src)
-    local playerName = ps.getPlayerName(src)
-    local callsign = ps.getMetadata(src, 'callsign')
+    local identifier = MDT.getIdentifier(src)
+    local playerName = MDT.getPlayerName(src)
+    local callsign = MDT.getMetadata(src, 'callsign')
 
     local title = reportData.report and reportData.report.title
     if not title or title == "" then
-        ps.notify(src, 'Failed to save Report: Needs a title', 'error')
-        ps.warn('Report with missing/empty title from player: ' .. src .. ' Name: ' .. playerName)
+        MDT.notify(src, 'Failed to save Report: Needs a title', 'error')
+        MDT.warn('Report with missing/empty title from player: ' .. src .. ' Name: ' .. playerName)
         return { success = false, error = 'Report needs a title' }
     end
 
     local content = reportData.report and reportData.report.content
     if not content or content == "" then
-        ps.notify(src, 'Failed to save Report: Needs content', 'error')
-        ps.warn('Report with missing/empty content from player: ' .. src .. ' Name: ' .. playerName)
+        MDT.notify(src, 'Failed to save Report: Needs content', 'error')
+        MDT.warn('Report with missing/empty content from player: ' .. src .. ' Name: ' .. playerName)
         return { success = false, error = 'Report needs content' }
     end
 
     -- Tags are required
     local tags = reportData.tags
     if not tags or type(tags) ~= 'table' or #tags == 0 then
-        ps.notify(src, 'Failed to save Report: At least one tag is required', 'error')
+        MDT.notify(src, 'Failed to save Report: At least one tag is required', 'error')
         return { success = false, message = 'At least one tag is required' }
     end
 
@@ -661,15 +661,15 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
             -- may be offline or from a different framework. The report can still
             -- reference them by citizenid and the profile will be created when
             -- they are next looked up.
-            ps.warn(('[Profile Auto-Create Skipped] Player [%s] %s saving report with citizen %s who has no profile yet')
+            MDT.warn(('[Profile Auto-Create Skipped] Player [%s] %s saving report with citizen %s who has no profile yet')
                 :format(src, playerName, citizenid))
         end
     end
 
     if reportId then
         if not checkReportAccess(src, reportId) then
-            ps.notify(src, 'Failed to save Report: Not found or no access', 'error')
-            ps.warn(('[Failed to save] Player [%s] %s tried to save a report (%s), but it was not found or they do not have access.')
+            MDT.notify(src, 'Failed to save Report: Not found or no access', 'error')
+            MDT.warn(('[Failed to save] Player [%s] %s tried to save a report (%s), but it was not found or they do not have access.')
                 :format(src, playerName, reportId))
             return { success = false, error = "Report not found or access denied" }
         end
@@ -689,8 +689,8 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
         })
 
         if not insertResult then
-            ps.notify(src, 'Failed to save Report', 'error')
-            ps.warn(('[Failed to save] Player [%s] %s tried to save a report (new). Insert failed.')
+            MDT.notify(src, 'Failed to save Report', 'error')
+            MDT.warn(('[Failed to save] Player [%s] %s tried to save a report (new). Insert failed.')
                 :format(src, playerName))
             return { success = false, error = 'Failed to insert report' }
         end
@@ -711,8 +711,8 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
         })
 
         if not updateSuccess or updateSuccess == 0 then
-            ps.notify(src, 'Failed to save Report', 'error')
-            ps.warn(('[Failed to save] Player [%s] %s tried to save a report (%s). Update failed.')
+            MDT.notify(src, 'Failed to save Report', 'error')
+            MDT.warn(('[Failed to save] Player [%s] %s tried to save a report (%s). Update failed.')
                 :format(src, playerName, reportId))
             return { success = false, error = 'Failed to update report' }
         end
@@ -731,7 +731,7 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
             return MySQL.transaction.await(cleanupQueries)
         end)
         if not cleanupOk then
-            ps.warn(('[Cleanup Transaction Error] Report %s: %s'):format(reportId, tostring(cleanupErr)))
+            MDT.warn(('[Cleanup Transaction Error] Report %s: %s'):format(reportId, tostring(cleanupErr)))
             return { success = false, error = "Failed to clean up old report data: " .. tostring(cleanupErr) }
         end
     end
@@ -791,7 +791,7 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
     end
 
     -- Auto-add jobtype restriction so reports are only visible to the same job type
-    local creatorJobType = ps.getJobType(src)
+    local creatorJobType = MDT.getJobType(src)
     if creatorJobType then
         table.insert(attachmentQueries, {
             query = "INSERT INTO mdt_reports_restrictions (reportid, type, identifier) VALUES (?, ?, ?)",
@@ -822,13 +822,13 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
             return MySQL.transaction.await(attachmentQueries)
         end)
         if not attachOk then
-            ps.warn(('[Attachment Transaction Error] Report %s: %s'):format(reportId, tostring(attachErr)))
+            MDT.warn(('[Attachment Transaction Error] Report %s: %s'):format(reportId, tostring(attachErr)))
             return { success = false, error = "Failed to save report attachments: " .. tostring(attachErr) }
         end
     end
 
     if reportId and reportType == 'Arrest Report' and reportData.involved and #reportData.involved > 0 then
-        local officerId = ps.getIdentifier(src)
+        local officerId = MDT.getIdentifier(src)
         local officerName = (callsign or '') .. ' ' .. (playerName or '')
         officerName = officerName:gsub('^%s+', ''):gsub('%s+$', '')
         local arrestQueries = {}
@@ -845,10 +845,10 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
         end
         if #arrestQueries > 0 then
             MySQL.transaction.await(arrestQueries)
-            if ps.auditLog then
+            if MDT.auditLog then
                 for _, involved in ipairs(reportData.involved) do
                     if involved.type == 'suspect' and involved.citizenid then
-                        ps.auditLog(src, 'arrest_logged', 'arrest', reportId, {
+                        MDT.auditLog(src, 'arrest_logged', 'arrest', reportId, {
                             citizenid = involved.citizenid,
                             reportId = reportId
                         })
@@ -876,9 +876,9 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
 
     Cache.invalidatePrefix('reports:analytics:')
 
-    if ps.auditLog then
+    if MDT.auditLog then
         local action = reportId and reportData.report and reportData.report.id and 'report_updated' or 'report_created'
-        ps.auditLog(src, action, 'report', reportId, {
+        MDT.auditLog(src, action, 'report', reportId, {
             title = title,
             type = reportType
         })
@@ -893,7 +893,7 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
     }
 end)
 
-ps.registerCallback(resourceName..':server:updateReportContent', function(source, reportid, content, reportData)
+lib.callback.register(resourceName..':server:updateReportContent', function(source, reportid, content, reportData)
     local src = source
     if not CheckAuth(src) then return { success = false, error = "Unauthorized" } end
 
@@ -905,9 +905,9 @@ ps.registerCallback(resourceName..':server:updateReportContent', function(source
     local title = (reportData and reportData.title) or "Draft Report"
     local reportType = (reportData and reportData.type) or "Incident Report"
 
-    local identifier = ps.getIdentifier(src)
-    local playerName = ps.getPlayerName(src)
-    local callsign = ps.getMetadata(src, 'callsign')
+    local identifier = MDT.getIdentifier(src)
+    local playerName = MDT.getPlayerName(src)
+    local callsign = MDT.getMetadata(src, 'callsign')
 
     if not identifier then return { success = false, error = "Player not found" } end
 
@@ -964,7 +964,7 @@ ps.registerCallback(resourceName..':server:updateReportContent', function(source
     return { success = false, error = "Failed to save content" }
 end)
 
-ps.registerCallback(resourceName..':server:deleteReport', function(source, reportId)
+lib.callback.register(resourceName..':server:deleteReport', function(source, reportId)
     local src = source
     if not CheckAuth(src) then return end
 
@@ -973,11 +973,11 @@ ps.registerCallback(resourceName..':server:deleteReport', function(source, repor
         return { success = false, error = "Missing/Invalid report ID" }
     end
 
-    local playerName = ps.getPlayerName(src)
+    local playerName = MDT.getPlayerName(src)
 
     if not checkReportAccess(src, reportId) then
-        ps.notify(src, 'Failed to delete Report: Not found or no access', 'error')
-        ps.warn(('[Failed to delete] Player [%s] %s tried to delete a report (%s), but it was not found or they do not have access.')
+        MDT.notify(src, 'Failed to delete Report: Not found or no access', 'error')
+        MDT.warn(('[Failed to delete] Player [%s] %s tried to delete a report (%s), but it was not found or they do not have access.')
             :format(src, playerName, reportId))
         return { success = false, error = "Report not found or access denied" }
     end
@@ -990,12 +990,12 @@ ps.registerCallback(resourceName..':server:deleteReport', function(source, repor
     if success then
         Cache.invalidate('dashboard:reportStats')
         Cache.invalidate('dashboard:usageMetrics')
-        ps.notify(src, 'Report deleted successfully', 'success')
-        ps.debug(('[Report Deleted] Player [%s] %s successfully deleted report (%s): "%s"')
+        MDT.notify(src, 'Report deleted successfully', 'success')
+        MDT.debug(('[Report Deleted] Player [%s] %s successfully deleted report (%s): "%s"')
             :format(src, playerName, reportId, reportTitle))
 
-        if ps.auditLog then
-            ps.auditLog(src, 'report_deleted', 'report', reportId, {
+        if MDT.auditLog then
+            MDT.auditLog(src, 'report_deleted', 'report', reportId, {
                 title = reportTitle
             })
         end
@@ -1006,8 +1006,8 @@ ps.registerCallback(resourceName..':server:deleteReport', function(source, repor
             reportId = reportId
         }
     else
-        ps.notify(src, 'Failed to delete report', 'error')
-        ps.warn(('[Failed to delete] Player [%s] %s tried to delete report (%s). Database query failed.')
+        MDT.notify(src, 'Failed to delete report', 'error')
+        MDT.warn(('[Failed to delete] Player [%s] %s tried to delete report (%s). Database query failed.')
             :format(src, playerName, reportId))
 
         return {
@@ -1017,7 +1017,7 @@ ps.registerCallback(resourceName..':server:deleteReport', function(source, repor
     end
 end)
 
-ps.registerCallback(resourceName..':server:getAvailableTags', function(source, playerJobType)
+lib.callback.register(resourceName..':server:getAvailableTags', function(source, playerJobType)
     local src = source
     if not CheckAuth(src) then return end
 
@@ -1038,7 +1038,7 @@ end)
 
 -- Available citizen tags for the citizen-profile picker, scoped to the viewer's
 -- domain (EMS sees ems + shared, police sees leo + shared).
-ps.registerCallback(resourceName..':server:getCitizenTags', function(source, playerJobType)
+lib.callback.register(resourceName..':server:getCitizenTags', function(source, playerJobType)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -1054,7 +1054,7 @@ ps.registerCallback(resourceName..':server:getCitizenTags', function(source, pla
     return tags or {}
 end)
 
-ps.registerCallback(resourceName..':server:generateReportId', function(source)
+lib.callback.register(resourceName..':server:generateReportId', function(source)
     local src = source
     if not CheckAuth(src) then return end
 
@@ -1064,12 +1064,12 @@ ps.registerCallback(resourceName..':server:generateReportId', function(source)
     }
 end)
 
-ps.registerCallback(resourceName..':server:getReportAnalytics', function(source, filters)
+lib.callback.register(resourceName..':server:getReportAnalytics', function(source, filters)
     local src = source
     if not CheckAuth(src) then return { success = false, error = "Unauthorized" } end
 
-    local identifier = ps.getIdentifier(src)
-    local job = ps.getJobName(src)
+    local identifier = MDT.getIdentifier(src)
+    local job = MDT.getJobName(src)
     local jobType = GetEffectiveJobType(src)
 
     local filterClause, filterValues = buildReportFilterClause(filters)
@@ -1145,7 +1145,7 @@ ps.registerCallback(resourceName..':server:getReportAnalytics', function(source,
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:getReportsByPlate', function(source, plate)
+lib.callback.register(resourceName .. ':server:getReportsByPlate', function(source, plate)
     local src = source
     if not CheckAuth(src) then return {} end
 

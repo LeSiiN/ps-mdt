@@ -1,0 +1,147 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  # Manual runs from the Actions tab, e.g. to cut a release without a commit.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Queue runs instead of cancelling: every main commit gets its own release,
+# and sequential execution guarantees each run sees the tag the previous run
+# just created — otherwise two quick pushes would both compute the same
+# "next" version and the second tag/release would collide.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    # Escape hatch: commits with [skip release] in the message build nothing.
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags — required to find the latest v* tag below.
+          fetch-depth: 0
+
+      # Rolling version: take the highest existing v* tag and bump the patch
+      # (v1.4.2 -> v1.4.3). No tags yet -> start at v1.0.0. Minor/major bumps
+      # stay a deliberate act: push such a tag manually once (e.g. v1.5.0)
+      # and the automation continues counting from there.
+      - name: Resolve next version
+        id: version
+        run: |
+          git fetch --tags --force
+          LATEST="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n1)"
+          if [ -z "${LATEST}" ]; then
+            NEXT_TAG="v1.0.0"
+          else
+            BASE="${LATEST#v}"
+            MAJOR="$(echo "${BASE}" | cut -d. -f1)"
+            MINOR="$(echo "${BASE}" | cut -d. -f2)"
+            PATCH="$(echo "${BASE}" | cut -d. -f3 | cut -d- -f1)"
+            PATCH=$((PATCH + 1))
+            if [ "${PATCH}" -gt 9 ]; then
+              PATCH=0
+              MINOR=$((MINOR + 1))
+              if [ "${MINOR}" -gt 9 ]; then
+                MINOR=0
+                MAJOR=$((MAJOR + 1))
+              fi
+            fi
+            NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          VERSION="${NEXT_TAG#v}"
+          echo "tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Latest tag: '${LATEST:-none}' -> releasing '${NEXT_TAG}'"
+
+      - name: Sync fxmanifest.lua version
+        run: |
+          sed -i -E "s/^(version[[:space:]]+')[^']*(')/\1${{ steps.version.outputs.version }}\2/" fxmanifest.lua
+          grep -E "^version " fxmanifest.lua
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build web frontend
+        working-directory: web
+        run: pnpm run build
+
+      # Cheap gate before anything is published: every Lua file has to parse, and
+      # the framework bridge has to behave on both a QBCore- and a Qbox-shaped
+      # core object. Catches a broken release before it reaches a server.
+      - name: Validate Lua
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.4 >/dev/null
+
+          # config.lua uses FiveM hash literals (`police5`), which plain Lua
+          # cannot parse. Rewrite them for the syntax check only.
+          sed 's/`\([A-Za-z0-9_]*\)`/GetHashKey("\1")/g' config.lua > /tmp/config_check.lua
+          luac5.4 -p /tmp/config_check.lua
+          luac5.4 -p fxmanifest.lua
+          luac5.4 -p $(find bridge client server -name '*.lua')
+          echo "Lua syntax OK"
+
+      - name: Run bridge smoke test
+        run: lua5.4 tests/bridge_smoke_test.lua
+
+      - name: Stage release files
+        run: |
+          STAGE_DIR="release-stage/ps-mdt"
+          mkdir -p "${STAGE_DIR}"
+          cp -r bridge       "${STAGE_DIR}/"
+          cp -r client       "${STAGE_DIR}/"
+          cp -r server       "${STAGE_DIR}/"
+          cp -r sql          "${STAGE_DIR}/"
+          cp -r stream       "${STAGE_DIR}/"
+          cp    config.lua   "${STAGE_DIR}/"
+          cp    fxmanifest.lua "${STAGE_DIR}/"
+          cp    LICENSE      "${STAGE_DIR}/"
+          cp    README.md    "${STAGE_DIR}/"
+          cp    SECURITY.md  "${STAGE_DIR}/"
+          mkdir -p "${STAGE_DIR}/web"
+          cp -r web/dist "${STAGE_DIR}/web/dist"
+          echo "Staged contents:"
+          find "${STAGE_DIR}" -maxdepth 3 -print
+
+      - name: Create release archive
+        id: archive
+        run: |
+          ARCHIVE_NAME="ps-mdt-${{ steps.version.outputs.tag }}.zip"
+          (cd release-stage && zip -r "../${ARCHIVE_NAME}" ps-mdt)
+          echo "name=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+          ls -lh "${ARCHIVE_NAME}"
+
+      # Creates the tag on this commit AND the release in one step.
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: ${{ steps.archive.outputs.name }}
