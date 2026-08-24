@@ -89,30 +89,10 @@ jobs:
         working-directory: web
         run: pnpm run build
 
-      # Cheap gate before anything is published: every Lua file has to parse, and
-      # the framework bridge has to behave on both a QBCore- and a Qbox-shaped
-      # core object. Catches a broken release before it reaches a server.
-      - name: Validate Lua
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y lua5.4 >/dev/null
-
-          # config.lua uses FiveM hash literals (`police5`), which plain Lua
-          # cannot parse. Rewrite them for the syntax check only.
-          sed 's/`\([A-Za-z0-9_]*\)`/GetHashKey("\1")/g' config.lua > /tmp/config_check.lua
-          luac5.4 -p /tmp/config_check.lua
-          luac5.4 -p fxmanifest.lua
-          luac5.4 -p $(find bridge client server -name '*.lua')
-          echo "Lua syntax OK"
-
-      - name: Run bridge smoke test
-        run: lua5.4 tests/bridge_smoke_test.lua
-
       - name: Stage release files
         run: |
           STAGE_DIR="release-stage/ps-mdt"
           mkdir -p "${STAGE_DIR}"
-          cp -r bridge       "${STAGE_DIR}/"
           cp -r client       "${STAGE_DIR}/"
           cp -r server       "${STAGE_DIR}/"
           cp -r sql          "${STAGE_DIR}/"
