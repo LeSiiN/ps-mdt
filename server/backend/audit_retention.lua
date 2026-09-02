@@ -43,7 +43,7 @@ local function sweep()
         ]], { days, batchSize })
 
         if not ok then
-            ps.warn('[audit] Retention sweep failed: ' .. tostring(affected))
+            MDT.warn('[audit] Retention sweep failed: ' .. tostring(affected))
             return deleted
         end
 

@@ -12,7 +12,7 @@ local function bridge(name, event, requirePlate)
             cb({ success = false, message = 'Missing plate number' })
             return
         end
-        local result = ps.callback(resourceName .. ':server:' .. event, data or {})
+        local result = MDT.callback(resourceName .. ':server:' .. event, data or {})
         cb(result or { success = false, message = 'Request failed' })
     end)
 end

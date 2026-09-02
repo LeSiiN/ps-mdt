@@ -1,6 +1,6 @@
 # ps-mdt v3
 
-Police MDT (Mobile Data Terminal) for FiveM. Built with Svelte 5 and Lua. Works on QBCore and QBX through the ps_lib abstraction layer.
+Police MDT (Mobile Data Terminal) for FiveM. Built with Svelte 5 and Lua. Works on QBCore and Qbox (qbx_core) out of the box — no framework setting to pick, and no framework abstraction resource to install.
 
 ## What is this
 
@@ -12,9 +12,17 @@ These need to be running on your server:
 
 | Resource | Why |
 |----------|-----|
-| [ps_lib](https://github.com/Project-Sloth/ps_lib) | Framework abstraction layer |
 | [oxmysql](https://github.com/overextended/oxmysql) | Database |
-| [ox_lib](https://github.com/overextended/ox_lib) | Utility library |
+| [ox_lib](https://github.com/overextended/ox_lib) | Callbacks and notifications |
+| qb-core **or** qbx_core | Framework |
+
+> **ps_lib is no longer required.** As of this version everything it provided — logging, callbacks,
+> notifications and framework getters — lives in `bridge/` inside this resource and is built on
+> ox_lib plus the standard qb-core API. If you were only running ps_lib for ps-mdt, you can remove it.
+>
+> On Qbox this works through the qb-core compatibility layer that `qbx_core` ships (`provide 'qb-core'`).
+> That layer is on by default. If you have `setr qbx:enablebridge false` in your `server.cfg`, remove it —
+> ps-mdt will print an explicit error on startup telling you so.
 
 
 Optional but HIGHLY RECOMMENDED:
@@ -84,7 +92,6 @@ npm run build
 ### 5. Add to server.cfg
 
 ```
-ensure ps_lib
 ensure oxmysql
 ensure ox_lib
 ensure ps-mdt

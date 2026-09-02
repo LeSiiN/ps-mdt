@@ -69,7 +69,7 @@ CreateThread(function()
 end)
 
 -- Join a report editing session
-ps.registerCallback(resourceName .. ':server:joinReportSession', function(source, reportId)
+lib.callback.register(resourceName .. ':server:joinReportSession', function(source, reportId)
     local src = source
     if not CheckAuth(src) then return { success = false } end
 
@@ -86,7 +86,7 @@ ps.registerCallback(resourceName .. ':server:joinReportSession', function(source
     end
 
     local session = activeReportSessions[reportId]
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local editorName = profile and profile.fullname or 'Unknown'
     local color = getNextColor(session)
@@ -125,7 +125,7 @@ ps.registerCallback(resourceName .. ':server:joinReportSession', function(source
 end)
 
 -- Leave a report editing session
-ps.registerCallback(resourceName .. ':server:leaveReportSession', function(source, reportId)
+lib.callback.register(resourceName .. ':server:leaveReportSession', function(source, reportId)
     local src = source
     reportId = tostring(reportId)
 

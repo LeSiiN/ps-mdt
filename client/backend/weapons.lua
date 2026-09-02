@@ -2,8 +2,8 @@ local resourceName = tostring(GetCurrentResourceName())
 
 RegisterNUICallback('getWeapons', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local weaponList = ps.callback('ps-mdt:server:getWeapons')
-    ps.debug('getWeapons', weaponList)
+    local weaponList = MDT.callback('ps-mdt:server:getWeapons')
+    MDT.debug('getWeapons', weaponList)
     cb(weaponList)
 end)
 
@@ -12,20 +12,20 @@ end)
 -- tab throws "Failed to load weapons #1".
 RegisterNUICallback('getWeaponConfig', function(data, cb)
     if not MDTOpen then cb({ weapons = {} }) return end
-    local config = ps.callback(resourceName .. ':server:getWeaponConfig')
+    local config = MDT.callback(resourceName .. ':server:getWeaponConfig')
     cb(config or { weapons = {} })
 end)
 
 RegisterNUICallback('getWeaponBolos', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local result = ps.callback(resourceName..':server:getBOLO', 'weapon')
-    ps.debug('[getWeaponBolos] Fetched weapon BOLOs:', result)
+    local result = MDT.callback(resourceName..':server:getBOLO', 'weapon')
+    MDT.debug('[getWeaponBolos] Fetched weapon BOLOs:', result)
     cb(result)
 end)
 
 RegisterNUICallback('saveWeaponFlags', function(data, cb)
     local flags = type(data.flags) == 'table' and data.flags or json.decode(data.flags) or {}
-    local result = ps.callback(resourceName .. ':server:saveWeaponFlags', data.serial, flags)
+    local result = MDT.callback(resourceName .. ':server:saveWeaponFlags', data.serial, flags)
     cb(result or { success = false })
 end)
 
@@ -36,7 +36,7 @@ RegisterNUICallback('getWeaponOwnershipHistory', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getWeaponOwnershipHistory', data.serial)
+    local result = MDT.callback(resourceName .. ':server:getWeaponOwnershipHistory', data.serial)
     cb(result or {})
 end)
 
@@ -52,7 +52,7 @@ RegisterNUICallback('saveWeaponInfo', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:saveWeaponInfo', data)
+    local result = MDT.callback(resourceName .. ':server:saveWeaponInfo', data)
     cb(result or { success = false, message = 'Failed to save weapon info' })
 end)
 
@@ -68,13 +68,13 @@ RegisterNUICallback('deleteWeapon', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:deleteWeapon', data)
+    local result = MDT.callback(resourceName .. ':server:deleteWeapon', data)
     cb(result or { success = false, message = 'Failed to delete weapon' })
 end)
 
 -- Weapon Self-Register (3rd Eye integration)
 RegisterNetEvent(resourceName .. ':client:selfregister', function()
-    local weaponInfos = ps.callback(resourceName .. ':server:getWeaponInfo')
+    local weaponInfos = MDT.callback(resourceName .. ':server:getWeaponInfo')
     if weaponInfos and #weaponInfos > 0 then
         for _, weaponInfo in ipairs(weaponInfos) do
             TriggerServerEvent(resourceName .. ':server:selfRegisterWeapon',
@@ -87,6 +87,6 @@ RegisterNetEvent(resourceName .. ':client:selfregister', function()
             )
         end
     else
-        ps.notify('No weapons found to register', 'error')
+        MDT.notify('No weapons found to register', 'error')
     end
 end)

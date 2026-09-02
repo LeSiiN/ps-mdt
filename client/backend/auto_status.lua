@@ -27,9 +27,9 @@ local watchToken = 0
 
 -- Called from every attach path in dashboard.lua (self-attach, manual-call
 -- attach, dispatcher assign). Pure fire-and-forget: NO blocking list lookup
--- here — ps_lib callbacks are name-keyed and a concurrent GetRecentDispatch
--- (e.g. the NUI's own list refresh during an attach) would deadlock one
--- caller into a 10s NUI timeout. The server resolves the call's code and
+-- here. A blocking callback inside an attach path stalls the handler behind a
+-- server round-trip while the NUI is waiting on its own list refresh, which is
+-- how the old 10s NUI timeouts happened. The server resolves the call's code and
 -- coords itself from its cached dispatch list (GetDispatchInfoById); coords
 -- are only passed through when the caller already has them (dispatcher
 -- assigns), as the more precise fast path.
@@ -69,7 +69,7 @@ end)
 RegisterNetEvent(resourceName .. ':client:autoStatusNotify', function(data)
     if not autoStatusNotifyEnabled then return end
     local text = type(data) == 'table' and type(data.text) == 'string' and data.text or nil
-    if text and text ~= '' then ps.notify(text, 'inform') end
+    if text and text ~= '' then MDT.notify(text, 'inform') end
 end)
 
 -- ── ps-dispatch bridge ───────────────────────────────────────────────────────

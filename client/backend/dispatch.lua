@@ -5,7 +5,7 @@ local coolDown = false
 RegisterNUICallback('dispatchMessage', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
 
-    local result = ps.callback(resourceName .. ':server:sendDispatchMessage', {
+    local result = MDT.callback(resourceName .. ':server:sendDispatchMessage', {
         message = data.message,
         time = data.time,
     })
@@ -15,21 +15,21 @@ end)
 -- Refresh dispatch messages
 RegisterNUICallback('refreshDispatchMsgs', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local messages = ps.callback(resourceName .. ':server:getDispatchMessages')
+    local messages = MDT.callback(resourceName .. ':server:getDispatchMessages')
     cb(messages or {})
 end)
 
 -- Get call responses
 RegisterNUICallback('getCallResponses', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local responses = ps.callback(resourceName .. ':server:getCallResponses', data.callid or data.id)
+    local responses = MDT.callback(resourceName .. ':server:getCallResponses', data.callid or data.id)
     cb(responses or {})
 end)
 
 -- Send call response
 RegisterNUICallback('sendCallResponse', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback(resourceName .. ':server:sendCallResponse', {
+    local result = MDT.callback(resourceName .. ':server:sendCallResponse', {
         message = data.message,
         time = data.time,
         callid = data.callid,
@@ -39,7 +39,7 @@ end)
 
 -- Dispatch message received from server
 RegisterNetEvent(resourceName .. ':client:dispatchMessage', function(sentData)
-    if ps.getJobType() == 'leo' then
+    if MDT.getJobType() == 'leo' then
         SendNUI('dispatchMessage', sentData)
     end
 end)
@@ -58,7 +58,7 @@ end)
 RegisterNUICallback('signal100', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
 
-    local result = ps.callback(resourceName .. ':server:signal100', {
+    local result = MDT.callback(resourceName .. ':server:signal100', {
         radio = data.radio,
         active = data.active,
     })
@@ -67,13 +67,13 @@ end)
 
 -- Signal 100 event from server
 RegisterNetEvent(resourceName .. ':client:sig100', function(radio, isActive)
-    if ps.getJobType() ~= 'leo' then return end
-    if not ps.getJobDuty() then return end
+    if MDT.getJobType() ~= 'leo' then return end
+    if not MDT.getJobDuty() then return end
 
     if isActive then
-        ps.notify('Radio ' .. tostring(radio) .. ' is currently Signal 100!', 'error')
+        MDT.notify('Radio ' .. tostring(radio) .. ' is currently Signal 100!', 'error')
     else
-        ps.notify('Radio ' .. tostring(radio) .. ' Signal 100 cleared', 'success')
+        MDT.notify('Radio ' .. tostring(radio) .. ' Signal 100 cleared', 'success')
     end
 
     SendNUI('signal100', { radio = radio, active = isActive })
@@ -95,7 +95,7 @@ RegisterNUICallback('dispatchNotif', function(data, cb)
     local mentioned = false
 
     -- Access callSign from officers.lua scope - use metadata fallback
-    local currentCallSign = ps.getMetadata and ps.getMetadata('callsign') or ''
+    local currentCallSign = MDT.getMetadata and MDT.getMetadata('callsign') or ''
 
     if currentCallSign ~= '' and info.message then
         if string.find(string.lower(info.message), string.lower(string.gsub(currentCallSign, '-', '%%-'))) then
@@ -104,7 +104,7 @@ RegisterNUICallback('dispatchNotif', function(data, cb)
     end
 
     if mentioned then
-        ps.notify('Dispatch (Mention): ' .. (info.message or ''), 'info')
+        MDT.notify('Dispatch (Mention): ' .. (info.message or ''), 'info')
         PlaySoundFrontend(-1, 'SELECT', 'HUD_FRONTEND_DEFAULT_SOUNDSET', false)
         PlaySoundFrontend(-1, 'Event_Start_Text', 'GTAO_FM_Events_Soundset', false)
     end
@@ -115,7 +115,7 @@ end)
 -- Attached Units Query
 RegisterNUICallback('attachedUnits', function(data, cb)
     local callid = data.callid or data.id
-    local units = ps.callback(resourceName .. ':server:getAttachedUnits', callid)
+    local units = MDT.callback(resourceName .. ':server:getAttachedUnits', callid)
     cb(units or {})
 end)
 
@@ -134,12 +134,12 @@ if Config.UseWolfknightRadar then
 
     RegisterNetEvent(resourceName .. ':client:trafficStop', function()
         if not IsPedInAnyPoliceVehicle(PlayerPedId()) then
-            ps.notify('Not in a police vehicle!', 'error')
+            MDT.notify('Not in a police vehicle!', 'error')
             return
         end
 
         if coolDown then
-            ps.notify('Traffic stop cooldown active!', 'error')
+            MDT.notify('Traffic stop cooldown active!', 'error')
             return
         end
 
@@ -151,7 +151,7 @@ if Config.UseWolfknightRadar then
         end)
 
         if not success or not data or not data.veh or data.veh == 0 then
-            ps.notify('No vehicle detected by radar', 'error')
+            MDT.notify('No vehicle detected by radar', 'error')
             return
         end
 
@@ -159,7 +159,7 @@ if Config.UseWolfknightRadar then
         local plate = data.plate
 
         if GetResourceState('ps-dispatch') == 'started' then
-            local playerData = ps.getPlayerData()
+            local playerData = MDT.getPlayerData()
             local charinfo = playerData and playerData.charinfo or {}
             local job = playerData and playerData.job or {}
             local gradeName = job.grade and job.grade.name or ''

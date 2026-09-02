@@ -17,7 +17,7 @@ local function format_time(time)
     return formatted
 end
 
-ps.registerCallback(resourceName .. ':server:getLeaderboard', function(source)
+lib.callback.register(resourceName .. ':server:getLeaderboard', function(source)
     if not CheckAuth(source) then return {} end
 
     local hasTable = MySQL.scalar.await("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mdt_clocking'")

@@ -36,6 +36,6 @@ function SendNUI(action, data)
     -- Only pay the encode/format cost for logging when debug is actually on.
     if Config and Config.Debug then
         local ok, encoded = pcall(json.encode, data)
-        ps.debug(('NUI Message Sent: %s%s'):format(action, (ok and encoded) and (' with data: ' .. encoded) or ''))
+        MDT.debug(('NUI Message Sent: %s%s'):format(action, (ok and encoded) and (' with data: ' .. encoded) or ''))
     end
 end

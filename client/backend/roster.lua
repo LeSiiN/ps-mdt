@@ -1,53 +1,53 @@
 RegisterNUICallback('getRoster', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local rosterList = ps.callback('ps-mdt:server:getRosterList')
+    local rosterList = MDT.callback('ps-mdt:server:getRosterList')
     cb(rosterList)
 end)
 
 RegisterNUICallback('getOfficerTags', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local tags = ps.callback('ps-mdt:server:getOfficerTags')
+    local tags = MDT.callback('ps-mdt:server:getOfficerTags')
     cb(tags or {})
 end)
 
 RegisterNUICallback('updateOfficerCertifications', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback('ps-mdt:server:updateOfficerCertifications', data)
+    local result = MDT.callback('ps-mdt:server:updateOfficerCertifications', data)
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('getJobGrades', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local result = ps.callback('ps-mdt:server:getJobGrades', data)
+    local result = MDT.callback('ps-mdt:server:getJobGrades', data)
     cb(result or {})
 end)
 
 RegisterNUICallback('promoteOfficer', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback('ps-mdt:server:promoteOfficer', data)
+    local result = MDT.callback('ps-mdt:server:promoteOfficer', data)
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('fireOfficer', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback('ps-mdt:server:fireOfficer', data)
+    local result = MDT.callback('ps-mdt:server:fireOfficer', data)
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('releaseOfficerCallsign', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback('ps-mdt:server:releaseOfficerCallsign', data)
+    local result = MDT.callback('ps-mdt:server:releaseOfficerCallsign', data)
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('getCallsignAvailability', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback('ps-mdt:server:getCallsignAvailability', data or {})
+    local result = MDT.callback('ps-mdt:server:getCallsignAvailability', data or {})
     cb(result or { success = false })
 end)
 
 RegisterNUICallback('updateOfficerCallsign', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    local result = ps.callback('ps-mdt:server:updateOfficerCallsign', data)
+    local result = MDT.callback('ps-mdt:server:updateOfficerCallsign', data)
     cb(result or { success = false })
 end)

@@ -6,8 +6,8 @@ RegisterNUICallback('getPermissionRoles', function(_, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getPermissionRoles')
-    ps.debug('[getPermissionRoles] Result:', result)
+    local result = MDT.callback(resourceName .. ':server:getPermissionRoles')
+    MDT.debug('[getPermissionRoles] Result:', result)
     cb(result or { success = false, message = 'Failed to fetch roles' })
 end)
 
@@ -17,7 +17,7 @@ RegisterNUICallback('updatePermissionRole', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:updatePermissionRole', data or {})
+    local result = MDT.callback(resourceName .. ':server:updatePermissionRole', data or {})
     cb(result or { success = false, message = 'Failed to update role' })
 end)
 
@@ -29,7 +29,7 @@ RegisterNUICallback('getAuditTrackingConfig', function(_, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getAuditTrackingConfig')
+    local result = MDT.callback(resourceName .. ':server:getAuditTrackingConfig')
     -- Server returns JSON string to preserve boolean false values through msgpack
     if type(result) == 'string' then
         local ok, decoded = pcall(json.decode, result)
@@ -48,7 +48,7 @@ RegisterNUICallback('saveAuditTrackingConfig', function(data, cb)
     end
 
     -- Encode as JSON string to preserve boolean false values through msgpack serialization
-    local result = ps.callback(resourceName .. ':server:saveAuditTrackingConfig', json.encode(data or {}))
+    local result = MDT.callback(resourceName .. ':server:saveAuditTrackingConfig', json.encode(data or {}))
     cb(result or { success = false, message = 'Failed to save settings' })
 end)
 
@@ -60,7 +60,7 @@ RegisterNUICallback('getJailFinesConfig', function(_, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getJailFinesConfig')
+    local result = MDT.callback(resourceName .. ':server:getJailFinesConfig')
     cb(result or {})
 end)
 
@@ -70,7 +70,7 @@ RegisterNUICallback('saveJailFinesConfig', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:saveJailFinesConfig', data or {})
+    local result = MDT.callback(resourceName .. ':server:saveJailFinesConfig', data or {})
     cb(result or { success = false, message = 'Failed to save settings' })
 end)
 
@@ -83,7 +83,7 @@ RegisterNUICallback('getReportTemplates', function(data, cb)
     end
 
     local jobType = (type(data) == 'table' and data.jobType) or nil
-    local result = ps.callback(resourceName .. ':server:getReportTemplates', { jobType = jobType })
+    local result = MDT.callback(resourceName .. ':server:getReportTemplates', { jobType = jobType })
     cb(result or {})
 end)
 
@@ -93,7 +93,7 @@ RegisterNUICallback('saveReportTemplate', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:saveReportTemplate', data or {})
+    local result = MDT.callback(resourceName .. ':server:saveReportTemplate', data or {})
     cb(result or { success = false, message = 'Failed to save template' })
 end)
 
@@ -103,7 +103,7 @@ RegisterNUICallback('deleteReportTemplate', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:deleteReportTemplate', data or {})
+    local result = MDT.callback(resourceName .. ':server:deleteReportTemplate', data or {})
     cb(result or { success = false, message = 'Failed to delete template' })
 end)
 
@@ -115,7 +115,7 @@ RegisterNUICallback('getTags', function(data, cb)
         return
     end
     local jobType = (type(data) == 'table' and data.jobType) or nil
-    local result = ps.callback(resourceName .. ':server:getTags', { jobType = jobType })
+    local result = MDT.callback(resourceName .. ':server:getTags', { jobType = jobType })
     cb(result or {})
 end)
 
@@ -124,7 +124,7 @@ RegisterNUICallback('createTag', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:createTag', data or {})
+    local result = MDT.callback(resourceName .. ':server:createTag', data or {})
     cb(result or { success = false, message = 'Failed to create tag' })
 end)
 
@@ -133,7 +133,7 @@ RegisterNUICallback('updateTag', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:updateTag', data or {})
+    local result = MDT.callback(resourceName .. ':server:updateTag', data or {})
     cb(result or { success = false, message = 'Failed to update tag' })
 end)
 
@@ -142,7 +142,7 @@ RegisterNUICallback('deleteTag', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:deleteTag', data or {})
+    local result = MDT.callback(resourceName .. ':server:deleteTag', data or {})
     cb(result or { success = false, message = 'Failed to delete tag' })
 end)
 
@@ -153,7 +153,7 @@ RegisterNUICallback('getAwardConfigs', function(_, cb)
         cb({})
         return
     end
-    local result = ps.callback(resourceName .. ':server:getAwardConfigs')
+    local result = MDT.callback(resourceName .. ':server:getAwardConfigs')
     cb(result or {})
 end)
 
@@ -162,7 +162,7 @@ RegisterNUICallback('saveAward', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:saveAward', data or {})
+    local result = MDT.callback(resourceName .. ':server:saveAward', data or {})
     cb(result or { success = false, message = 'Failed to save award' })
 end)
 
@@ -171,7 +171,7 @@ RegisterNUICallback('deleteAward', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:deleteAward', data or {})
+    local result = MDT.callback(resourceName .. ':server:deleteAward', data or {})
     cb(result or { success = false, message = 'Failed to delete award' })
 end)
 
@@ -182,7 +182,7 @@ RegisterNUICallback('getAwardsData', function(data, cb)
         cb(nil)
         return
     end
-    local result = ps.callback(resourceName .. ':server:getAwardsData', data or {})
+    local result = MDT.callback(resourceName .. ':server:getAwardsData', data or {})
     cb(result)
 end)
 
@@ -193,7 +193,7 @@ RegisterNUICallback('getCustomLicenses', function(_, cb)
         cb({})
         return
     end
-    local result = ps.callback(resourceName .. ':server:getCustomLicenses')
+    local result = MDT.callback(resourceName .. ':server:getCustomLicenses')
     cb(result or {})
 end)
 
@@ -202,7 +202,7 @@ RegisterNUICallback('saveCustomLicense', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:saveCustomLicense', data or {})
+    local result = MDT.callback(resourceName .. ':server:saveCustomLicense', data or {})
     cb(result or { success = false, message = 'Failed to save license' })
 end)
 
@@ -211,7 +211,7 @@ RegisterNUICallback('deleteCustomLicense', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:deleteCustomLicense', data or {})
+    local result = MDT.callback(resourceName .. ':server:deleteCustomLicense', data or {})
     cb(result or { success = false, message = 'Failed to delete license' })
 end)
 
@@ -222,7 +222,7 @@ RegisterNUICallback('getColorConfig', function(_, cb)
         cb(nil)
         return
     end
-    local result = ps.callback(resourceName .. ':server:getColorConfig')
+    local result = MDT.callback(resourceName .. ':server:getColorConfig')
     cb(result)
 end)
 
@@ -231,6 +231,6 @@ RegisterNUICallback('saveColorConfig', function(data, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:saveColorConfig', data or {})
+    local result = MDT.callback(resourceName .. ':server:saveColorConfig', data or {})
     cb(result or { success = false, message = 'Failed to save colors' })
 end)

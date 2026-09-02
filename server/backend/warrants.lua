@@ -65,7 +65,7 @@ function GetActiveWarrantsData(src)
     for _, row in ipairs(rows or {}) do
         local name = ((row.firstname or '') .. ' ' .. (row.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
         if name == '' then
-            name = ps.getPlayerNameByIdentifier(row.citizenid) or 'Unknown'
+            name = MDT.getPlayerNameByIdentifier(row.citizenid) or 'Unknown'
         end
         results[#results + 1] = {
             reportid = row.reportid,
@@ -89,13 +89,13 @@ function BroadcastActiveWarrants()
     TriggerClientEvent(resourceName .. ':client:updateActiveWarrants', -1, GetActiveWarrantsData())
 end
 
-ps.registerCallback(resourceName .. ':server:getActiveWarrants', function(source)
+lib.callback.register(resourceName .. ':server:getActiveWarrants', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
     return GetActiveWarrantsData(src)
 end)
 
-ps.registerCallback(resourceName .. ':server:issueWarrant', function(source, data)
+lib.callback.register(resourceName .. ':server:issueWarrant', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'warrants_issue') then
@@ -133,8 +133,8 @@ ps.registerCallback(resourceName .. ':server:issueWarrant', function(source, dat
         ]], { reportId, citizenid, expiryDate })
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'warrant_issued', 'warrant', reportId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'warrant_issued', 'warrant', reportId, {
             citizenid = citizenid,
             expirydate = expiryDate
         })
@@ -144,7 +144,7 @@ ps.registerCallback(resourceName .. ':server:issueWarrant', function(source, dat
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:closeWarrant', function(source, data)
+lib.callback.register(resourceName .. ':server:closeWarrant', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'warrants_close') then
@@ -169,8 +169,8 @@ ps.registerCallback(resourceName .. ':server:closeWarrant', function(source, dat
         if RemoveWarrantHearingsForReport then
             RemoveWarrantHearingsForReport(reportId)
         end
-        if ps.auditLog then
-            ps.auditLog(src, 'warrant_closed', 'warrant', reportId, {
+        if MDT.auditLog then
+            MDT.auditLog(src, 'warrant_closed', 'warrant', reportId, {
                 citizenid = citizenid
             })
         end

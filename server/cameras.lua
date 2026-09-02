@@ -58,12 +58,12 @@ Camera.types = {
 ---@return table? Camera instance or nil if creation failed
 function Camera.new(camId, camType, camLabel, options)
     if not camId or not camType then
-        ps.error('Camera.new: camId and camType are required')
+        MDT.error('Camera.new: camId and camType are required')
         return nil
     end
 
     if not Camera.types[camType] and camType ~= Camera.types.bodycam and camType ~= Camera.types.static then
-        ps.error('Camera.new: Invalid camera type. Must be "bodycam" or "static"')
+        MDT.error('Camera.new: Invalid camera type. Must be "bodycam" or "static"')
         return nil
     end
 
@@ -101,12 +101,12 @@ function Camera.new(camId, camType, camLabel, options)
 
         -- Validate model exists
         if not Camera.models[newCameraInstance.model] then
-            ps.warn('Camera.new: Unknown model "' .. newCameraInstance.model .. '", using default')
+            MDT.warn('Camera.new: Unknown model "' .. newCameraInstance.model .. '", using default')
             newCameraInstance.model = 'security_cam_03'
         end
     end
 
-    --ps.debug('Camera.new: Creating new camera instance with ID ' .. camId)
+    --MDT.debug('Camera.new: Creating new camera instance with ID ' .. camId)
     setmetatable(newCameraInstance, Camera)
     return newCameraInstance
 end
@@ -127,32 +127,32 @@ function Camera:spawn()
         if self.playerId then
             -- bodycam item checks handled in backend/bodycams.lua
             self.isSpawned = true
-            ps.debug('Camera:spawn - Bodycam marked as available for player ' .. self.playerId)
+            MDT.debug('Camera:spawn - Bodycam marked as available for player ' .. self.playerId)
             return true
         end
         return false
     elseif self.camType == Camera.types.static then
         if self.isSpawned then
-            ps.warn('Camera:spawn - Camera ' .. self.camId .. ' is already spawned')
+            MDT.warn('Camera:spawn - Camera ' .. self.camId .. ' is already spawned')
             return true
         end
 
         local modelName = self:getModelHash()
         if not modelName then
-            ps.error('Camera:spawn - Could not get model hash for camera ' .. self.camId)
+            MDT.error('Camera:spawn - Could not get model hash for camera ' .. self.camId)
             return false
         end
 
         local modelHash = GetHashKey(modelName)
-        -- ps.debug('Camera:spawn - Requesting model: ' .. modelName .. ' (hash: ' .. modelHash .. ')')
-        -- ps.debug('Camera:spawn - Spawning at coordinates: ' .. tostring(self.coords))
-        -- ps.debug('Camera:spawn - Spawning with rotation: ' .. tostring(self.rotation))
+        -- MDT.debug('Camera:spawn - Requesting model: ' .. modelName .. ' (hash: ' .. modelHash .. ')')
+        -- MDT.debug('Camera:spawn - Spawning at coordinates: ' .. tostring(self.coords))
+        -- MDT.debug('Camera:spawn - Spawning with rotation: ' .. tostring(self.rotation))
 
         -- Create the object
         local entity = CreateObject(modelHash, self.coords.x, self.coords.y, self.coords.z, true, true, false)
 
         if not entity or entity == 0 then
-            ps.error('Camera:spawn - Failed to create entity for camera ' .. self.camId)
+            MDT.error('Camera:spawn - Failed to create entity for camera ' .. self.camId)
             return false
         end
 
@@ -170,7 +170,7 @@ function Camera:spawn()
         end
 
         if networkingTimeout >= 50 then
-            ps.error('Camera:spawn - Entity failed to network properly after timeout for camera ' .. self.camId)
+            MDT.error('Camera:spawn - Entity failed to network properly after timeout for camera ' .. self.camId)
             DeleteEntity(entity)
             return false
         end
@@ -178,8 +178,8 @@ function Camera:spawn()
         -- debug info
         -- local actualPos = GetEntityCoords(entity)
         -- local actualRot = GetEntityRotation(entity, 2)
-        -- ps.debug('Camera:spawn - Entity actual position after creation: ' .. tostring(actualPos))
-        -- ps.debug('Camera:spawn - Entity actual rotation after creation: ' .. tostring(actualRot))
+        -- MDT.debug('Camera:spawn - Entity actual position after creation: ' .. tostring(actualPos))
+        -- MDT.debug('Camera:spawn - Entity actual rotation after creation: ' .. tostring(actualRot))
 
         -- Store the entity ID and register in global registry
         self.entityId = entity
@@ -196,11 +196,11 @@ end
 function Camera:despawn()
     if self.camType == Camera.types.bodycam then
         self.isSpawned = false -- For bodycams, just mark as not spawned
-        ps.debug('Camera:despawn - Bodycam removed for player ' .. (self.playerId or 'unknown'))
+        MDT.debug('Camera:despawn - Bodycam removed for player ' .. (self.playerId or 'unknown'))
         return true
     elseif self.camType == Camera.types.static then
         if not self.isSpawned then
-            --ps.warn('Camera:despawn - Camera ' .. self.camId .. ' is not spawned')
+            --MDT.warn('Camera:despawn - Camera ' .. self.camId .. ' is not spawned')
             return true
         end
 
@@ -209,14 +209,14 @@ function Camera:despawn()
 
         -- Delete the entity if it exists
         if self.entityId and DoesEntityExist(self.entityId) then
-            --ps.debug('Camera:despawn - Deleting entity ' .. self.entityId .. ' for camera ' .. self.camId)
+            --MDT.debug('Camera:despawn - Deleting entity ' .. self.entityId .. ' for camera ' .. self.camId)
             DeleteEntity(self.entityId)
         end
 
         spawnedCameras[self.camId] = nil
         self.entityId = nil
         self.isSpawned = false
-        --ps.debug('Camera:despawn - Despawned static camera ' .. self.camId)
+        --MDT.debug('Camera:despawn - Despawned static camera ' .. self.camId)
         return true
     end
     return false
@@ -226,29 +226,29 @@ end
 ---@param playerId number Player server ID who wants to view the camera
 ---@return boolean Success status
 function Camera:activate(playerId)
-    ps.debug('Camera:activate called for player:', playerId, 'on camera:', self.camId)
+    MDT.debug('Camera:activate called for player:', playerId, 'on camera:', self.camId)
     if not playerId then
-        ps.error('Camera:activate - playerId is required')
+        MDT.error('Camera:activate - playerId is required')
         return false
     end
 
     if self.camType == Camera.types.bodycam then
         -- Check if the bodycam owner is online and has the item
         if not self.playerId or not GetPlayerPed(self.playerId) then
-            ps.warn('Camera:activate - Bodycam owner is not online')
+            MDT.warn('Camera:activate - Bodycam owner is not online')
             return false
         end
 
         -- bodycam power/permission checks handled in backend/bodycams.lua
 
         if not self.isSpawned then
-            ps.warn('Camera:activate - Bodycam is not available')
+            MDT.warn('Camera:activate - Bodycam is not available')
             return false
         end
 
     elseif self.camType == Camera.types.static then
         if not self.isSpawned then
-            ps.warn('Camera:activate - Static camera is not spawned')
+            MDT.warn('Camera:activate - Static camera is not spawned')
             return false
         end
     end
@@ -257,9 +257,9 @@ function Camera:activate(playerId)
     if not self.activeViewers[playerId] then
         self.activeViewers[playerId] = {
             startTime = os.time(),
-            playerName = ps.getPlayerName(playerId) or 'Unknown'
+            playerName = MDT.getPlayerName(playerId) or 'Unknown'
         }
-        ps.debug('Camera:activate - Player ' .. playerId .. ' started viewing camera ' .. self.camId)
+        MDT.debug('Camera:activate - Player ' .. playerId .. ' started viewing camera ' .. self.camId)
 
         TriggerClientEvent(resourceName..':client:startCameraView', playerId, self:getData())
 
@@ -268,7 +268,7 @@ function Camera:activate(playerId)
 
         return true
     else
-        ps.warn('Camera:activate - Player ' .. playerId .. ' is already viewing camera ' .. self.camId)
+        MDT.warn('Camera:activate - Player ' .. playerId .. ' is already viewing camera ' .. self.camId)
         return false
     end
 end
@@ -278,13 +278,13 @@ end
 ---@return boolean Success status
 function Camera:deactivate(playerId)
     if not playerId then
-        ps.error('Camera:deactivate - playerId is required')
+        MDT.error('Camera:deactivate - playerId is required')
         return false
     end
 
     if self.activeViewers[playerId] then
         local viewDuration = os.time() - self.activeViewers[playerId].startTime
-        ps.debug('Camera:deactivate - Player ' .. playerId .. ' stopped viewing camera ' .. self.camId .. ' after ' .. viewDuration .. ' seconds')
+        MDT.debug('Camera:deactivate - Player ' .. playerId .. ' stopped viewing camera ' .. self.camId .. ' after ' .. viewDuration .. ' seconds')
 
         self.activeViewers[playerId] = nil
 
@@ -295,7 +295,7 @@ function Camera:deactivate(playerId)
 
         return true
     else
-        ps.warn('Camera:deactivate - Player ' .. playerId .. ' is not viewing camera ' .. self.camId)
+        MDT.warn('Camera:deactivate - Player ' .. playerId .. ' is not viewing camera ' .. self.camId)
         return false
     end
 end
@@ -345,12 +345,12 @@ end
 ---@return boolean Success status
 function Camera:toggleBodycamPower(playerId, powered)
     if self.camType ~= Camera.types.bodycam then
-        ps.error('Camera:toggleBodycamPower - Can only be used on bodycams')
+        MDT.error('Camera:toggleBodycamPower - Can only be used on bodycams')
         return false
     end
 
     if self.playerId ~= playerId then
-        ps.error('Camera:toggleBodycamPower - Player does not own this bodycam')
+        MDT.error('Camera:toggleBodycamPower - Player does not own this bodycam')
         return false
     end
 
@@ -388,7 +388,7 @@ function Camera:getData()
     if self.camType == Camera.types.bodycam then
         data.playerId = self.playerId
         data.note = self.note
-        data.playerName = self.playerId and (ps.getPlayerName(self.playerId) or GetPlayerName(self.playerId)) or 'Unknown'
+        data.playerName = self.playerId and (MDT.getPlayerName(self.playerId) or GetPlayerName(self.playerId)) or 'Unknown'
     elseif self.camType == Camera.types.static then
         data.model = self.model
         data.modelHash = self:getModelHash()
@@ -403,10 +403,10 @@ function Camera:getData()
         -- Convert entity ID to network ID for client-server communication
         if self.entityId and DoesEntityExist(self.entityId) then
             data.networkId = NetworkGetNetworkIdFromEntity(self.entityId)
-            ps.debug('Camera:getData - Entity ID:', self.entityId, 'Network ID:', data.networkId)
+            MDT.debug('Camera:getData - Entity ID:', self.entityId, 'Network ID:', data.networkId)
         else
             data.networkId = nil
-            ps.warn('Camera:getData - Entity does not exist, cannot get network ID')
+            MDT.warn('Camera:getData - Entity does not exist, cannot get network ID')
         end
     end
 
@@ -435,7 +435,7 @@ function Camera:update(updates)
             self.model = updates.model
             -- If model changes and camera is spawned, it needs to be respawned
             if self.isSpawned and oldModel ~= self.model then
-                ps.debug('Camera:update - Model changed, respawning camera')
+                MDT.debug('Camera:update - Model changed, respawning camera')
                 self:despawn()
                 self:spawn()
             end
@@ -521,7 +521,7 @@ end
 ---@return boolean Success status
 function Camera:saveToDatabase()
     if self.camType ~= Camera.types.static then
-        ps.warn('Camera:saveToDatabase - Only static cameras can be saved to database')
+        MDT.warn('Camera:saveToDatabase - Only static cameras can be saved to database')
         return false
     end
 
@@ -552,10 +552,10 @@ function Camera:saveToDatabase()
     })
 
     if success then
-        ps.debug('Camera:saveToDatabase - Saved camera ' .. self.camId .. ' to database')
+        MDT.debug('Camera:saveToDatabase - Saved camera ' .. self.camId .. ' to database')
         return true
     else
-        ps.error('Camera:saveToDatabase - Failed to save camera ' .. self.camId .. ' to database')
+        MDT.error('Camera:saveToDatabase - Failed to save camera ' .. self.camId .. ' to database')
         return false
     end
 end
@@ -564,7 +564,7 @@ end
 ---@return boolean Success status
 function Camera:deleteFromDatabase()
     if self.camType ~= Camera.types.static then
-        ps.warn('Camera:deleteFromDatabase - Only static cameras can be deleted from database')
+        MDT.warn('Camera:deleteFromDatabase - Only static cameras can be deleted from database')
         return false
     end
 
@@ -572,10 +572,10 @@ function Camera:deleteFromDatabase()
     local success = MySQL.query.await(query, { self.camId })
 
     if success then
-        ps.debug('Camera:deleteFromDatabase - Deleted camera ' .. self.camId .. ' from database')
+        MDT.debug('Camera:deleteFromDatabase - Deleted camera ' .. self.camId .. ' from database')
         return true
     else
-        ps.error('Camera:deleteFromDatabase - Failed to delete camera ' .. self.camId .. ' from database')
+        MDT.error('Camera:deleteFromDatabase - Failed to delete camera ' .. self.camId .. ' from database')
         return false
     end
 end
@@ -589,7 +589,7 @@ function Camera.loadAllFromDatabase()
     local results = MySQL.query.await(query)
 
     if not results then
-        ps.debug('Camera.loadAllFromDatabase - No cameras found in database')
+        MDT.debug('Camera.loadAllFromDatabase - No cameras found in database')
         return cameras
     end
 
@@ -601,7 +601,7 @@ function Camera.loadAllFromDatabase()
         if not okCoords or not okRot or type(coords) ~= 'table' or type(rotation) ~= 'table'
             or coords.x == nil or coords.y == nil or coords.z == nil
             or rotation.x == nil or rotation.y == nil or rotation.z == nil then
-            ps.warn(('Camera.loadAllFromDatabase - skipping cam_id %s: invalid coords/rotation JSON'):format(tostring(row.cam_id)))
+            MDT.warn(('Camera.loadAllFromDatabase - skipping cam_id %s: invalid coords/rotation JSON'):format(tostring(row.cam_id)))
             skippedCount = skippedCount + 1
             goto continue
         end
@@ -613,7 +613,7 @@ function Camera.loadAllFromDatabase()
         local cx, cy, cz = tonumber(coords.x), tonumber(coords.y), tonumber(coords.z)
         local rx, ry, rz = tonumber(rotation.x), tonumber(rotation.y), tonumber(rotation.z)
         if not (cx and cy and cz and rx and ry and rz) then
-            ps.warn(('Camera.loadAllFromDatabase - skipping cam_id %s: non-numeric coords/rotation'):format(tostring(row.cam_id)))
+            MDT.warn(('Camera.loadAllFromDatabase - skipping cam_id %s: non-numeric coords/rotation'):format(tostring(row.cam_id)))
             skippedCount = skippedCount + 1
             goto continue
         end
@@ -661,7 +661,7 @@ function Camera.loadAllFromDatabase()
                     -- remains a valid target, it just has no prop in the world.
                     local okSpawn, spawnErr = pcall(function() camera:spawn() end)
                     if not okSpawn then
-                        ps.warn(('Camera.loadAllFromDatabase - spawn failed for %s: %s')
+                        MDT.warn(('Camera.loadAllFromDatabase - spawn failed for %s: %s')
                             :format(tostring(row.cam_id), tostring(spawnErr)))
                         camera.isSpawned = false
                     end
@@ -670,14 +670,14 @@ function Camera.loadAllFromDatabase()
                 end
             else
                 camera.isSpawned = true
-                --ps.debug('Camera.loadAllFromDatabase - Loaded virtual camera ' .. row.cam_id .. ' (type: ' .. camera.camTypeDb .. ', no model spawned)')
+                --MDT.debug('Camera.loadAllFromDatabase - Loaded virtual camera ' .. row.cam_id .. ' (type: ' .. camera.camTypeDb .. ', no model spawned)')
             end
 
             cameras[row.cam_id] = camera
             spawnedCameras[row.cam_id] = camera
             loadedCount = loadedCount + 1
         else
-            ps.error('Camera.loadAllFromDatabase - Failed to create camera ' .. row.cam_id)
+            MDT.error('Camera.loadAllFromDatabase - Failed to create camera ' .. row.cam_id)
             skippedCount = skippedCount + 1
         end
 
@@ -687,10 +687,10 @@ function Camera.loadAllFromDatabase()
     -- Always report the outcome. A silent load that produced nothing was the hardest part
     -- of this to diagnose — the count makes it obvious at a glance.
     if skippedCount > 0 then
-        ps.warn(('Camera.loadAllFromDatabase - loaded %d camera(s), skipped %d')
+        MDT.warn(('Camera.loadAllFromDatabase - loaded %d camera(s), skipped %d')
             :format(loadedCount, skippedCount))
     else
-        ps.debug(('Camera.loadAllFromDatabase - loaded %d camera(s)'):format(loadedCount))
+        MDT.debug(('Camera.loadAllFromDatabase - loaded %d camera(s)'):format(loadedCount))
     end
     return cameras
 end
@@ -718,7 +718,7 @@ function SpawnPendingCameras()
     end
 
     if spawned > 0 then
-        ps.debug('SpawnPendingCameras - spawned ' .. spawned .. ' pending camera(s)')
+        MDT.debug('SpawnPendingCameras - spawned ' .. spawned .. ' pending camera(s)')
     end
 
     spawningPending = false
@@ -731,30 +731,30 @@ RegisterNetEvent(resourceName .. ':server:createStaticCamera', function(cameraDa
     local playerId = source
     if not CheckAuth(playerId) then return end
     if not IsPlayerAceAllowed(playerId, placerAce) then
-        ps.notify(playerId, 'You are not allowed to place cameras', 'error')
+        MDT.notify(playerId, 'You are not allowed to place cameras', 'error')
         return
     end
 
-    ps.debug('Creating static camera for player:', playerId)
-    ps.debug('Received camera data:')
-    ps.debug('  camId: ' .. tostring(cameraData.camId))
-    ps.debug('  coords: ' .. tostring(cameraData.coords))
-    ps.debug('  rotation: ' .. tostring(cameraData.rotation))
+    MDT.debug('Creating static camera for player:', playerId)
+    MDT.debug('Received camera data:')
+    MDT.debug('  camId: ' .. tostring(cameraData.camId))
+    MDT.debug('  coords: ' .. tostring(cameraData.coords))
+    MDT.debug('  rotation: ' .. tostring(cameraData.rotation))
 
     if not cameraData or type(cameraData) ~= 'table' then
-        ps.error('Camera creation failed - invalid data from player:', playerId)
+        MDT.error('Camera creation failed - invalid data from player:', playerId)
         return
     end
 
     -- Validate required fields
     if not cameraData.camId or not cameraData.camLabel or not cameraData.model or not cameraData.coords then
-        ps.error('Camera creation failed - missing required fields for player:', playerId)
+        MDT.error('Camera creation failed - missing required fields for player:', playerId)
         return
     end
 
     -- Check if camera ID already exists
     if spawnedCameras[cameraData.camId] then
-        ps.error('Camera creation failed - camera ID already exists:', cameraData.camId, 'for player:', playerId)
+        MDT.error('Camera creation failed - camera ID already exists:', cameraData.camId, 'for player:', playerId)
         return
     end
 
@@ -770,7 +770,7 @@ RegisterNetEvent(resourceName .. ':server:createStaticCamera', function(cameraDa
     -- Update camera with additional properties if created successfully
     if camera then
         -- Set creation metadata
-        camera.createdBy = ps.getIdentifier(playerId)
+        camera.createdBy = MDT.getIdentifier(playerId)
         camera.createdAt = os.time() * 1000 -- Convert to milliseconds
 
         -- Decoupled feed transform (set by the feed placer on the client)
@@ -796,22 +796,22 @@ RegisterNetEvent(resourceName .. ':server:createStaticCamera', function(cameraDa
         -- Spawn the camera immediately
         local spawnSuccess = camera:spawn()
         if spawnSuccess then
-            ps.info('Camera created and spawned successfully:', cameraData.camId)
+            MDT.info('Camera created and spawned successfully:', cameraData.camId)
         else
-            ps.warn('Camera created but failed to spawn:', cameraData.camId)
+            MDT.warn('Camera created but failed to spawn:', cameraData.camId)
         end
 
         -- Save to database
         local dbSaveSuccess = camera:saveToDatabase()
         if dbSaveSuccess then
-            ps.info('Camera saved to database successfully:', cameraData.camId)
+            MDT.info('Camera saved to database successfully:', cameraData.camId)
         else
-            ps.error('Camera created but failed to save to database:', cameraData.camId)
+            MDT.error('Camera created but failed to save to database:', cameraData.camId)
         end
 
-        ps.debug('Camera created successfully:', cameraData.camId)
+        MDT.debug('Camera created successfully:', cameraData.camId)
     else
-        ps.error('Failed to create camera:', cameraData.camId)
+        MDT.error('Failed to create camera:', cameraData.camId)
     end
 end)
 
@@ -820,10 +820,10 @@ RegisterNetEvent(resourceName .. ':server:requestCameraList', function()
     local playerId = source
     if not CheckAuth(playerId) then return end
     if not IsPlayerAceAllowed(playerId, placerAce) then
-        ps.notify(playerId, 'You are not allowed to manage cameras', 'error')
+        MDT.notify(playerId, 'You are not allowed to manage cameras', 'error')
         return
     end
-    ps.debug('Sending camera list to player:', playerId)
+    MDT.debug('Sending camera list to player:', playerId)
 
     local cameraList = {}
     for camId, camera in pairs(spawnedCameras) do
@@ -849,24 +849,24 @@ RegisterNetEvent(resourceName .. ':server:spawnCamera', function(camId)
     local playerId = source
     if not CheckAuth(playerId) then return end
     if not IsPlayerAceAllowed(playerId, placerAce) then return end
-    ps.debug('Spawning camera for player:', playerId, 'Camera ID:', camId)
+    MDT.debug('Spawning camera for player:', playerId, 'Camera ID:', camId)
 
     local camera = spawnedCameras[camId]
     if not camera then
-        ps.error('Camera spawn failed - camera not found:', camId, 'for player:', playerId)
+        MDT.error('Camera spawn failed - camera not found:', camId, 'for player:', playerId)
         return
     end
 
     if camera.isSpawned then
-        ps.error('Camera spawn failed - camera already spawned:', camId, 'for player:', playerId)
+        MDT.error('Camera spawn failed - camera already spawned:', camId, 'for player:', playerId)
         return
     end
 
     local success = camera:spawn()
     if success then
-        ps.info('Camera spawned successfully:', camId, 'for player:', playerId)
+        MDT.info('Camera spawned successfully:', camId, 'for player:', playerId)
     else
-        ps.error('Camera spawn failed - could not spawn camera:', camId, 'for player:', playerId)
+        MDT.error('Camera spawn failed - could not spawn camera:', camId, 'for player:', playerId)
     end
 end)
 
@@ -875,37 +875,37 @@ RegisterNetEvent(resourceName .. ':server:despawnCamera', function(camId)
     local playerId = source
     if not CheckAuth(playerId) then return end
     if not IsPlayerAceAllowed(playerId, placerAce) then return end
-    ps.debug('Despawning camera for player:', playerId, 'Camera ID:', camId)
+    MDT.debug('Despawning camera for player:', playerId, 'Camera ID:', camId)
 
     local camera = spawnedCameras[camId]
     if not camera then
-        ps.error('Camera despawn failed - camera not found:', camId, 'for player:', playerId)
+        MDT.error('Camera despawn failed - camera not found:', camId, 'for player:', playerId)
         return
     end
 
     if not camera.isSpawned then
-        ps.error('Camera despawn failed - camera is not spawned:', camId, 'for player:', playerId)
+        MDT.error('Camera despawn failed - camera is not spawned:', camId, 'for player:', playerId)
         return
     end
 
     camera:despawn()
-    ps.info('Camera despawned successfully:', camId, 'for player:', playerId)
+    MDT.info('Camera despawned successfully:', camId, 'for player:', playerId)
 end)
 
 -- Handle camera activation request from client
 RegisterNetEvent(resourceName .. ':server:activateCamera', function(camId)
     local playerId = source
     if not CheckAuth(playerId) then return end
-    ps.debug('Activating camera for player:', playerId, 'Camera ID:', camId)
+    MDT.debug('Activating camera for player:', playerId, 'Camera ID:', camId)
 
     local camera = spawnedCameras[camId]
     if not camera then
-        ps.error('Camera activation failed - camera not found:', camId, 'for player:', playerId)
+        MDT.error('Camera activation failed - camera not found:', camId, 'for player:', playerId)
         return
     end
 
     if not camera.isSpawned then
-        ps.error('Camera activation failed - camera must be spawned first:', camId, 'for player:', playerId)
+        MDT.error('Camera activation failed - camera must be spawned first:', camId, 'for player:', playerId)
         return
     end
 
@@ -922,9 +922,9 @@ RegisterNetEvent(resourceName .. ':server:activateCamera', function(camId)
     if success then
         -- Track which camera this player is viewing (activate() already fires startCameraView to client)
         playerViewingCamera[playerId] = camId
-        ps.info('Player ' .. playerId .. ' is now viewing camera: ' .. camId .. ' (Entity: ' .. tostring(camera.entityId) .. ')')
+        MDT.info('Player ' .. playerId .. ' is now viewing camera: ' .. camId .. ' (Entity: ' .. tostring(camera.entityId) .. ')')
     else
-        ps.error('Camera activation failed - could not activate camera:', camId, 'for player:', playerId)
+        MDT.error('Camera activation failed - could not activate camera:', camId, 'for player:', playerId)
     end
 end)
 
@@ -932,7 +932,7 @@ end)
 RegisterNetEvent(resourceName .. ':server:deactivateCamera', function(camId)
     local playerId = source
     if not CheckAuth(playerId) then return end
-    ps.debug('Deactivating camera for player:', playerId, 'Camera ID:', camId)
+    MDT.debug('Deactivating camera for player:', playerId, 'Camera ID:', camId)
 
     -- Handle special case where client sends 'current' to deactivate whatever they're viewing
     if camId == 'current' then
@@ -942,14 +942,14 @@ RegisterNetEvent(resourceName .. ':server:deactivateCamera', function(camId)
             -- deleted) and the client's fade-out takes a moment, during which the player
             -- may also hit close. By then we've already cleared their record, so there is
             -- simply nothing left to do — not an error.
-            ps.debug('deactivateCamera: nothing to deactivate for player', playerId)
+            MDT.debug('deactivateCamera: nothing to deactivate for player', playerId)
             return
         end
     end
 
     local camera = spawnedCameras[camId]
     if not camera then
-        ps.error('Camera deactivation failed - camera not found:', camId, 'for player:', playerId)
+        MDT.error('Camera deactivation failed - camera not found:', camId, 'for player:', playerId)
         return
     end
 
@@ -960,9 +960,9 @@ RegisterNetEvent(resourceName .. ':server:deactivateCamera', function(camId)
 
         -- Stop camera view on client
         TriggerClientEvent(resourceName .. ':client:stopCameraView', playerId)
-        ps.info('Player ' .. playerId .. ' stopped viewing camera: ' .. camId)
+        MDT.info('Player ' .. playerId .. ' stopped viewing camera: ' .. camId)
     else
-        ps.error('Camera deactivation failed - player was not viewing this camera:', camId, 'for player:', playerId)
+        MDT.error('Camera deactivation failed - player was not viewing this camera:', camId, 'for player:', playerId)
     end
 end)
 
@@ -971,14 +971,14 @@ RegisterNetEvent(resourceName .. ':server:deleteCamera', function(camId)
     local playerId = source
     if not CheckAuth(playerId) then return end
     if not IsPlayerAceAllowed(playerId, placerAce) then
-        ps.notify(playerId, 'You are not allowed to delete cameras', 'error')
+        MDT.notify(playerId, 'You are not allowed to delete cameras', 'error')
         return
     end
-    ps.debug('Deleting camera for player:', playerId, 'Camera ID:', camId)
+    MDT.debug('Deleting camera for player:', playerId, 'Camera ID:', camId)
 
     local camera = spawnedCameras[camId]
     if not camera then
-        ps.error('Camera deletion failed - camera not found:', camId, 'for player:', playerId)
+        MDT.error('Camera deletion failed - camera not found:', camId, 'for player:', playerId)
         return
     end
 
@@ -986,8 +986,8 @@ RegisterNetEvent(resourceName .. ':server:deleteCamera', function(camId)
     for viewerId, _ in pairs(camera.activeViewers) do
         camera:deactivate(viewerId)
         TriggerClientEvent(resourceName .. ':client:stopCameraView', viewerId)
-        ps.info('Deactivated camera for viewer:', viewerId)
-        ps.info('Camera Deleted: Camera "' .. camera.camLabel .. '" was deleted')
+        MDT.info('Deactivated camera for viewer:', viewerId)
+        MDT.info('Camera Deleted: Camera "' .. camera.camLabel .. '" was deleted')
     end
 
     -- Despawn and destroy
@@ -996,9 +996,9 @@ RegisterNetEvent(resourceName .. ':server:deleteCamera', function(camId)
     -- Remove from database
     local dbDeleteSuccess = camera:deleteFromDatabase()
     if dbDeleteSuccess then
-        ps.info('Camera removed from database successfully:', camId)
+        MDT.info('Camera removed from database successfully:', camId)
     else
-        ps.error('Camera despawned but failed to remove from database:', camId)
+        MDT.error('Camera despawned but failed to remove from database:', camId)
     end
 
     camera:destroy()
@@ -1006,36 +1006,36 @@ RegisterNetEvent(resourceName .. ':server:deleteCamera', function(camId)
     -- Remove from spawned cameras registry
     spawnedCameras[camId] = nil
 
-    ps.info('Camera deleted successfully:', camId, 'for player:', playerId)
+    MDT.info('Camera deleted successfully:', camId, 'for player:', playerId)
 end)
 
 -- Handle camera update request from client
-ps.registerCallback(resourceName .. ':server:updateCamera', function(source, updateData)
+lib.callback.register(resourceName .. ':server:updateCamera', function(source, updateData)
     local playerId = source
     if not CheckAuth(playerId, true) then
         return { success = false, error = 'Not authorized' }
     end
     if not IsPlayerAceAllowed(playerId, placerAce) then
-        ps.notify(playerId, 'You are not allowed to edit cameras', 'error')
+        MDT.notify(playerId, 'You are not allowed to edit cameras', 'error')
         return { success = false, error = 'Not allowed' }
     end
-    ps.debug('Updating camera for player:', playerId, 'Data:', updateData)
+    MDT.debug('Updating camera for player:', playerId, 'Data:', updateData)
 
     if not updateData or type(updateData) ~= 'table' then
-        ps.error('Camera update failed - invalid data from player:', playerId)
+        MDT.error('Camera update failed - invalid data from player:', playerId)
         return { success = false, error = 'Invalid update data' }
     end
 
     -- Validate required fields
     if not updateData.camId then
-        ps.error('Camera update failed - missing camera ID for player:', playerId)
+        MDT.error('Camera update failed - missing camera ID for player:', playerId)
         return { success = false, error = 'Missing camera ID' }
     end
 
     -- Check if camera exists
     local camera = spawnedCameras[updateData.camId]
     if not camera then
-        ps.error('Camera update failed - camera not found:', updateData.camId, 'for player:', playerId)
+        MDT.error('Camera update failed - camera not found:', updateData.camId, 'for player:', playerId)
         return { success = false, error = 'Camera not found' }
     end
 
@@ -1059,11 +1059,11 @@ ps.registerCallback(resourceName .. ':server:updateCamera', function(source, upd
     -- If camera was spawned and position/model changed, respawn it
     if wasSpawned and (updateData.coords or updateData.model) then
         if updateData.coords and (oldCoords.x ~= updateData.coords.x or oldCoords.y ~= updateData.coords.y or oldCoords.z ~= updateData.coords.z) then
-            ps.debug('Camera position changed, respawning camera:', updateData.camId)
+            MDT.debug('Camera position changed, respawning camera:', updateData.camId)
             camera:despawn()
             camera:spawn()
         elseif updateData.model and oldModel ~= updateData.model then
-            ps.debug('Camera model changed, respawning camera:', updateData.camId)
+            MDT.debug('Camera model changed, respawning camera:', updateData.camId)
             camera:despawn()
             camera:spawn()
         end
@@ -1071,7 +1071,7 @@ ps.registerCallback(resourceName .. ':server:updateCamera', function(source, upd
 
     camera:saveToDatabase()
 
-    ps.info('Camera updated successfully:', updateData.camId, 'for player:', playerId)
+    MDT.info('Camera updated successfully:', updateData.camId, 'for player:', playerId)
     return { success = true }
 end)
 
@@ -1109,7 +1109,7 @@ function CleanupAllCameras()
             -- Count and deactivate all viewers
             local activeViewers = camera:getViewerCount()
             if activeViewers > 0 then
-                ps.debug('Deactivating ' .. activeViewers .. ' viewers for camera: ' .. camId)
+                MDT.debug('Deactivating ' .. activeViewers .. ' viewers for camera: ' .. camId)
                 camera:deactivateAll()
                 viewerCount = viewerCount + activeViewers
 
@@ -1134,7 +1134,7 @@ function CleanupAllCameras()
     spawnedCameras = {}
     playerViewingCamera = {}
 
-    --ps.debug('Cleaned up ' .. count .. ' cameras and ' .. viewerCount .. ' active viewers')
+    --MDT.debug('Cleaned up ' .. count .. ' cameras and ' .. viewerCount .. ' active viewers')
     return count
 end
 
@@ -1182,11 +1182,11 @@ local function dashcamOfficerInfo(src)
         return nil
     end
     return {
-        name = (ps.getPlayerName and ps.getPlayerName(src)) or GetPlayerName(src) or ('Unit ' .. tostring(src)),
-        callsign = ps.getMetadata and ps.getMetadata(src, 'callsign') or nil,
-        jobName = ps.getJobName and ps.getJobName(src) or nil,
-        jobType = ps.getJobType and ps.getJobType(src) or nil,
-        onduty = not (ps.getJobDuty) and true or ps.getJobDuty(src),
+        name = (MDT.getPlayerName and MDT.getPlayerName(src)) or GetPlayerName(src) or ('Unit ' .. tostring(src)),
+        callsign = MDT.getMetadata and MDT.getMetadata(src, 'callsign') or nil,
+        jobName = MDT.getJobName and MDT.getJobName(src) or nil,
+        jobType = MDT.getJobType and MDT.getJobType(src) or nil,
+        onduty = not (MDT.getJobDuty) and true or MDT.getJobDuty(src),
     }
 end
 
@@ -1388,7 +1388,7 @@ AddEventHandler('playerDropped', function()
     end
 end)
 
-ps.registerCallback(resourceName .. ':server:getCameras', function(source)
+lib.callback.register(resourceName .. ':server:getCameras', function(source)
     local src = source
     if not CheckAuth(src) then
         return {}
@@ -1433,7 +1433,7 @@ ps.registerCallback(resourceName .. ':server:getCameras', function(source)
 end)
 
 -- Callback to start viewing a specific camera
-ps.registerCallback(resourceName .. ':server:viewCamera', function(source, cameraId)
+lib.callback.register(resourceName .. ':server:viewCamera', function(source, cameraId)
     local src = source
     if not CheckAuth(src) then
         return { success = false, error = "Unauthorized" }
@@ -1453,7 +1453,7 @@ ps.registerCallback(resourceName .. ':server:viewCamera', function(source, camer
     end
 
     local success = camera:activate(src)
-    ps.debug('Camera activation success:', success, 'for camera:', cameraId, 'by source:', src)
+    MDT.debug('Camera activation success:', success, 'for camera:', cameraId, 'by source:', src)
     if success then
         return {
             success = true,
@@ -1473,7 +1473,7 @@ end)
 -- Returns the server's real time so the camera overlay can show actual time
 -- (not in-game, not the client's local clock). epoch = UTC seconds, offset =
 -- server local timezone offset in seconds. The client ticks locally from this.
-ps.registerCallback(resourceName .. ':server:getServerTime', function(source)
+lib.callback.register(resourceName .. ':server:getServerTime', function(source)
     local now = os.time()
     -- DST-correct local UTC offset: compare the local wall-clock and UTC tables
     -- with isdst forced off so the standard offset cancels and the real (incl.
@@ -1486,7 +1486,7 @@ ps.registerCallback(resourceName .. ':server:getServerTime', function(source)
     return { epoch = now, offset = offset }
 end)
 
-ps.registerCallback(resourceName .. ':server:getCameraModels', function(source)
+lib.callback.register(resourceName .. ':server:getCameraModels', function(source)
     local models = {}
     for key, hash in pairs(Camera.models) do
         -- Format the label nicely
@@ -1504,14 +1504,14 @@ ps.registerCallback(resourceName .. ':server:getCameraModels', function(source)
     -- Sort models alphabetically by label for better UX
     table.sort(models, function(a, b) return a.label < b.label end)
 
-    ps.debug('Providing ' .. #models .. ' camera models to client ' .. source)
+    MDT.debug('Providing ' .. #models .. ' camera models to client ' .. source)
     return models
 end)
 
 -- Callback to validate camera model
-ps.registerCallback(resourceName .. ':server:validateCameraModel', function(source, modelKey)
+lib.callback.register(resourceName .. ':server:validateCameraModel', function(source, modelKey)
     local isValid = Camera.models[modelKey] ~= nil
-    ps.debug('Validating camera model "' .. tostring(modelKey) .. '" for client ' .. source .. ': ' .. tostring(isValid))
+    MDT.debug('Validating camera model "' .. tostring(modelKey) .. '" for client ' .. source .. ': ' .. tostring(isValid))
     return isValid
 end)
 
@@ -1541,7 +1541,7 @@ AddEventHandler('onResourceStart', function(startedResource)
             end
         end
         if restored > 0 then
-            ps.info(('Camera restart: brought %d offline camera(s) back online'):format(restored))
+            MDT.info(('Camera restart: brought %d offline camera(s) back online'):format(restored))
         end
 
         -- Live restart: players may already be online, so spawn deferred props now.
@@ -1582,7 +1582,7 @@ AddEventHandler('playerDropped', function(reason)
             camera:deactivate(playerId)
         end
         playerViewingCamera[playerId] = nil
-        ps.debug('Cleaned up camera viewing for disconnected player:', playerId)
+        MDT.debug('Cleaned up camera viewing for disconnected player:', playerId)
     end
 end)
 
@@ -1704,7 +1704,7 @@ function SetCameraOfflineFor(camId, ms)
         if not cam then return end
         cam.isOnline = true
         if cam.saveToDatabase then pcall(function() cam:saveToDatabase() end) end
-        ps.debug(('Camera %s back online'):format(camId))
+        MDT.debug(('Camera %s back online'):format(camId))
     end)
 
     return true, camera

@@ -59,14 +59,14 @@ local function getOnDutyOfficers()
         return officers
     end
 
-    if ps and ps.getAllPlayers then
-        local players = ps.getAllPlayers() or {}
+    if MDT and MDT.getAllPlayers then
+        local players = MDT.getAllPlayers() or {}
         for _, playerId in pairs(players) do
-            if ps.getJobDuty and ps.getJobDuty(playerId) then
-                local jobName = ps.getJobName and ps.getJobName(playerId) or nil
-                local jobType = ps.getJobType and ps.getJobType(playerId) or nil
+            if MDT.getJobDuty and MDT.getJobDuty(playerId) then
+                local jobName = MDT.getJobName and MDT.getJobName(playerId) or nil
+                local jobType = MDT.getJobType and MDT.getJobType(playerId) or nil
                 if IsPoliceJob(jobName, jobType) then
-                    local player = ps.getPlayer and ps.getPlayer(playerId) or nil
+                    local player = MDT.getPlayer and MDT.getPlayer(playerId) or nil
                     if player then
                         officers[#officers + 1] = player
                     end
@@ -94,7 +94,7 @@ local function createOfficerBodycam(playerId, playerData)
         createdAt = os.time()
     }
 
-    ps.debug('Created bodycam for officer:', officerName, 'ID:', bodycamId)
+    MDT.debug('Created bodycam for officer:', officerName, 'ID:', bodycamId)
 end
 
 -- Helper function to remove bodycam for officer
@@ -103,7 +103,7 @@ local function removeOfficerBodycam(playerId)
 
     if bodycamInstances[bodycamId] then
         bodycamInstances[bodycamId] = nil
-        ps.debug('Removed bodycam for officer going off duty:', playerId)
+        MDT.debug('Removed bodycam for officer going off duty:', playerId)
     end
 end
 
@@ -130,27 +130,27 @@ local function resolveBodycam(bodycamId)
         local pd = player.PlayerData
         if pd and tostring(pd.source) == bodycamId then
             createOfficerBodycam(pd.source, pd)
-            ps.debug('resolveBodycam: rebuilt missing instance for', bodycamId)
+            MDT.debug('resolveBodycam: rebuilt missing instance for', bodycamId)
             return bodycamInstances[bodycamId]
         end
     end
     return nil
 end
 
-ps.registerCallback(resourceName .. ':server:getBodycams', function(source)
+lib.callback.register(resourceName .. ':server:getBodycams', function(source)
     local src = source
-    ps.debug('getBodycams called by source:', src)
+    MDT.debug('getBodycams called by source:', src)
 
     if not CheckAuth(src) then
-        ps.debug('getBodycams: CheckAuth failed for source:', src)
+        MDT.debug('getBodycams: CheckAuth failed for source:', src)
         return {}
     end
 
-    ps.debug('getBodycams: CheckAuth passed for source:', src)
+    MDT.debug('getBodycams: CheckAuth passed for source:', src)
     local bodycams = {}
 
     local officers = getOnDutyOfficers()
-    ps.debug('getBodycams: Found on-duty officers:', officers and #officers or 0)
+    MDT.debug('getBodycams: Found on-duty officers:', officers and #officers or 0)
 
     for _, player in pairs(officers or {}) do
         local playerData = player.PlayerData
@@ -168,7 +168,7 @@ ps.registerCallback(resourceName .. ':server:getBodycams', function(source)
                     citizenid = playerData.citizenid,
                     createdAt = os.time()
                 }
-                ps.debug('Created bodycam on-demand for officer:', officerName, 'ID:', bodycamId)
+                MDT.debug('Created bodycam on-demand for officer:', officerName, 'ID:', bodycamId)
             else
                 local data = bodycamInstances[bodycamId]
                 data.officerName = officerName
@@ -182,13 +182,13 @@ ps.registerCallback(resourceName .. ':server:getBodycams', function(source)
     for _ in pairs(bodycamInstances) do
         instanceCount = instanceCount + 1
     end
-    ps.debug('getBodycams: Total bodycam instances before verification:', instanceCount)
+    MDT.debug('getBodycams: Total bodycam instances before verification:', instanceCount)
     for bodycamId, _ in pairs(bodycamInstances) do
-        ps.debug('getBodycams: Bodycam instance found:', bodycamId)
+        MDT.debug('getBodycams: Bodycam instance found:', bodycamId)
     end
 
     for bodycamId, data in pairs(bodycamInstances) do
-        ps.debug('getBodycams: Verifying bodycam:', bodycamId, 'for player:', data.playerId)
+        MDT.debug('getBodycams: Verifying bodycam:', bodycamId, 'for player:', data.playerId)
         local isStillOnline = false
 
         local player = nil
@@ -197,16 +197,16 @@ ps.registerCallback(resourceName .. ':server:getBodycams', function(source)
             if QBCore and QBCore.Functions and QBCore.Functions.GetPlayer then
                 player = QBCore.Functions.GetPlayer(data.playerId)
             end
-        elseif ps and ps.getPlayer then
-            player = ps.getPlayer(data.playerId)
+        elseif MDT and MDT.getPlayer then
+            player = MDT.getPlayer(data.playerId)
         end
 
         if player and player.PlayerData and player.PlayerData.job and player.PlayerData.job.onduty then
             isStillOnline = true
-            ps.debug('getBodycams: Officer verified as online:', data.officerName)
+            MDT.debug('getBodycams: Officer verified as online:', data.officerName)
         end
 
-        ps.debug('getBodycams: Officer', data.officerName, 'isStillOnline:', isStillOnline)
+        MDT.debug('getBodycams: Officer', data.officerName, 'isStillOnline:', isStillOnline)
 
         if isStillOnline then
             local viewerCount = 0
@@ -227,20 +227,20 @@ ps.registerCallback(resourceName .. ':server:getBodycams', function(source)
                 isOnline = isBodycamOn(data.citizenid),
                 viewerCount = viewerCount,
             })
-            ps.debug('getBodycams: Added bodycam to return list:', bodycamId, 'with', viewerCount, 'viewers')
+            MDT.debug('getBodycams: Added bodycam to return list:', bodycamId, 'with', viewerCount, 'viewers')
         else
             -- Remove offline bodycam
             bodycamInstances[bodycamId] = nil
-            ps.debug('getBodycams: Removed offline bodycam:', bodycamId)
+            MDT.debug('getBodycams: Removed offline bodycam:', bodycamId)
         end
     end
 
-    ps.debug('getBodycams: Returning', #bodycams, 'bodycams')
+    MDT.debug('getBodycams: Returning', #bodycams, 'bodycams')
     return bodycams
 end)
 
 -- View a specific bodycam
-ps.registerCallback(resourceName .. ':server:viewBodycam', function(source, bodycamId)
+lib.callback.register(resourceName .. ':server:viewBodycam', function(source, bodycamId)
     local src = source
     if not CheckAuth(src) then
         return { success = false, error = "Unauthorized" }
@@ -294,7 +294,7 @@ ps.registerCallback(resourceName .. ':server:viewBodycam', function(source, body
     bodycamViewers[bodycamId][src] = {
         startTime = os.time()
     }
-    ps.debug('Added viewer', src, 'to bodycam', bodycamId)
+    MDT.debug('Added viewer', src, 'to bodycam', bodycamId)
 
     return {
         success = true,
@@ -314,14 +314,14 @@ AddEventHandler('playerDropped', function(reason)
 
     if bodycamInstances[bodycamId] then
         bodycamInstances[bodycamId] = nil
-        ps.debug('Cleaned up bodycam instance for disconnected player:', playerId)
+        MDT.debug('Cleaned up bodycam instance for disconnected player:', playerId)
     end
 
     -- Clean up any viewer entries for this player
     for bcId, viewers in pairs(bodycamViewers) do
         if viewers and viewers[playerId] then
             viewers[playerId] = nil
-            ps.debug('Removed viewer', playerId, 'from bodycam', bcId, 'due to disconnect')
+            MDT.debug('Removed viewer', playerId, 'from bodycam', bcId, 'due to disconnect')
         end
     end
 end)
@@ -332,25 +332,25 @@ RegisterNetEvent(resourceName .. ':server:deactivateBodycam', function(bodycamId
     if not CheckAuth(playerId) then return end
     bodycamId = normalizeBodycamId(bodycamId)
     if not bodycamId then return end
-    ps.debug('Deactivating bodycam for player:', playerId, 'Bodycam ID:', bodycamId)
+    MDT.debug('Deactivating bodycam for player:', playerId, 'Bodycam ID:', bodycamId)
 
     if bodycamViewers[bodycamId] then
-        ps.debug('Found viewer table for bodycam:', bodycamId)
+        MDT.debug('Found viewer table for bodycam:', bodycamId)
         if bodycamViewers[bodycamId][playerId] then
             local viewDuration = os.time() - bodycamViewers[bodycamId][playerId].startTime
             bodycamViewers[bodycamId][playerId] = nil
-            ps.debug('Player', playerId, 'stopped viewing bodycam', bodycamId, 'after', viewDuration, 'seconds')
+            MDT.debug('Player', playerId, 'stopped viewing bodycam', bodycamId, 'after', viewDuration, 'seconds')
 
             -- Clean up empty viewer table
             if next(bodycamViewers[bodycamId]) == nil then
                 bodycamViewers[bodycamId] = nil
-                ps.debug('Cleaned up empty viewer table for bodycam:', bodycamId)
+                MDT.debug('Cleaned up empty viewer table for bodycam:', bodycamId)
             end
         else
-            ps.debug('Player', playerId, 'was not found in viewers for bodycam:', bodycamId)
+            MDT.debug('Player', playerId, 'was not found in viewers for bodycam:', bodycamId)
         end
     else
-        ps.debug('No viewer table found for bodycam:', bodycamId)
+        MDT.debug('No viewer table found for bodycam:', bodycamId)
     end
 end)
 
@@ -384,7 +384,7 @@ local function handleDutyChange(playerId, job, onDuty, employeeData)
                 playerData.charinfo.lastname = nameParts[#nameParts] or ''
             end
             createOfficerBodycam(playerId, playerData)
-            ps.debug('Created bodycam via duty event for officer:', employeeData.name, 'ID:', tostring(playerId))
+            MDT.debug('Created bodycam via duty event for officer:', employeeData.name, 'ID:', tostring(playerId))
             return
         end
 
@@ -395,8 +395,8 @@ local function handleDutyChange(playerId, job, onDuty, employeeData)
                 createOfficerBodycam(playerId, Player.PlayerData)
                 return
             end
-        elseif ps and ps.getPlayer then
-            local player = ps.getPlayer(playerId)
+        elseif MDT and MDT.getPlayer then
+            local player = MDT.getPlayer(playerId)
             if player and player.PlayerData then
                 createOfficerBodycam(playerId, player.PlayerData)
                 return
@@ -448,11 +448,11 @@ CreateThread(function()
                         if Player and Player.PlayerData.job and Player.PlayerData.job.onduty then
                             createOfficerBodycam(Player.PlayerData.source, Player.PlayerData)
                         end
-                    elseif ps and ps.getPlayerByIdentifier then
+                    elseif MDT and MDT.getPlayerByIdentifier then
                         -- getEmployees() returns offline staff too; resolving an
                         -- offline citizenid can throw inside the framework bridge
                         -- (nil player index), so guard it.
-                        local okp, player = pcall(ps.getPlayerByIdentifier, officer.citizenid)
+                        local okp, player = pcall(MDT.getPlayerByIdentifier, officer.citizenid)
                         if okp and player and player.PlayerData and player.PlayerData.job and player.PlayerData.job.onduty then
                             createOfficerBodycam(player.PlayerData.source, player.PlayerData)
                         end
@@ -484,7 +484,7 @@ CreateThread(function()
         instanceCount = instanceCount + 1
     end
     -- do not spell this with a Z
-    ps.debug('Initialised ' .. instanceCount .. ' bodycams')
+    MDT.debug('Initialised ' .. instanceCount .. ' bodycams')
 end)
 
 registerDutyEvents()
@@ -500,7 +500,7 @@ end
 ---@param reason string 'manual' | 'duty_on' | 'duty_off'
 ---@param desired boolean|nil nil = flip the current state
 local function setBodycamPower(src, desired, reason)
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then return nil end
 
     local current = isBodycamOn(citizenid)
@@ -513,7 +513,7 @@ local function setBodycamPower(src, desired, reason)
     -- The audit log is the record. It already carries actor, name, timestamp and a JSON
     -- details blob, so a dedicated bodycam table would only duplicate it — the callsign
     -- and the reason ride along in `details`.
-    local callsign = ps.getMetadata and ps.getMetadata(src, 'callsign') or nil
+    local callsign = MDT.getMetadata and MDT.getMetadata(src, 'callsign') or nil
 
     -- action_label is what the roster's activity timeline prints when present, so the
     -- entry reads as a sentence instead of "bodycam off".
@@ -523,13 +523,13 @@ local function setBodycamPower(src, desired, reason)
         duty_off = 'on going off duty',
     })[reason or 'manual'] or 'manually'
 
-    if ps.auditLog then
-        -- Written on its own thread: ps.auditLog ends in a blocking MySQL insert, and
+    if MDT.auditLog then
+        -- Written on its own thread: MDT.auditLog ends in a blocking MySQL insert, and
         -- holding the toggle's reply for it stalls the NUI callback queue behind it.
         -- Nothing here depends on the write finishing.
         local label = (target and 'Bodycam activated ' or 'Bodycam deactivated ') .. why
         CreateThread(function()
-            pcall(ps.auditLog, src, target and 'bodycam_on' or 'bodycam_off', 'bodycam', citizenid, {
+            pcall(MDT.auditLog, src, target and 'bodycam_on' or 'bodycam_off', 'bodycam', citizenid, {
                 reason = reason or 'manual',
                 callsign = callsign,
                 action_label = label,
@@ -550,7 +550,7 @@ local function setBodycamPower(src, desired, reason)
 end
 
 -- Toggle own bodycam. No target parameter by design.
-ps.registerCallback(resourceName .. ':server:toggleBodycam', function(source, payload)
+lib.callback.register(resourceName .. ':server:toggleBodycam', function(source, payload)
     if bodycamCfg().Enabled == false then return { success = false, message = 'Bodycams are disabled' } end
     if not CheckAuth(source) then return { success = false, message = 'Unauthorized' } end
 
@@ -564,9 +564,9 @@ ps.registerCallback(resourceName .. ':server:toggleBodycam', function(source, pa
 end)
 
 -- Read own current state (for the toggle's initial rendering).
-ps.registerCallback(resourceName .. ':server:getMyBodycam', function(source)
+lib.callback.register(resourceName .. ':server:getMyBodycam', function(source)
     if not CheckAuth(source) then return { success = false } end
-    local citizenid = ps.getIdentifier(source)
+    local citizenid = MDT.getIdentifier(source)
     return { success = true, isOnline = isBodycamOn(citizenid), citizenid = citizenid }
 end)
 
@@ -587,7 +587,7 @@ AddEventHandler('playerDropped', function()
     -- depending on the framework's teardown order.
     local src = source
     local ok, citizenid = pcall(function()
-        return ps.getIdentifier and ps.getIdentifier(src) or nil
+        return MDT.getIdentifier and MDT.getIdentifier(src) or nil
     end)
     if ok and citizenid then bodycamPower[citizenid] = nil end
 end)

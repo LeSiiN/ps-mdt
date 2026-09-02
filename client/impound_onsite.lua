@@ -123,17 +123,17 @@ end
 -- it for good.
 local function finishImpound(veh, netId, serverCall, payload)
     if not playRadio() then
-        ps.notify('Impound cancelled', 'error')
+        MDT.notify('Impound cancelled', 'error')
         return
     end
 
-    local res = ps.callback(resourceName .. ':server:' .. serverCall, payload)
+    local res = MDT.callback(resourceName .. ':server:' .. serverCall, payload)
     if not res or not res.success then
-        ps.notify((res and res.message) or 'Impound failed', 'error')
+        MDT.notify((res and res.message) or 'Impound failed', 'error')
         return
     end
 
-    ps.notify(res.message or 'Vehicle impounded', 'success')
+    MDT.notify(res.message or 'Vehicle impounded', 'success')
 
     if DoesEntityExist(veh) then
         fadeOutVehicle(veh)
@@ -154,20 +154,20 @@ local function runImpound()
 
     local veh = targetVehicle()
     if not veh then
-        ps.notify('No vehicle nearby', 'error')
+        MDT.notify('No vehicle nearby', 'error')
         busy = false
         return
     end
 
     if hasPlayerInside(veh) then
-        ps.notify('There is somebody in that vehicle', 'error')
+        MDT.notify('There is somebody in that vehicle', 'error')
         busy = false
         return
     end
 
     local netId = NetworkGetNetworkIdFromEntity(veh)
     if not netId or netId == 0 then
-        ps.notify('That vehicle cannot be impounded', 'error')
+        MDT.notify('That vehicle cannot be impounded', 'error')
         busy = false
         return
     end
@@ -178,21 +178,21 @@ local function runImpound()
     if plate then plate = plate:upper():gsub('^%s+', ''):gsub('%s+$', '') end
     local model = GetDisplayNameFromVehicleModel(GetEntityModel(veh))
 
-    local res = ps.callback(resourceName .. ':server:inspectOnSiteVehicle', {
+    local res = MDT.callback(resourceName .. ':server:inspectOnSiteVehicle', {
         netId = netId,
         plate = plate,
         model = model,
     })
 
     if not res or not res.success then
-        ps.notify((res and res.message) or 'Could not inspect that vehicle', 'error')
+        MDT.notify((res and res.message) or 'Could not inspect that vehicle', 'error')
         busy = false
         return
     end
 
     -- Write it up first, whichever kind of vehicle it turns out to be.
     if not playNotepad() then
-        ps.notify('Impound cancelled', 'error')
+        MDT.notify('Impound cancelled', 'error')
         busy = false
         return
     end
@@ -281,6 +281,6 @@ RegisterNUICallback('closeImpoundForm', function(_, cb)
 end)
 
 RegisterNUICallback('getImpoundFormConfig', function(_, cb)
-    local result = ps.callback(resourceName .. ':server:getImpoundConfig', {})
+    local result = MDT.callback(resourceName .. ':server:getImpoundConfig', {})
     cb(result or {})
 end)

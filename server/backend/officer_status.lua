@@ -91,11 +91,11 @@ local function getOfficerInfo(src)
                 callsign  = d.metadata and d.metadata.callsign or nil,
             }
         end
-    elseif ps and ps.getIdentifier then
+    elseif MDT and MDT.getIdentifier then
         return {
-            citizenid = ps.getIdentifier(src),
-            name      = (ps.getPlayerName and ps.getPlayerName(src)) or GetPlayerName(src) or 'Unknown',
-            callsign  = ps.getMetadata and ps.getMetadata(src, 'callsign') or nil,
+            citizenid = MDT.getIdentifier(src),
+            name      = (MDT.getPlayerName and MDT.getPlayerName(src)) or GetPlayerName(src) or 'Unknown',
+            callsign  = MDT.getMetadata and MDT.getMetadata(src, 'callsign') or nil,
         }
     end
     return nil
@@ -127,10 +127,10 @@ local function playersInDomain(domain)
                 end
             end
         end
-    elseif ps and ps.getAllPlayers then
-        for _, pid in pairs(ps.getAllPlayers() or {}) do
-            local jobName = ps.getJobName and ps.getJobName(pid) or nil
-            local jobType = ps.getJobType and ps.getJobType(pid) or nil
+    elseif MDT and MDT.getAllPlayers then
+        for _, pid in pairs(MDT.getAllPlayers() or {}) do
+            local jobName = MDT.getJobName and MDT.getJobName(pid) or nil
+            local jobType = MDT.getJobType and MDT.getJobType(pid) or nil
             if GetDomainForJob(jobName, jobType) == domain then
                 out[#out + 1] = pid
             end
@@ -186,8 +186,8 @@ function AutoSetOfficerStatus(src, statusId, note, reasonLabel)
 
     dbg(('auto: %s -> "%s" (%s)'):format(officer.name or officer.citizenid, statusId, reasonLabel or 'dispatch'))
 
-    if ps.auditLog then
-        ps.auditLog(src, 'officer_status_changed', 'officers', officer.citizenid, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'officer_status_changed', 'officers', officer.citizenid, {
             officer_name     = officer.name,
             officer_callsign = officer.callsign,
             officer_id       = officer.citizenid,
@@ -249,12 +249,12 @@ function GetOfficerStatusBreakdown(domain)
                 tally(d.citizenid)
             end
         end
-    elseif ps and ps.getAllPlayers then
-        for _, pid in pairs(ps.getAllPlayers() or {}) do
-            local jobName = ps.getJobName and ps.getJobName(pid) or nil
-            local jobType = ps.getJobType and ps.getJobType(pid) or nil
+    elseif MDT and MDT.getAllPlayers then
+        for _, pid in pairs(MDT.getAllPlayers() or {}) do
+            local jobName = MDT.getJobName and MDT.getJobName(pid) or nil
+            local jobType = MDT.getJobType and MDT.getJobType(pid) or nil
             if GetDomainForJob(jobName, jobType) == domain then
-                tally(ps.getIdentifier and ps.getIdentifier(pid) or nil)
+                tally(MDT.getIdentifier and MDT.getIdentifier(pid) or nil)
             end
         end
     end
@@ -278,7 +278,7 @@ end
 -- ─── Callbacks ──────────────────────────────────────────────────────────────
 
 -- Live dispatch breakdown for the caller's domain (police vs ems).
-ps.registerCallback(resourceName .. ':server:getOfficerStatusBreakdown', function(source)
+lib.callback.register(resourceName .. ':server:getOfficerStatusBreakdown', function(source)
     if not CheckAuth(source) then return { total = 0, statuses = {} } end
     return GetOfficerStatusBreakdown(GetMdtDomain(source))
 end)
@@ -286,7 +286,7 @@ end)
 -- Static status config (ids/labels/colors) — fetched once by the NUI on Map
 -- mount so the picker/legend/filter never hardcode status definitions
 -- client-side. Cheap and rarely called, so no caching needed.
-ps.registerCallback(resourceName .. ':server:getOfficerStatusConfig', function(source)
+lib.callback.register(resourceName .. ':server:getOfficerStatusConfig', function(source)
     if not CheckAuth(source) then return { statuses = {}, default = defaultStatus } end
     return { statuses = statusList, default = defaultStatus }
 end)
@@ -332,8 +332,8 @@ RegisterNetEvent(resourceName .. ':server:setOfficerStatus', function(statusId, 
 
     dbg(('%s set status to "%s"%s'):format(officer.name or officer.citizenid, statusId, cleanNote and (' (' .. cleanNote .. ')') or ''))
 
-    if ps.auditLog then
-        ps.auditLog(src, 'officer_status_changed', 'officers', officer.citizenid, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'officer_status_changed', 'officers', officer.citizenid, {
             officer_name    = officer.name,
             officer_callsign = officer.callsign,
             officer_id      = officer.citizenid,
@@ -375,7 +375,7 @@ AddEventHandler('onResourceStart', function(res)
             domain    = (row.job_type == 'ems') and 'ems' or 'police',
         }
     end
-    ps.debug(('^2[MDT]^7 Loaded %d officer status record(s).'):format(#rows))
+    MDT.debug(('^2[MDT]^7 Loaded %d officer status record(s).'):format(#rows))
 end)
 
 AddEventHandler('playerDropped', function()

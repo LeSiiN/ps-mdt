@@ -10,7 +10,7 @@ RegisterNUICallback('getPPRList', function(data, cb)
         category = data.category or nil,
         search = data.search or nil,
     }
-    local result = ps.callback(resourceName .. ':server:getPPRList', page, filters)
+    local result = MDT.callback(resourceName .. ':server:getPPRList', page, filters)
     cb(result or { entries = {}, hasMore = false })
 end)
 
@@ -21,7 +21,7 @@ RegisterNUICallback('getPPR', function(data, cb)
         cb({ success = false, message = 'Missing PPR ID' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:getPPR', data.id)
+    local result = MDT.callback(resourceName .. ':server:getPPR', data.id)
     cb(result or { success = false })
 end)
 
@@ -32,7 +32,7 @@ RegisterNUICallback('getOfficerPPRHistory', function(data, cb)
         cb({})
         return
     end
-    local result = ps.callback(resourceName .. ':server:getOfficerPPRHistory', data.officerCitizenId)
+    local result = MDT.callback(resourceName .. ':server:getOfficerPPRHistory', data.officerCitizenId)
     cb(result or {})
 end)
 
@@ -43,7 +43,7 @@ RegisterNUICallback('createPPR', function(data, cb)
         cb({ success = false, message = 'Missing data' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:createPPR', data)
+    local result = MDT.callback(resourceName .. ':server:createPPR', data)
     cb(result or { success = false })
 end)
 
@@ -56,7 +56,7 @@ RegisterNUICallback('updatePPR', function(data, cb)
     end
     local pprId = data.id
     data.id = nil
-    local result = ps.callback(resourceName .. ':server:updatePPR', pprId, data)
+    local result = MDT.callback(resourceName .. ':server:updatePPR', pprId, data)
     cb(result or { success = false })
 end)
 
@@ -67,7 +67,7 @@ RegisterNUICallback('deletePPR', function(data, cb)
         cb({ success = false, message = 'Missing PPR ID' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:deletePPR', data.id)
+    local result = MDT.callback(resourceName .. ':server:deletePPR', data.id)
     cb(result or { success = false })
 end)
 
@@ -78,7 +78,7 @@ RegisterNUICallback('addPPRNote', function(data, cb)
         cb({ success = false, message = 'Missing PPR ID or note content' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:addPPRNote', data.pprId, data.content)
+    local result = MDT.callback(resourceName .. ':server:addPPRNote', data.pprId, data.content)
     cb(result or { success = false })
 end)
 
@@ -89,6 +89,6 @@ RegisterNUICallback('deletePPRNote', function(data, cb)
         cb({ success = false, message = 'Missing note ID or PPR ID' })
         return
     end
-    local result = ps.callback(resourceName .. ':server:deletePPRNote', data.noteId, data.pprId)
+    local result = MDT.callback(resourceName .. ':server:deletePPRNote', data.noteId, data.pprId)
     cb(result or { success = false })
 end)

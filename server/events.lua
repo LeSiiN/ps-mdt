@@ -3,38 +3,38 @@ local resourceName = tostring(GetCurrentResourceName())
 RegisterNetEvent(resourceName..':server:viewWarrant', function(warrantId)
     local src = source
     if not CheckAuth(src) then return end
-    local Player = ps.getPlayer(src)
+    local Player = MDT.getPlayer(src)
 
     if not Player then return end
 
-    ps.debug("Server: Viewing warrant:", warrantId)
+    MDT.debug("Server: Viewing warrant:", warrantId)
 end)
 
 RegisterNetEvent(resourceName..':server:viewBolo', function(boloId)
     local src = source
     if not CheckAuth(src) then return end
-    local Player = ps.getPlayer(src)
+    local Player = MDT.getPlayer(src)
 
     if not Player then return end
     if not boloId then
-        ps.warn("No BOLO ID provided")
+        MDT.warn("No BOLO ID provided")
         return
     end
 
     local id = tonumber(boloId)
     if not id then
-        ps.warn("Invalid BOLO ID type: " .. type(boloId))
+        MDT.warn("Invalid BOLO ID type: " .. type(boloId))
         return
     end
 
     local reportId = MySQL.scalar.await('SELECT reportId FROM mdt_bolos WHERE id = ? LIMIT 1', { id })
     reportId = reportId and tonumber(reportId) or nil
     if not reportId then
-        ps.warn("BOLO report not found for ID: " .. id)
+        MDT.warn("BOLO report not found for ID: " .. id)
         return
     end
 
-    ps.info("Player ID: " .. src .. " is viewing BOLO report ID: " .. reportId)
+    MDT.info("Player ID: " .. src .. " is viewing BOLO report ID: " .. reportId)
     TriggerClientEvent('ps-mdt:client:viewReport', src, reportId)
 end)
 
@@ -43,30 +43,30 @@ end)
 RegisterNetEvent(resourceName..':server:viewReport', function(reportId)
     local src = source
     if not CheckAuth(src) then return end
-    local Player = ps.getPlayer(src)
+    local Player = MDT.getPlayer(src)
 
     -- Validate input
     if not reportId then
-        ps.warn("No report ID provided")
+        MDT.warn("No report ID provided")
     return end
 
     if type(reportId) ~= "number" then
-        ps.warn("Invalid report ID type: " .. type(reportId))
+        MDT.warn("Invalid report ID type: " .. type(reportId))
     return end
 
     if not Player then
-        ps.warn("Player not found for report viewing: " .. reportId)
+        MDT.warn("Player not found for report viewing: " .. reportId)
     return end
 
-    ps.info("Player ID: " ..  src .. " is viewing report ID: " .. reportId)
-    ps.debug("Server: Viewing report:", reportId)
+    MDT.info("Player ID: " ..  src .. " is viewing report ID: " .. reportId)
+    MDT.debug("Server: Viewing report:", reportId)
 end)
 
 RegisterNetEvent("wk:onPlateScanned")
 AddEventHandler("wk:onPlateScanned", function(cam, plate, index)
     local src = source
     if not CheckAuth(src) then return end
-    local Player = ps.getPlayer(src)
+    local Player = MDT.getPlayer(src)
     local vehicleOwner = GetVehicleOwner(plate)
 
     local driversLicense = true
@@ -92,14 +92,14 @@ AddEventHandler("wk:onPlateScanned", function(cam, plate, index)
     local warrant, owner, incidentId = GetWarrantStatus(plate)
 
     if bolo == true then
-        ps.notify(src, 'BOLO ID: '..boloId..' | Title: '..title..' | Registered Owner: '..vehicleOwner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
+        MDT.notify(src, 'BOLO ID: '..boloId..' | Title: '..title..' | Registered Owner: '..vehicleOwner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
     end
     if warrant == true then
-        ps.notify(src, 'WANTED - INCIDENT ID: '..incidentId..' | Registered Owner: '..owner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
+        MDT.notify(src, 'WANTED - INCIDENT ID: '..incidentId..' | Registered Owner: '..owner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
     end
 
     if Config.PlateScanForDriversLicense and driversLicense == false and vehicleOwner then
-        ps.notify(src, 'NO DRIVERS LICENCE | Registered Owner: '..vehicleOwner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
+        MDT.notify(src, 'NO DRIVERS LICENCE | Registered Owner: '..vehicleOwner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
     end
 
     if bolo or warrant or (Config.PlateScanForDriversLicense and not driversLicense) and vehicleOwner then

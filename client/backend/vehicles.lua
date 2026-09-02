@@ -5,15 +5,15 @@ RegisterNUICallback('getVehicles', function(data, cb)
         cb({ success = false, message = 'MDT is not open', vehicles = {}, bolos = {} })
         return
     end
-    local vehicleList = ps.callback(resourceName .. ':server:GetVehicles')
-    ps.debug('[getVehicles] Triggered NUI callback on client', vehicleList)
+    local vehicleList = MDT.callback(resourceName .. ':server:GetVehicles')
+    MDT.debug('[getVehicles] Triggered NUI callback on client', vehicleList)
     cb(vehicleList)
 end)
 
 RegisterNUICallback('getVehicleBolos', function(data, cb)
     if not MDTOpen then cb({}) return end
-    local result = ps.callback(resourceName .. ':server:getBOLO', 'vehicle')
-    ps.debug('[getVehicleBolos] Fetched vehicle BOLOs:', result)
+    local result = MDT.callback(resourceName .. ':server:getBOLO', 'vehicle')
+    MDT.debug('[getVehicleBolos] Fetched vehicle BOLOs:', result)
     cb(result)
 end)
 
@@ -28,7 +28,7 @@ RegisterNUICallback('getVehicle', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:GetVehicle', data.plate)
+    local result = MDT.callback(resourceName .. ':server:GetVehicle', data.plate)
     if result then
         cb(result)
     else
@@ -47,7 +47,7 @@ RegisterNUICallback('updateVehicle', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:UpdateVehicle', data)
+    local result = MDT.callback(resourceName .. ':server:UpdateVehicle', data)
     if result then
         cb(result)
     else
@@ -66,6 +66,6 @@ RegisterNUICallback('getReportsByPlate', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getReportsByPlate', data.plate)
+    local result = MDT.callback(resourceName .. ':server:getReportsByPlate', data.plate)
     cb({ success = true, reports = result or {} })
 end)

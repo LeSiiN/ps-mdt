@@ -16,20 +16,20 @@ local function buildFTONumber(id)
 end
 
 -- Get phases for job
-ps.registerCallback(resourceName .. ':server:getFTOPhases', function(source)
+lib.callback.register(resourceName .. ':server:getFTOPhases', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
-    local job = ps.getJobName(src) or 'police'
+    local job = MDT.getJobName(src) or 'police'
     local ok, rows = pcall(MySQL.query.await, 'SELECT * FROM mdt_fto_phases WHERE job = ? ORDER BY sort_order ASC', { job })
     return (ok and rows) or {}
 end)
 
 -- Save phases (replace all for job)
-ps.registerCallback(resourceName .. ':server:saveFTOPhases', function(source, phases)
+lib.callback.register(resourceName .. ':server:saveFTOPhases', function(source, phases)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
-    local job = ps.getJobName(src) or 'police'
+    local job = MDT.getJobName(src) or 'police'
     phases = phases or {}
 
     MySQL.query.await('DELETE FROM mdt_fto_phases WHERE job = ?', { job })
@@ -42,20 +42,20 @@ ps.registerCallback(resourceName .. ':server:saveFTOPhases', function(source, ph
 end)
 
 -- Get competencies for job
-ps.registerCallback(resourceName .. ':server:getFTOCompetencies', function(source)
+lib.callback.register(resourceName .. ':server:getFTOCompetencies', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
-    local job = ps.getJobName(src) or 'police'
+    local job = MDT.getJobName(src) or 'police'
     local ok, rows = pcall(MySQL.query.await, 'SELECT * FROM mdt_fto_competencies WHERE job = ? ORDER BY sort_order ASC', { job })
     return (ok and rows) or {}
 end)
 
 -- Save competencies (replace all for job)
-ps.registerCallback(resourceName .. ':server:saveFTOCompetencies', function(source, competencies)
+lib.callback.register(resourceName .. ':server:saveFTOCompetencies', function(source, competencies)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
-    local job = ps.getJobName(src) or 'police'
+    local job = MDT.getJobName(src) or 'police'
     competencies = competencies or {}
 
     MySQL.query.await('DELETE FROM mdt_fto_competencies WHERE job = ?', { job })
@@ -68,12 +68,12 @@ ps.registerCallback(resourceName .. ':server:saveFTOCompetencies', function(sour
 end)
 
 -- Get paginated list of FTO assignments
-ps.registerCallback(resourceName .. ':server:getFTOList', function(source, pageNum, filters)
+lib.callback.register(resourceName .. ':server:getFTOList', function(source, pageNum, filters)
     local src = source
     if not CheckAuth(src) then return { entries = {}, hasMore = false } end
 
     filters = filters or {}
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local hasFTOView = CheckPermission(src, 'fto_view')
 
     local page = tonumber(pageNum) or 1
@@ -131,7 +131,7 @@ ps.registerCallback(resourceName .. ':server:getFTOList', function(source, pageN
 end)
 
 -- Get single FTO assignment with DORs
-ps.registerCallback(resourceName .. ':server:getFTO', function(source, data)
+lib.callback.register(resourceName .. ':server:getFTO', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
 
@@ -146,7 +146,7 @@ ps.registerCallback(resourceName .. ':server:getFTO', function(source, data)
     ]], { assignmentId })
     if not entry then return { success = false, error = 'Not found' } end
 
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local hasFTOView = CheckPermission(src, 'fto_view')
     if not hasFTOView and entry.trainee_citizenid ~= citizenId and entry.trainer_citizenid ~= citizenId then
         return { success = false, error = 'Unauthorized' }
@@ -176,7 +176,7 @@ ps.registerCallback(resourceName .. ':server:getFTO', function(source, data)
 end)
 
 -- Get officer FTO history (for roster panel)
-ps.registerCallback(resourceName .. ':server:getOfficerFTOHistory', function(source, officerCitizenId)
+lib.callback.register(resourceName .. ':server:getOfficerFTOHistory', function(source, officerCitizenId)
     local src = source
     if not CheckAuth(src) then return {} end
     if not officerCitizenId or officerCitizenId == '' then return {} end
@@ -197,7 +197,7 @@ ps.registerCallback(resourceName .. ':server:getOfficerFTOHistory', function(sou
 end)
 
 -- Create FTO assignment
-ps.registerCallback(resourceName .. ':server:createFTOAssignment', function(source, data)
+lib.callback.register(resourceName .. ':server:createFTOAssignment', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
@@ -222,7 +222,7 @@ ps.registerCallback(resourceName .. ':server:createFTOAssignment', function(sour
     -- so they never sit "phase-less" (which breaks DOR/phase tallies).
     local phaseId = tonumber(data.current_phase_id)
     if not phaseId then
-        local job = ps.getJobName and ps.getJobName(src) or nil
+        local job = MDT.getJobName and MDT.getJobName(src) or nil
         if job then
             local first = MySQL.single.await(
                 'SELECT id FROM mdt_fto_phases WHERE job = ? ORDER BY sort_order ASC, id ASC LIMIT 1', { job })
@@ -253,7 +253,7 @@ ps.registerCallback(resourceName .. ':server:createFTOAssignment', function(sour
 end)
 
 -- Update FTO assignment
-ps.registerCallback(resourceName .. ':server:updateFTOAssignment', function(source, assignmentId, updates)
+lib.callback.register(resourceName .. ':server:updateFTOAssignment', function(source, assignmentId, updates)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
@@ -286,7 +286,7 @@ end)
 -- trainee (status = completed). Moving back steps one phase down. This keeps the
 -- "which phase is next" logic on the server so the UI can't desync.
 -- ---------------------------------------------------------------------------
-ps.registerCallback(resourceName .. ':server:advanceFTOPhase', function(source, data)
+lib.callback.register(resourceName .. ':server:advanceFTOPhase', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
@@ -307,7 +307,7 @@ ps.registerCallback(resourceName .. ':server:advanceFTOPhase', function(source, 
         local cp = MySQL.single.await('SELECT job FROM mdt_fto_phases WHERE id = ?', { a.current_phase_id })
         job = cp and cp.job or nil
     end
-    if not job then job = ps.getJobName and ps.getJobName(src) or nil end
+    if not job then job = MDT.getJobName and MDT.getJobName(src) or nil end
     if not job then return { success = false, error = 'Could not resolve the training program' } end
 
     local phases = MySQL.query.await(
@@ -324,27 +324,27 @@ ps.registerCallback(resourceName .. ':server:advanceFTOPhase', function(source, 
         if idx <= 1 then return { success = false, error = 'Already at the first phase' } end
         local target = phases[idx - 1]
         MySQL.update.await('UPDATE mdt_fto_assignments SET current_phase_id = ? WHERE id = ?', { target.id, assignmentId })
-        if ps.auditLog then ps.auditLog(src, 'fto_phase_back', 'fto', assignmentId, { to = target.name }) end
+        if MDT.auditLog then MDT.auditLog(src, 'fto_phase_back', 'fto', assignmentId, { to = target.name }) end
         return { success = true, completed = false, action = 'back', phase = target }
     end
 
     if idx < #phases then
         local target = phases[idx + 1]
         MySQL.update.await('UPDATE mdt_fto_assignments SET current_phase_id = ? WHERE id = ?', { target.id, assignmentId })
-        if ps.auditLog then ps.auditLog(src, 'fto_phase_advance', 'fto', assignmentId, { to = target.name, note = data.note }) end
+        if MDT.auditLog then MDT.auditLog(src, 'fto_phase_advance', 'fto', assignmentId, { to = target.name, note = data.note }) end
         return { success = true, completed = false, action = 'advance', phase = target }
     end
 
     -- Past the last phase → graduation.
     local endDate = os.date('%Y-%m-%d')
     MySQL.update.await("UPDATE mdt_fto_assignments SET status = 'completed', end_date = ? WHERE id = ?", { endDate, assignmentId })
-    if ps.auditLog then ps.auditLog(src, 'fto_completed', 'fto', assignmentId, { trainee = a.trainee_name, note = data.note }) end
+    if MDT.auditLog then MDT.auditLog(src, 'fto_completed', 'fto', assignmentId, { trainee = a.trainee_name, note = data.note }) end
     return { success = true, completed = true, action = 'complete' }
 end)
 
 -- Set an assignment's status (fail / suspend / reactivate / complete) with the
 -- matching end_date bookkeeping in one place.
-ps.registerCallback(resourceName .. ':server:setFTOStatus', function(source, data)
+lib.callback.register(resourceName .. ':server:setFTOStatus', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
@@ -368,12 +368,12 @@ ps.registerCallback(resourceName .. ':server:setFTOStatus', function(source, dat
         MySQL.update.await('UPDATE mdt_fto_assignments SET status = ? WHERE id = ?', { status, assignmentId })
     end
 
-    if ps.auditLog then ps.auditLog(src, 'fto_status_' .. status, 'fto', assignmentId, { trainee = a.trainee_name }) end
+    if MDT.auditLog then MDT.auditLog(src, 'fto_status_' .. status, 'fto', assignmentId, { trainee = a.trainee_name }) end
     return { success = true }
 end)
 
 -- Delete FTO assignment
-ps.registerCallback(resourceName .. ':server:deleteFTOAssignment', function(source, assignmentId)
+lib.callback.register(resourceName .. ':server:deleteFTOAssignment', function(source, assignmentId)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
@@ -386,7 +386,7 @@ ps.registerCallback(resourceName .. ':server:deleteFTOAssignment', function(sour
 end)
 
 -- Create DOR (Daily Observation Report)
-ps.registerCallback(resourceName .. ':server:createFTODor', function(source, data)
+lib.callback.register(resourceName .. ':server:createFTODor', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end
@@ -403,7 +403,7 @@ ps.registerCallback(resourceName .. ':server:createFTODor', function(source, dat
         phaseId = a and a.current_phase_id or nil
     end
 
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local authorName = profile and profile.fullname or 'Unknown'
 
@@ -437,7 +437,7 @@ ps.registerCallback(resourceName .. ':server:createFTODor', function(source, dat
 end)
 
 -- Delete DOR
-ps.registerCallback(resourceName .. ':server:deleteFTODor', function(source, dorId)
+lib.callback.register(resourceName .. ':server:deleteFTODor', function(source, dorId)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'fto_manage') then return { success = false, error = 'No permission' } end

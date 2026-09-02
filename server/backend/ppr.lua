@@ -16,12 +16,12 @@ local function buildPPRNumber(id)
 end
 
 -- Get paginated list of PPR entries
-ps.registerCallback(resourceName .. ':server:getPPRList', function(source, pageNum, filters)
+lib.callback.register(resourceName .. ':server:getPPRList', function(source, pageNum, filters)
     local src = source
     if not CheckAuth(src) then return { entries = {}, hasMore = false } end
 
     filters = filters or {}
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local hasPPRView = CheckPermission(src, 'ppr_view')
 
     local page = tonumber(pageNum) or 1
@@ -73,7 +73,7 @@ ps.registerCallback(resourceName .. ':server:getPPRList', function(source, pageN
 
     local ok, rows = pcall(MySQL.query.await, query, values)
     if not ok then
-        ps.warn('[getPPRList] Query failed: ' .. tostring(rows))
+        MDT.warn('[getPPRList] Query failed: ' .. tostring(rows))
         return { entries = {}, hasMore = false }
     end
 
@@ -84,7 +84,7 @@ ps.registerCallback(resourceName .. ':server:getPPRList', function(source, pageN
 end)
 
 -- Get single PPR entry with notes
-ps.registerCallback(resourceName .. ':server:getPPR', function(source, data)
+lib.callback.register(resourceName .. ':server:getPPR', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -95,7 +95,7 @@ ps.registerCallback(resourceName .. ':server:getPPR', function(source, data)
     if not entry then return { success = false, error = 'PPR not found' } end
 
     -- Permission check: ppr_view OR own record
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local hasPPRView = CheckPermission(src, 'ppr_view')
     if not hasPPRView and entry.officer_citizenid ~= citizenId then
         return { success = false, error = 'Unauthorized' }
@@ -118,14 +118,14 @@ ps.registerCallback(resourceName .. ':server:getPPR', function(source, data)
 end)
 
 -- Get PPR history for a specific officer
-ps.registerCallback(resourceName .. ':server:getOfficerPPRHistory', function(source, officerCitizenId)
+lib.callback.register(resourceName .. ':server:getOfficerPPRHistory', function(source, officerCitizenId)
     local src = source
     if not CheckAuth(src) then return {} end
 
     if not officerCitizenId or officerCitizenId == '' then return {} end
 
     -- Permission check: ppr_view OR own record
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local hasPPRView = CheckPermission(src, 'ppr_view')
     if not hasPPRView and officerCitizenId ~= citizenId then
         return {}
@@ -144,7 +144,7 @@ ps.registerCallback(resourceName .. ':server:getOfficerPPRHistory', function(sou
 end)
 
 -- Create a new PPR entry
-ps.registerCallback(resourceName .. ':server:createPPR', function(source, data)
+lib.callback.register(resourceName .. ':server:createPPR', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'ppr_manage') then
@@ -153,7 +153,7 @@ ps.registerCallback(resourceName .. ':server:createPPR', function(source, data)
 
     data = data or {}
 
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local authorName = profile and profile.fullname or 'Unknown'
 
@@ -194,7 +194,7 @@ ps.registerCallback(resourceName .. ':server:createPPR', function(source, data)
 end)
 
 -- Update a PPR entry
-ps.registerCallback(resourceName .. ':server:updatePPR', function(source, pprId, updates)
+lib.callback.register(resourceName .. ':server:updatePPR', function(source, pprId, updates)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'ppr_manage') then
@@ -226,7 +226,7 @@ ps.registerCallback(resourceName .. ':server:updatePPR', function(source, pprId,
 end)
 
 -- Delete a PPR entry
-ps.registerCallback(resourceName .. ':server:deletePPR', function(source, pprId)
+lib.callback.register(resourceName .. ':server:deletePPR', function(source, pprId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'ppr_manage') then
@@ -241,7 +241,7 @@ ps.registerCallback(resourceName .. ':server:deletePPR', function(source, pprId)
 end)
 
 -- Add a note to a PPR entry
-ps.registerCallback(resourceName .. ':server:addPPRNote', function(source, pprId, content)
+lib.callback.register(resourceName .. ':server:addPPRNote', function(source, pprId, content)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'ppr_manage') then
@@ -253,7 +253,7 @@ ps.registerCallback(resourceName .. ':server:addPPRNote', function(source, pprId
         return { success = false, error = 'Invalid PPR id or empty note' }
     end
 
-    local citizenId = ps.getIdentifier(src)
+    local citizenId = MDT.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local authorName = profile and profile.fullname or 'Unknown'
 
@@ -266,7 +266,7 @@ ps.registerCallback(resourceName .. ':server:addPPRNote', function(source, pprId
 end)
 
 -- Delete a PPR note
-ps.registerCallback(resourceName .. ':server:deletePPRNote', function(source, noteId, pprId)
+lib.callback.register(resourceName .. ':server:deletePPRNote', function(source, noteId, pprId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'ppr_manage') then

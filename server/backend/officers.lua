@@ -3,21 +3,21 @@ local ok, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() en
 if not ok then QBCore = nil end
  
 -- Get player source ID by citizenId
-ps.registerCallback(resourceName .. ':server:GetPlayerSourceId', function(source, targetCitizenId)
+lib.callback.register(resourceName .. ':server:GetPlayerSourceId', function(source, targetCitizenId)
     -- Resolving a citizenid to a live server id, and confirming who's online, is not
     -- something an unauthenticated client should be able to do — it's a targeting vector.
     if not CheckAuth(source) then return nil end
     if not targetCitizenId then return nil end
-    local targetPlayer = ps.getPlayerByIdentifier(targetCitizenId)
+    local targetPlayer = MDT.getPlayerByIdentifier(targetCitizenId)
     if not targetPlayer then
-        ps.notify(source, 'Citizen seems asleep / missing', 'error')
+        MDT.notify(source, 'Citizen seems asleep / missing', 'error')
         return nil
     end
     return targetPlayer.source or targetPlayer.PlayerData.source
 end)
  
 -- Set Callsign
-ps.registerCallback(resourceName .. ':server:setCallsign', function(source, payload)
+lib.callback.register(resourceName .. ':server:setCallsign', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     payload = payload or {}
@@ -58,8 +58,8 @@ ps.registerCallback(resourceName .. ':server:setCallsign', function(source, payl
         PersistLiveMetadata(Player, cid)
         TriggerClientEvent(resourceName .. ':client:updateCallsign', Player.PlayerData.source, newCallsign)
 
-        if ps.auditLog then
-            ps.auditLog(src, 'callsign_changed', 'officer', cid, { callsign = newCallsign })
+        if MDT.auditLog then
+            MDT.auditLog(src, 'callsign_changed', 'officer', cid, { callsign = newCallsign })
         end
  
         return { success = true, message = 'Callsign updated to ' .. newCallsign }
@@ -69,7 +69,7 @@ end)
  
 --- Everything the callsign picker needs, in one round-trip: the range, who holds
 --- what, and what is reserved. The taken list is one query rather than one per box.
-ps.registerCallback(resourceName .. ':server:getCallsignAvailability', function(source, payload)
+lib.callback.register(resourceName .. ':server:getCallsignAvailability', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false } end
 
@@ -77,7 +77,7 @@ ps.registerCallback(resourceName .. ':server:getCallsignAvailability', function(
     if not cfg then
         -- An unconfigured job is a server-owner mistake, not an officer's. Say what's
         -- wrong rather than showing an empty grid nobody can explain.
-        ps.warn('[callsigns] ' .. tostring(problem))
+        MDT.warn('[callsigns] ' .. tostring(problem))
         return { success = false, error = problem }
     end
 
@@ -154,12 +154,12 @@ ps.registerCallback(resourceName .. ':server:getCallsignAvailability', function(
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:getCallsign', function(source, payload)
+lib.callback.register(resourceName .. ':server:getCallsign', function(source, payload)
     if not CheckAuth(source) then return { callsign = '' } end
 
     -- No citizenid means "mine". The top bar asks about the officer holding the MDT,
     -- and without this it silently got an empty string back every time.
-    local cid = payload.citizenid or (ps.getIdentifier and ps.getIdentifier(source))
+    local cid = payload.citizenid or (MDT.getIdentifier and MDT.getIdentifier(source))
     if not cid then return { callsign = '' } end
  
     if not QBCore then return { success = false, message = 'Core framework not available' } end
@@ -172,7 +172,7 @@ ps.registerCallback(resourceName .. ':server:getCallsign', function(source, payl
 end)
  
 -- Set Radio Frequency
-ps.registerCallback(resourceName .. ':server:setRadio', function(source, payload)
+lib.callback.register(resourceName .. ':server:setRadio', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
  
@@ -202,7 +202,7 @@ ps.registerCallback(resourceName .. ':server:setRadio', function(source, payload
 end)
  
 -- Get Unit Location (GPS to officer)
-ps.registerCallback(resourceName .. ':server:getUnitLocation', function(source, cid)
+lib.callback.register(resourceName .. ':server:getUnitLocation', function(source, cid)
     if not CheckAuth(source) then return {} end
     if not cid then return {} end
  

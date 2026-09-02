@@ -6,7 +6,7 @@ RegisterNUICallback('issueWarrant', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:issueWarrant', data or {})
+    local result = MDT.callback(resourceName .. ':server:issueWarrant', data or {})
     if result and result.success then
         cb({ success = true })
     else
@@ -20,7 +20,7 @@ RegisterNUICallback('closeWarrant', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:closeWarrant', data or {})
+    local result = MDT.callback(resourceName .. ':server:closeWarrant', data or {})
     if result and result.success then
         cb({ success = true })
     else

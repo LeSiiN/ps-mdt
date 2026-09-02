@@ -17,13 +17,13 @@ local function isAuthorizedJob(job)
 end
 
 function NUIUpdateAuthWithData(jobData)
-    local job = jobData or ps.getJob()
+    local job = jobData or MDT.getJob()
     local authorized, jobType = isAuthorizedJob(job)
     local onDuty = job and job.onduty or false
 
     SendNUI('updateAuth', {
         authorized = authorized and onDuty,
-        playerData = ps.getPlayerData(),
+        playerData = MDT.getPlayerData(),
         isLEO = authorized,
         onDuty = onDuty,
         jobType = jobType or 'leo'
@@ -31,15 +31,15 @@ function NUIUpdateAuthWithData(jobData)
 end
 
 local function onJobUpdate(JobInfo)
-    local job = JobInfo or ps.getJob()
-    ps.debug('Updated job info:', job)
+    local job = JobInfo or MDT.getJob()
+    MDT.debug('Updated job info:', job)
 
     if MDTOpen then
         local authorized = isAuthorizedJob(job)
 
         if not authorized then
             CloseMDT()
-            ps.notify('MDT closed - Access revoked', 'error')
+            MDT.notify('MDT closed - Access revoked', 'error')
         else
             NUIUpdateAuthWithData(job)
         end
@@ -48,7 +48,7 @@ end
 
 local function onSetDuty(duty)
     if MDTOpen then
-        local job = ps.getJob()
+        local job = MDT.getJob()
         if job then
             job.onduty = duty
             NUIUpdateAuthWithData(job)
@@ -56,24 +56,24 @@ local function onSetDuty(duty)
             local authorized = isAuthorizedJob(job)
             if not authorized then
                 CloseMDT()
-                ps.notify('MDT closed - Access revoked', 'error')
+                MDT.notify('MDT closed - Access revoked', 'error')
             end
         end
     end
 end
 
 RegisterNetEvent('QBCore:Client:SetDuty', function(duty)
-    ps.debug('SetDuty event received:', duty)
+    MDT.debug('SetDuty event received:', duty)
     onSetDuty(duty)
 end)
 
 RegisterNetEvent('QBCore:Client:OnJobUpdate', function(JobInfo)
-    ps.debug('OnJobUpdate event received:', JobInfo)
+    MDT.debug('OnJobUpdate event received:', JobInfo)
     onJobUpdate(JobInfo)
 end)
 
 RegisterNetEvent('esx:setJob', function(job)
-    ps.debug('esx:setJob event received:', job)
+    MDT.debug('esx:setJob event received:', job)
     onJobUpdate(job)
 end)
 
@@ -88,7 +88,7 @@ end)
 if GetResourceState('baseevents') == 'started' then
     RegisterNetEvent('baseevents:onPlayerDied', function()
         if MDTOpen then
-            ps.debug('Player died')
+            MDT.debug('Player died')
             CloseMDT()
         end
     end)

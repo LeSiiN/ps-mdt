@@ -56,6 +56,11 @@
     let isEms            = $derived(authService?.jobType === "ems");
 
     let mapContainer: HTMLDivElement | null = null;
+    // Leaflet caches the container size on init. Changing MDT window size or UI
+    // zoom resizes the container without firing a window resize event, so the
+    // cached size goes stale and every projection (clicks included) is off.
+    let mapResizeObserver: ResizeObserver | null = null;
+    let mapResizeRaf: number | null = null;
     let map: L.Map | null = null;
     let mapInitialized = false;
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -157,6 +162,9 @@
         time?: number;
         units?: DispatchUnitLite[];
         note?: { text: string; author?: string; updatedAt?: number } | null;
+        // Heist alerts carry the camera covering the scene; ps-dispatch passes
+        // it straight through from whatever raised the alert.
+        camId?: string;
     };
     let dispatches         = $state<MapDispatch[]>([]);
     // Calls a dispatcher has dismissed locally (cleared from ticker + map).
@@ -660,6 +668,23 @@
     // Ticker paging: browse ALL calls three at a time (newest first),
     // navigated with the on-screen arrows or the keyboard arrow keys.
     let tickerPage = $state(0);
+    // Opening a call's camera. Same NUI path the Cameras tab uses, so the id
+    // and the officer's authorisation are checked in one place, not two.
+    let camError = $state("");
+    async function viewCallCamera(camId?: string) {
+        if (!camId) return;
+        try {
+            const res: any = await fetchNui(NUI_EVENTS.CAMERA.VIEW_CAMERA, camId);
+            if (res && res.success === false) {
+                camError = res.message || "Camera unavailable";
+                setTimeout(() => (camError = ""), 2600);
+            }
+        } catch {
+            camError = "Camera unavailable";
+            setTimeout(() => (camError = ""), 2600);
+        }
+    }
+
     let tickerAll = $derived(visibleDispatches.slice().reverse());
     let tickerPages = $derived(Math.max(1, Math.ceil(tickerAll.length / 3)));
     let tickerCalls = $derived(tickerAll.slice(tickerPage * 3, tickerPage * 3 + 3));
@@ -1510,24 +1535,47 @@
         return s;
     }
 
+    // Set window.__mdtMapCal = true in the CEF console to log every click's
+    // measured scale, container origin and resulting container point. Use it to
+    // verify alignment after changing UI zoom or window size.
     function mouseEventToLatLng(e: L.LeafletMouseEvent): L.LatLng {
         if (!map || !mapContainer) return e.latlng;
         const oe    = e.originalEvent as MouseEvent;
         const rect  = mapContainer.getBoundingClientRect();
-        const scale = getAncestorScale();
+        const scale = getAncestorScale() || 1;
 
-        // Residual constant correction (in container px) for a getBoundingClientRect
-        // quirk under CSS `zoom`: the measured rect origin is off by a fixed amount
-        // for this layout. NOTE: these are NOT the GTA<->map offsetX/offsetY above —
-        // they're a pixel fudge tied to the MDT's current zoom factor and the map's
-        // placement in the layout. Re-tune if either of those changes.
-        const clickFudgeX = 46;
-        const clickFudgeY = 32;
+        // Under CEF's CSS `zoom`, MouseEvent.clientX/Y are reported in on-screen
+        // (scaled) pixels while getBoundingClientRect() reports the container in
+        // unscaled layout pixels. The two are in different units, so the scale has
+        // to be undone on the absolute coordinate BEFORE subtracting the origin —
+        // not on the difference.
+        //
+        // The previous version subtracted first and then divided, which leaves a
+        // residual error of  rect.left * (1 - 1/scale)  — constant only as long as
+        // the container's position and the zoom factor never move. That is exactly
+        // what the old clickFudgeX/clickFudgeY constants (46 / 32) compensated for,
+        // and exactly why changing window size or content zoom broke the aiming:
+        // both change rect.left/rect.top and/or scale, so a hardcoded residual can
+        // no longer be correct.
+        //
+        //   old: (clientX - rect.left) / scale - fudge,  fudge = rect.left - rect.left/scale
+        //   new:  clientX / scale - rect.left
+        // The two are algebraically identical, but the new form derives the
+        // correction from live measurements instead of baking it in.
+        const x = oe.clientX / scale - rect.left;
+        const y = oe.clientY / scale - rect.top;
 
-        // rect + clientX/Y are on-screen (scaled) px; Leaflet's container point is
-        // in unscaled layout px, so undo the scale on the offset from the edge.
-        const x = ((oe.clientX - rect.left) / scale) - clickFudgeX;
-        const y = ((oe.clientY - rect.top)  / scale) - clickFudgeY;
+        if ((window as any).__mdtMapCal) {
+            console.log("[mdt-map-cal]", {
+                scale,
+                rect: { left: rect.left, top: rect.top, w: rect.width, h: rect.height },
+                offset: { w: mapContainer.offsetWidth, h: mapContainer.offsetHeight },
+                client: { x: oe.clientX, y: oe.clientY },
+                containerPoint: { x, y },
+                leafletOwn: map.mouseEventToContainerPoint(oe),
+            });
+        }
+
         return map.containerPointToLatLng(L.point(x, y));
     }
 
@@ -2390,6 +2438,24 @@
         });
     }
 
+    // Re-measures the Leaflet container after any size change (MDT window size
+    // preset, UI zoom, tab switch). Coalesced onto one animation frame because a
+    // zoom change fires the observer several times in a row.
+    function observeMapResize() {
+        if (!mapContainer || mapResizeObserver || typeof ResizeObserver === "undefined") return;
+
+        mapResizeObserver = new ResizeObserver(() => {
+            if (mapResizeRaf !== null) cancelAnimationFrame(mapResizeRaf);
+            mapResizeRaf = requestAnimationFrame(() => {
+                mapResizeRaf = null;
+                // Do not recentre - invalidateSize(true) would animate the view.
+                if (map) map.invalidateSize(false);
+            });
+        });
+
+        mapResizeObserver.observe(mapContainer);
+    }
+
     // IDENTICAL to original – no changes
     function initializeMap() {
         if (mapInitialized) return;
@@ -2471,6 +2537,9 @@
             showBackToMap = !onMain && !onCayo;
         });
         map.attributionControl.setPrefix(false);
+
+        // Keep Leaflet's cached container size in sync from here on.
+        observeMapResize();
 
         L.imageOverlay("./images/map.jpeg", bounds).addTo(map);
 
@@ -2564,6 +2633,8 @@
         window.removeEventListener("click", handleOutsideClick);
         if (drawingPatrolId) stopDrawing(false);
         removeGhost();
+        if (mapResizeRaf !== null) { cancelAnimationFrame(mapResizeRaf); mapResizeRaf = null; }
+        if (mapResizeObserver) { mapResizeObserver.disconnect(); mapResizeObserver = null; }
         if (map) { map.remove(); map = null; mapInitialized = false; }
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
         if (dirtyDebounce) { clearTimeout(dirtyDebounce); dirtyDebounce = null; }
@@ -2646,6 +2717,22 @@
                         {#if selectedDispatch.street}<span>{selectedDispatch.street}</span>{/if}
                         {#if selectedDispatch.time}<span>{dispatchAge(selectedDispatch.time)}</span>{/if}
                     </div>
+
+                    <!-- Camera on scene. Heist alerts carry a camId; opening it
+                         goes through the MDT's own camera path, which already
+                         checks the id and the officer's authorisation. -->
+                    {#if selectedDispatch.camId}
+                        <div class="call-cam-row">
+                            <span class="material-icons call-cam-icon">videocam</span>
+                            <span class="call-cam-id">{selectedDispatch.camId}</span>
+                            <button class="call-cam-btn" onclick={() => viewCallCamera(selectedDispatch.camId)}>
+                                <span class="material-icons call-cam-play">play_arrow</span>View
+                            </button>
+                        </div>
+                        {#if camError}
+                            <div class="call-cam-error">{camError}</div>
+                        {/if}
+                    {/if}
 
                     <!-- Dispatch note (one per call) -->
                     <div class="call-note-block">
@@ -4215,4 +4302,46 @@
     @keyframes slide-down { 0% { opacity:0; transform:translateY(-6px); } 100% { opacity:1; transform:translateY(0); } }
     .anim-assigned { animation: anim-assign-in 0.65s cubic-bezier(0.22,1,0.36,1) forwards, slide-down 0.25s ease-out; }
     .anim-removed  { animation: anim-remove-in 0.65s cubic-bezier(0.22,1,0.36,1) forwards, slide-down 0.25s ease-out; }
+
+    /* Camera row in a call's detail panel. */
+    .call-cam-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+        padding: 6px 8px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
+    }
+    .call-cam-icon { font-size: 14px; color: rgba(255, 255, 255, 0.4); }
+    .call-cam-id {
+        flex: 1;
+        font-family: "Courier New", monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: rgba(255, 255, 255, 0.85);
+    }
+    .call-cam-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 3px 10px 3px 7px;
+        background: rgba(var(--accent-rgb), 0.15);
+        border: 1px solid rgba(var(--accent-rgb), 0.3);
+        border-radius: 3px;
+        color: rgba(var(--accent-text-rgb), 0.95);
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.1s;
+    }
+    .call-cam-btn:hover { background: rgba(var(--accent-rgb), 0.25); }
+    .call-cam-error {
+        margin-top: 4px;
+        font-size: 10px;
+        color: rgba(248, 113, 113, 0.9);
+    }
+    .call-cam-play { font-size: 13px; }
 </style>

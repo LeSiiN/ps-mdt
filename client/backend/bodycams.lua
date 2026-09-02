@@ -7,7 +7,7 @@ RegisterNUICallback('viewBodycam', function(data, cb)
         return
     end
 
-    ps.debug('viewBodycam', data)
+    MDT.debug('viewBodycam', data)
 
     local bodycamId = data
     if type(data) == 'table' then
@@ -19,7 +19,7 @@ RegisterNUICallback('viewBodycam', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:viewBodycam', bodycamId)
+    local result = MDT.callback(resourceName .. ':server:viewBodycam', bodycamId)
 
     if result and result.success then
         CloseMDT(true)
@@ -36,7 +36,7 @@ RegisterNUICallback('getBodycams', function(_, cb)
         return
     end
 
-    local bodycams = ps.callback(resourceName .. ':server:getBodycams')
+    local bodycams = MDT.callback(resourceName .. ':server:getBodycams')
 
     if bodycams then
         cb({ success = true, data = bodycams })
@@ -53,16 +53,16 @@ end
 
 local function notify(msg, kind)
     if bodycamCfg().NotifyOfficer == false then return end
-    if ps.notify then
-        ps.notify(msg, kind or 'info')
+    if MDT.notify then
+        MDT.notify(msg, kind or 'info')
     else
-        ps.debug(msg)
+        MDT.debug(msg)
     end
 end
 
 --- Toggle own bodycam. `desired` nil flips it.
 local function toggleOwnBodycam(desired)
-    local res = ps.callback(resourceName .. ':server:toggleBodycam',
+    local res = MDT.callback(resourceName .. ':server:toggleBodycam',
         { on = desired })
     if not res or not res.success then
         notify(res and res.message or 'Could not change bodycam state', 'error')
@@ -116,10 +116,10 @@ end)
 -- ── NUI bridges ──────────────────────────────────────────────────────────────
 RegisterNUICallback('toggleBodycam', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    cb(ps.callback(resourceName .. ':server:toggleBodycam', data or {}) or { success = false })
+    cb(MDT.callback(resourceName .. ':server:toggleBodycam', data or {}) or { success = false })
 end)
 
 RegisterNUICallback('getMyBodycam', function(_, cb)
     if not MDTOpen then cb({ success = false }) return end
-    cb(ps.callback(resourceName .. ':server:getMyBodycam') or { success = false })
+    cb(MDT.callback(resourceName .. ':server:getMyBodycam') or { success = false })
 end)

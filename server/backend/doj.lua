@@ -12,8 +12,8 @@ local function buildOrderNumber(id)
 end
 
 local function getDisplayName(src)
-    local callsign = ps.getMetadata(src, 'callsign')
-    local name = ps.getPlayerName(src) or 'Unknown'
+    local callsign = MDT.getMetadata(src, 'callsign')
+    local name = MDT.getPlayerName(src) or 'Unknown'
     if callsign and callsign ~= '' then
         return callsign .. ' ' .. name
     end
@@ -44,7 +44,7 @@ local function reportHasOpenWarrantRequest(reportId, excludeId)
 end
 
 -- Court Cases
-ps.registerCallback(resourceName .. ':server:getCourtCases', function(source, page, limit, status, case_type, search)
+lib.callback.register(resourceName .. ':server:getCourtCases', function(source, page, limit, status, case_type, search)
     local src = source
     if not CheckAuth(src) then return { cases = {}, total = 0 } end
 
@@ -106,7 +106,7 @@ ps.registerCallback(resourceName .. ':server:getCourtCases', function(source, pa
     return { cases = rows or {}, total = total }
 end)
 
-ps.registerCallback(resourceName .. ':server:getCourtCase', function(source, caseId)
+lib.callback.register(resourceName .. ':server:getCourtCase', function(source, caseId)
     local src = source
     if not CheckAuth(src) then return nil end
 
@@ -117,7 +117,7 @@ ps.registerCallback(resourceName .. ':server:getCourtCase', function(source, cas
     return row
 end)
 
-ps.registerCallback(resourceName .. ':server:createCourtCase', function(source, payload)
+lib.callback.register(resourceName .. ':server:createCourtCase', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -131,7 +131,7 @@ ps.registerCallback(resourceName .. ':server:createCourtCase', function(source, 
     local linked_mdt_case_id = payload.linked_mdt_case_id and tonumber(payload.linked_mdt_case_id) or nil
     local referred_from_report_id = payload.referred_from_report_id and tonumber(payload.referred_from_report_id) or nil
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then
         return { success = false, error = 'Missing citizen id' }
     end
@@ -155,14 +155,14 @@ ps.registerCallback(resourceName .. ':server:createCourtCase', function(source, 
     local caseNumber = buildCourtCaseNumber(id)
     MySQL.update.await('UPDATE mdt_court_cases SET case_number = ? WHERE id = ?', { caseNumber, id })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_case_created', 'court_case', id, { title = title, case_type = case_type })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_case_created', 'court_case', id, { title = title, case_type = case_type })
     end
 
     return { success = true, id = id, case_number = caseNumber }
 end)
 
-ps.registerCallback(resourceName .. ':server:updateCourtCase', function(source, caseId, payload)
+lib.callback.register(resourceName .. ':server:updateCourtCase', function(source, caseId, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -204,15 +204,15 @@ ps.registerCallback(resourceName .. ':server:updateCourtCase', function(source, 
         return { success = false, error = 'Failed to update court case' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_case_updated', 'court_case', caseId, payload)
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_case_updated', 'court_case', caseId, payload)
     end
 
     return { success = true }
 end)
 
 -- Warrant Requests
-ps.registerCallback(resourceName .. ':server:getWarrantRequests', function(source, page, limit, status)
+lib.callback.register(resourceName .. ':server:getWarrantRequests', function(source, page, limit, status)
     local src = source
     if not CheckAuth(src) then return { requests = {}, total = 0 } end
 
@@ -258,7 +258,7 @@ ps.registerCallback(resourceName .. ':server:getWarrantRequests', function(sourc
     return { requests = rows or {}, total = total }
 end)
 
-ps.registerCallback(resourceName .. ':server:createWarrantRequest', function(source, payload)
+lib.callback.register(resourceName .. ':server:createWarrantRequest', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -277,7 +277,7 @@ ps.registerCallback(resourceName .. ':server:createWarrantRequest', function(sou
         return { success = false, error = 'A reason/justification is required' }
     end
 
-    local requesting_officer = ps.getIdentifier(src)
+    local requesting_officer = MDT.getIdentifier(src)
     local officer_name = getDisplayName(src)
 
     -- One warrant per report: block if the report already has an active warrant
@@ -301,8 +301,8 @@ ps.registerCallback(resourceName .. ':server:createWarrantRequest', function(sou
         return { success = false, error = 'Failed to create warrant request' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'warrant_request_created', 'warrant_request', id, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'warrant_request_created', 'warrant_request', id, {
             citizenid = citizenid,
             linked_report_id = linked_report_id
         })
@@ -311,7 +311,7 @@ ps.registerCallback(resourceName .. ':server:createWarrantRequest', function(sou
     return { success = true, id = id }
 end)
 
-ps.registerCallback(resourceName .. ':server:reviewWarrantRequest', function(source, request_id, decision, reason)
+lib.callback.register(resourceName .. ':server:reviewWarrantRequest', function(source, request_id, decision, reason)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -327,7 +327,7 @@ ps.registerCallback(resourceName .. ':server:reviewWarrantRequest', function(sou
         return { success = false, error = 'Warrant request not found or already reviewed' }
     end
 
-    local reviewerCitizenid = ps.getIdentifier(src)
+    local reviewerCitizenid = MDT.getIdentifier(src)
     local reviewerName = getDisplayName(src)
 
     -- One warrant per report: if approving and the linked report already has an
@@ -369,8 +369,8 @@ ps.registerCallback(resourceName .. ':server:reviewWarrantRequest', function(sou
         end
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'warrant_request_reviewed', 'warrant_request', request_id, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'warrant_request_reviewed', 'warrant_request', request_id, {
             decision = decision,
             reason = reason,
             citizenid = request.citizenid
@@ -382,7 +382,7 @@ end)
 
 -- ── Warrant hearings (scheduled by the DOJ AFTER approval) ──────────────────
 -- Look up the hearing currently linked to a report's warrant (if any).
-ps.registerCallback(resourceName .. ':server:getWarrantHearing', function(source, payload)
+lib.callback.register(resourceName .. ':server:getWarrantHearing', function(source, payload)
     if not CheckAuth(source) then return { success = false } end
     local reportId = tonumber(type(payload) == 'table' and payload.reportId or payload)
     if not reportId then return { success = false } end
@@ -397,7 +397,7 @@ ps.registerCallback(resourceName .. ':server:getWarrantHearing', function(source
 end)
 
 -- Schedule a hearing for an already-approved warrant.
-ps.registerCallback(resourceName .. ':server:scheduleWarrantHearing', function(source, payload)
+lib.callback.register(resourceName .. ':server:scheduleWarrantHearing', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CreateWarrantHearingForReport then return { success = false, error = 'Court module unavailable' } end
@@ -419,7 +419,7 @@ ps.registerCallback(resourceName .. ':server:scheduleWarrantHearing', function(s
 end)
 
 -- Remove the hearing tied to a warrant's report (manual DOJ action).
-ps.registerCallback(resourceName .. ':server:removeWarrantHearing', function(source, payload)
+lib.callback.register(resourceName .. ':server:removeWarrantHearing', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'court_delete') then return { success = false, error = 'No permission' } end
@@ -430,13 +430,13 @@ ps.registerCallback(resourceName .. ':server:removeWarrantHearing', function(sou
     if not reportId then return { success = false, error = 'Missing report id' } end
 
     local removed = RemoveWarrantHearingsForReport(reportId)
-    if ps.auditLog then
-        ps.auditLog(src, 'warrant_hearing_removed', 'court_hearing', reportId, { removed = removed })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'warrant_hearing_removed', 'court_hearing', reportId, { removed = removed })
     end
     return { success = true, removed = removed }
 end)
 
-ps.registerCallback(resourceName .. ':server:closeWarrantRequest', function(source, request_id)
+lib.callback.register(resourceName .. ':server:closeWarrantRequest', function(source, request_id)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'warrants_close') then
@@ -471,8 +471,8 @@ ps.registerCallback(resourceName .. ':server:closeWarrantRequest', function(sour
         end
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'warrant_request_closed', 'warrant_request', request_id, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'warrant_request_closed', 'warrant_request', request_id, {
             citizenid = request.citizenid,
             linked_report_id = request.linked_report_id
         })
@@ -530,7 +530,7 @@ CreateThread(function()
 end)
 
 -- Court Orders
-ps.registerCallback(resourceName .. ':server:getCourtOrders', function(source, page, limit, orderType, status)
+lib.callback.register(resourceName .. ':server:getCourtOrders', function(source, page, limit, orderType, status)
     local src = source
     if not CheckAuth(src) then return { orders = {}, total = 0 } end
 
@@ -581,7 +581,7 @@ ps.registerCallback(resourceName .. ':server:getCourtOrders', function(source, p
     return { orders = rows or {}, total = total }
 end)
 
-ps.registerCallback(resourceName .. ':server:createCourtOrder', function(source, payload)
+lib.callback.register(resourceName .. ':server:createCourtOrder', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -594,7 +594,7 @@ ps.registerCallback(resourceName .. ':server:createCourtOrder', function(source,
         return { success = false, error = 'Missing required fields (title, type, content)' }
     end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then
         return { success = false, error = 'Missing citizen id' }
     end
@@ -623,14 +623,14 @@ ps.registerCallback(resourceName .. ':server:createCourtOrder', function(source,
     local orderNumber = buildOrderNumber(id)
     MySQL.update.await('UPDATE mdt_court_orders SET order_number = ? WHERE id = ?', { orderNumber, id })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_order_created', 'court_order', id, { title = title, type = orderType })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_order_created', 'court_order', id, { title = title, type = orderType })
     end
 
     return { success = true, id = id, order_number = orderNumber }
 end)
 
-ps.registerCallback(resourceName .. ':server:updateCourtOrder', function(source, orderId, payload)
+lib.callback.register(resourceName .. ':server:updateCourtOrder', function(source, orderId, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -668,14 +668,14 @@ ps.registerCallback(resourceName .. ':server:updateCourtOrder', function(source,
         return { success = false, error = 'Failed to update court order' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_order_updated', 'court_order', orderId, payload)
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_order_updated', 'court_order', orderId, payload)
     end
 
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:revokeCourtOrder', function(source, orderId)
+lib.callback.register(resourceName .. ':server:revokeCourtOrder', function(source, orderId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -691,15 +691,15 @@ ps.registerCallback(resourceName .. ':server:revokeCourtOrder', function(source,
         return { success = false, error = 'Failed to revoke court order' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'court_order_revoked', 'court_order', orderId, {})
+    if MDT.auditLog then
+        MDT.auditLog(src, 'court_order_revoked', 'court_order', orderId, {})
     end
 
     return { success = true }
 end)
 
 -- Legal Documents
-ps.registerCallback(resourceName .. ':server:getLegalDocuments', function(source, page, limit, docType, status)
+lib.callback.register(resourceName .. ':server:getLegalDocuments', function(source, page, limit, docType, status)
     local src = source
     if not CheckAuth(src) then return { documents = {}, total = 0 } end
 
@@ -749,7 +749,7 @@ ps.registerCallback(resourceName .. ':server:getLegalDocuments', function(source
     return { documents = rows or {}, total = total }
 end)
 
-ps.registerCallback(resourceName .. ':server:getLegalDocument', function(source, docId)
+lib.callback.register(resourceName .. ':server:getLegalDocument', function(source, docId)
     local src = source
     if not CheckAuth(src) then return nil end
 
@@ -760,7 +760,7 @@ ps.registerCallback(resourceName .. ':server:getLegalDocument', function(source,
     return row
 end)
 
-ps.registerCallback(resourceName .. ':server:createLegalDocument', function(source, payload)
+lib.callback.register(resourceName .. ':server:createLegalDocument', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -773,7 +773,7 @@ ps.registerCallback(resourceName .. ':server:createLegalDocument', function(sour
         return { success = false, error = 'Missing required fields (title, type)' }
     end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then
         return { success = false, error = 'Missing citizen id' }
     end
@@ -795,14 +795,14 @@ ps.registerCallback(resourceName .. ':server:createLegalDocument', function(sour
         return { success = false, error = 'Failed to create legal document' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'legal_document_created', 'legal_document', id, { title = title, type = docType })
+    if MDT.auditLog then
+        MDT.auditLog(src, 'legal_document_created', 'legal_document', id, { title = title, type = docType })
     end
 
     return { success = true, id = id }
 end)
 
-ps.registerCallback(resourceName .. ':server:updateLegalDocument', function(source, docId, payload)
+lib.callback.register(resourceName .. ':server:updateLegalDocument', function(source, docId, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -836,14 +836,14 @@ ps.registerCallback(resourceName .. ':server:updateLegalDocument', function(sour
         return { success = false, error = 'Failed to update legal document' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'legal_document_updated', 'legal_document', docId, payload)
+    if MDT.auditLog then
+        MDT.auditLog(src, 'legal_document_updated', 'legal_document', docId, payload)
     end
 
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteLegalDocument', function(source, docId)
+lib.callback.register(resourceName .. ':server:deleteLegalDocument', function(source, docId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -862,15 +862,15 @@ ps.registerCallback(resourceName .. ':server:deleteLegalDocument', function(sour
 
     MySQL.query.await('DELETE FROM mdt_legal_documents WHERE id = ?', { docId })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'legal_document_deleted', 'legal_document', docId, {})
+    if MDT.auditLog then
+        MDT.auditLog(src, 'legal_document_deleted', 'legal_document', docId, {})
     end
 
     return { success = true }
 end)
 
 -- DOJ Dashboard
-ps.registerCallback(resourceName .. ':server:getDojDashboard', function(source)
+lib.callback.register(resourceName .. ':server:getDojDashboard', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 

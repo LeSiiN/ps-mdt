@@ -6,7 +6,7 @@ RegisterNUICallback('getAuditLogs', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getAuditLogs', data)
+    local result = MDT.callback(resourceName .. ':server:getAuditLogs', data)
     cb(result or {})
 end)
 
@@ -16,7 +16,7 @@ RegisterNUICallback('getAuditLogsByCase', function(data, cb)
         return
     end
 
-    local result = ps.callback(
+    local result = MDT.callback(
         resourceName .. ':server:getAuditLogsByCase',
         data.caseId,
         data.page,

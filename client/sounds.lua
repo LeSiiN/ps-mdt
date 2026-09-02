@@ -25,15 +25,15 @@ function PlayMDTSound(soundType)
     -- read it. Guarded: if the mirror isn't loaded, sounds stay on (default).
     if MdtPref and MdtPref('notificationSounds', true) == false then return end
     if not MDTSounds[soundType] then
-        ps.debug('Unknown MDT sound type:', soundType)
+        MDT.debug('Unknown MDT sound type:', soundType)
         return
     end
 
     local sound = MDTSounds[soundType]
-    exports.ps_lib:PlaySound({
+    MDT.playSound({
         audioName = sound.audioName,
-        audioRef = sound.audioRef
+        audioRef  = sound.audioRef,
     })
 
-    ps.debug('Playing MDT sound:', soundType)
+    MDT.debug('Playing MDT sound:', soundType)
 end

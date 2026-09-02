@@ -1,10 +1,10 @@
 local resourceName = tostring(GetCurrentResourceName())
 
-ps.registerCallback(resourceName .. ':server:getOfficerMessages', function(source)
+lib.callback.register(resourceName .. ':server:getOfficerMessages', function(source)
     local src = source
     if not CheckAuth(src) then return { items = {} } end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then
         return { items = {} }
     end
@@ -21,7 +21,7 @@ ps.registerCallback(resourceName .. ':server:getOfficerMessages', function(sourc
     return { items = rows or {} }
 end)
 
-ps.registerCallback(resourceName .. ':server:sendOfficerMessage', function(source, payload)
+lib.callback.register(resourceName .. ':server:sendOfficerMessage', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not RateLimitAction(src, 'sendMessage') then
@@ -41,13 +41,13 @@ ps.registerCallback(resourceName .. ':server:sendOfficerMessage', function(sourc
         return { success = false, error = 'Message body required' }
     end
 
-    local senderId = ps.getIdentifier(src)
+    local senderId = MDT.getIdentifier(src)
     if not senderId then
         return { success = false, error = 'Missing sender' }
     end
 
-    local senderName = ps.getPlayerName(src) or 'Unknown'
-    local receiverName = ps.getPlayerNameByIdentifier(receiverId) or 'Unknown'
+    local senderName = MDT.getPlayerName(src) or 'Unknown'
+    local receiverName = MDT.getPlayerNameByIdentifier(receiverId) or 'Unknown'
 
     local insertId = MySQL.insert.await([[
         INSERT INTO mdt_messages (sender_citizenid, sender_name, receiver_citizenid, receiver_name, subject, body)
@@ -61,7 +61,7 @@ ps.registerCallback(resourceName .. ':server:sendOfficerMessage', function(sourc
     return { success = true, messageId = insertId }
 end)
 
-ps.registerCallback(resourceName .. ':server:markMessageRead', function(source, payload)
+lib.callback.register(resourceName .. ':server:markMessageRead', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -71,7 +71,7 @@ ps.registerCallback(resourceName .. ':server:markMessageRead', function(source, 
         return { success = false, error = 'Missing message id' }
     end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then
         return { success = false, error = 'Missing recipient' }
     end

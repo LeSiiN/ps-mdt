@@ -21,7 +21,7 @@ CreateThread(function()
     end
 end)
 
-ps.registerCallback('ps-mdt:getChargeList', function(source)
+lib.callback.register('ps-mdt:getChargeList', function(source)
     -- Allow civilians to view charges (legislation) if civilian access is enabled
     local civAccess = Config.CivilianAccess
     if not CheckAuth(source) and not (civAccess and civAccess.enabled) then return {} end
@@ -44,9 +44,9 @@ ps.registerCallback('ps-mdt:getChargeList', function(source)
         FROM mdt_penal_codes
         ORDER BY category, charge_class, label
     ]], {})
-    ps.debug('[getChargeList] rows', rows and #rows or 0)
+    MDT.debug('[getChargeList] rows', rows and #rows or 0)
     if Config and Config.Debug and rows and rows[1] then
-        ps.debug('[getChargeList] sample', rows[1])
+        MDT.debug('[getChargeList] sample', rows[1])
     end
     return rows
 end)
@@ -54,7 +54,7 @@ end)
 -- Process a fine - deduct money from citizen's bank account
 -- Ported from ps-mdt v1 (mdt:server:removeMoney)
 local fineCooldowns = {}
-ps.registerCallback(resourceName .. ':server:processFine', function(source, payload)
+lib.callback.register(resourceName .. ':server:processFine', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
 
@@ -82,25 +82,25 @@ ps.registerCallback(resourceName .. ':server:processFine', function(source, payl
     end
 
     -- Try to get online player first
-    local Player = ps.getPlayerByIdentifier(citizenId)
+    local Player = MDT.getPlayerByIdentifier(citizenId)
     if not Player then
         return { success = false, message = 'Player must be online to process fine' }
     end
 
     -- Remove money from bank
-    local removed = ps.removeMoney(Player.source or Player.PlayerData.source, 'bank', fine, 'mdt-fine')
+    local removed = MDT.removeMoney(Player.source or Player.PlayerData.source, 'bank', fine, 'mdt-fine')
     if removed then
         -- ...and into the department that issued it. Fines used to simply evaporate.
-        DepositToDepartment(ps.getJobName(src), fine, 'Fine issued')
+        DepositToDepartment(MDT.getJobName(src), fine, 'Fine issued')
 
-        ps.notify(Player.source or Player.PlayerData.source, '$' .. fine .. ' fine deducted from your bank account', 'error')
+        MDT.notify(Player.source or Player.PlayerData.source, '$' .. fine .. ' fine deducted from your bank account', 'error')
 
         -- Anti-spam cooldown
         fineCooldowns[src] = os.time() * 1000
 
-        if ps.auditLog then
-            local officerName = ps.getPlayerName(src) or 'Unknown Officer'
-            ps.auditLog(src, 'fine_processed', 'fine', reportId and tostring(reportId) or nil, {
+        if MDT.auditLog then
+            local officerName = MDT.getPlayerName(src) or 'Unknown Officer'
+            MDT.auditLog(src, 'fine_processed', 'fine', reportId and tostring(reportId) or nil, {
                 citizenid = citizenId,
                 fine = fine,
                 officer = officerName,
@@ -113,7 +113,7 @@ ps.registerCallback(resourceName .. ':server:processFine', function(source, payl
     end
 end)
 
-ps.registerCallback(resourceName .. ':server:updateCharge', function(source, payload)
+lib.callback.register(resourceName .. ':server:updateCharge', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'charges_edit') then
@@ -184,8 +184,8 @@ ps.registerCallback(resourceName .. ':server:updateCharge', function(source, pay
         WHERE code = ?
     ]]):format(table.concat(penalUpdates, ', ')), penalValues)
 
-    if penalUpdated and penalUpdated > 0 and ps.auditLog then
-        ps.auditLog(src, 'charge_updated', 'charge', renameCode or payload.code, {
+    if penalUpdated and penalUpdated > 0 and MDT.auditLog then
+        MDT.auditLog(src, 'charge_updated', 'charge', renameCode or payload.code, {
             label = payload.label,
             fine = payload.fine,
             time = payload.time,
@@ -203,7 +203,7 @@ end)
 
 local validChargeClass = { felony = true, misdemeanor = true, infraction = true }
 
-ps.registerCallback(resourceName .. ':server:createCharge', function(source, payload)
+lib.callback.register(resourceName .. ':server:createCharge', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'charges_edit') then
@@ -245,13 +245,13 @@ ps.registerCallback(resourceName .. ':server:createCharge', function(source, pay
         type(payload.category) == 'string' and payload.category or '',
     })
 
-    if ok and ps.auditLog then
-        ps.auditLog(src, 'charge_created', 'charge', code, { label = label, class = class })
+    if ok and MDT.auditLog then
+        MDT.auditLog(src, 'charge_created', 'charge', code, { label = label, class = class })
     end
     return { success = ok ~= nil, code = code }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteCharge', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteCharge', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
     if not CheckPermission(src, 'charges_edit') then
@@ -285,15 +285,15 @@ ps.registerCallback(resourceName .. ':server:deleteCharge', function(source, pay
     end
 
     local deleted = MySQL.update.await('DELETE FROM mdt_penal_codes WHERE code = ?', { payload.code })
-    if deleted and deleted > 0 and ps.auditLog then
-        ps.auditLog(src, 'charge_deleted', 'charge', payload.code, {
+    if deleted and deleted > 0 and MDT.auditLog then
+        MDT.auditLog(src, 'charge_deleted', 'charge', payload.code, {
             label = charge.label, forcedInUse = inUse > 0 or nil,
         })
     end
     return { success = deleted and deleted > 0 }
 end)
 
-ps.registerCallback(resourceName .. ':server:getChargeCategories', function(source)
+lib.callback.register(resourceName .. ':server:getChargeCategories', function(source)
     local civAccess = Config.CivilianAccess
     if not CheckAuth(source) and not (civAccess and civAccess.enabled) then return {} end
     local rows = MySQL.query.await([[

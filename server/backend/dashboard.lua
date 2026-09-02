@@ -1,8 +1,8 @@
 local resourceName = tostring(GetCurrentResourceName())
 
 local function getEffectiveJobType(src)
-    local jobType = ps.getJobType(src)
-    local jobName = ps.getJobName(src)
+    local jobType = MDT.getJobType(src)
+    local jobName = MDT.getJobName(src)
     if Config.DojJobs then
         for _, name in ipairs(Config.DojJobs) do
             if name == jobName then return 'doj' end
@@ -17,12 +17,12 @@ end
 
 local function computeJobData(src)
     return {
-        rank    = ps.getJobGradeName(src) or 'Officer',
-        payRate = '$' .. (ps.getJobGradePay(src) or 300) .. '/hr',
+        rank    = MDT.getJobGradeName(src) or 'Officer',
+        payRate = '$' .. (MDT.getJobGradePay(src) or 300) .. '/hr',
     }
 end
 
-ps.registerCallback(resourceName .. ':server:getJobData', function(source)
+lib.callback.register(resourceName .. ':server:getJobData', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return {} end
@@ -46,7 +46,7 @@ local function computeReportStatistics()
     end)
 end
 
-ps.registerCallback(resourceName .. ':server:getReportStatistics', function(source)
+lib.callback.register(resourceName .. ':server:getReportStatistics', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return {} end
@@ -54,7 +54,7 @@ ps.registerCallback(resourceName .. ':server:getReportStatistics', function(sour
 end)
 
 local function computeTimeStatistics(src)
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
     if not citizenid then return {} end
 
     local rows = MySQL.query.await([[
@@ -85,7 +85,7 @@ local function computeTimeStatistics(src)
     return result
 end
 
-ps.registerCallback(resourceName .. ':server:getTimeStatistics', function(source)
+lib.callback.register(resourceName .. ':server:getTimeStatistics', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return {} end
@@ -102,14 +102,14 @@ local function computeBulletins()
     return rows
 end
 
-ps.registerCallback(resourceName .. ':server:getBulletins', function(source)
+lib.callback.register(resourceName .. ':server:getBulletins', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return {} end
     return computeBulletins()
 end)
 
-ps.registerCallback(resourceName .. ':server:createBulletin', function(source, payload)
+lib.callback.register(resourceName .. ':server:createBulletin', function(source, payload)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -132,7 +132,7 @@ ps.registerCallback(resourceName .. ':server:createBulletin', function(source, p
     return { success = true, id = inserted }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteBulletin', function(source, payload)
+lib.callback.register(resourceName .. ':server:deleteBulletin', function(source, payload)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -148,15 +148,15 @@ ps.registerCallback(resourceName .. ':server:deleteBulletin', function(source, p
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:getRecentReports', function(source, page, limit)
+lib.callback.register(resourceName .. ':server:getRecentReports', function(source, page, limit)
     local src      = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return {} end
     local pageNumber = math.max(1, tonumber(page) or 1)
     local pageSize   = math.min(50, math.max(1, tonumber(limit) or 10))
 
-    local identifier = ps.getIdentifier(src)
-    local job        = ps.getJobName(src)
+    local identifier = MDT.getIdentifier(src)
+    local job        = MDT.getJobName(src)
     local jobType    = getEffectiveJobType(src)
     local offset     = (pageNumber - 1) * pageSize
 
@@ -189,7 +189,7 @@ local function computeActiveBolos(src)
         result[#result + 1] = {
             id       = v.id,
             reportId = v.reportId and tostring(v.reportId) or 'N/A',
-            name     = v.subject_name or ps.getPlayerNameByIdentifier(v.subject_id) or 'Unknown',
+            name     = v.subject_name or MDT.getPlayerNameByIdentifier(v.subject_id) or 'Unknown',
             type     = v.type,
             notes    = v.notes or '',
             status   = v.status,
@@ -198,7 +198,7 @@ local function computeActiveBolos(src)
     return result
 end
 
-ps.registerCallback(resourceName .. ':server:getActiveBolos', function(source)
+lib.callback.register(resourceName .. ':server:getActiveBolos', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return {} end
@@ -207,11 +207,11 @@ end)
 
 local function computeActiveUnits()
     return Cache.getOrSet('dashboard:activeUnits', Config.CacheTTL and Config.CacheTTL.ActiveUnits or 10, function()
-        return { count = ps.getJobTypeCount('leo') }
+        return { count = MDT.getJobTypeCount('leo') }
     end)
 end
 
-ps.registerCallback(resourceName .. ':server:getActiveUnits', function(source)
+lib.callback.register(resourceName .. ':server:getActiveUnits', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return { count = 0 } end
@@ -568,8 +568,8 @@ local function computeRecentDispatches(src)
     -- Per-player job filter is cheap (a table scan, no DB/export), so it stays
     -- outside the cache.
     if Config and Config.Dispatch and Config.Dispatch.FilterByJob == true then
-        local jobName = ps.getJobName(src)
-        local jobType = ps.getJobType and ps.getJobType(src) or nil
+        local jobName = MDT.getJobName(src)
+        local jobType = MDT.getJobType and MDT.getJobType(src) or nil
         if jobName then
             local filtered = {}
             for _, call in ipairs(dispatches) do
@@ -591,7 +591,7 @@ local function computeRecentDispatches(src)
     return dispatches
 end
 
-ps.registerCallback(resourceName .. ':server:getRecentDispatches', function(source)
+lib.callback.register(resourceName .. ':server:getRecentDispatches', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
     if not CheckAuth(src) then return {} end
@@ -671,7 +671,7 @@ local function computeUsageMetrics()
     end)
 end
 
-ps.registerCallback(resourceName .. ':server:getUsageMetrics', function(source)
+lib.callback.register(resourceName .. ':server:getUsageMetrics', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
     return computeUsageMetrics()
@@ -684,7 +684,7 @@ end)
 --  one server round-trip + one cb() serialisation instead of nine, which is
 --  the bulk of the on-open client spike.
 -- ============================================================================
-ps.registerCallback(resourceName .. ':server:getDashboard', function(source)
+lib.callback.register(resourceName .. ':server:getDashboard', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
     return {
@@ -718,7 +718,7 @@ local function describeCall(id)
 end
 
 -- Dispatcher: globally dismiss a call — it disappears from every MDT.
-ps.registerCallback(resourceName .. ':server:dismissDispatch', function(source, data)
+lib.callback.register(resourceName .. ':server:dismissDispatch', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'dispatch_assign') then
@@ -736,8 +736,8 @@ ps.registerCallback(resourceName .. ':server:dismissDispatch', function(source, 
     -- available (only if their status is still the automation's — see
     -- auto_status.lua). Guarded so the module can be absent.
     if AutoStatusCallClosed then AutoStatusCallClosed(id) end
-    if ps.auditLog then
-        ps.auditLog(src, 'dispatch_dismiss', 'dispatch', id, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'dispatch_dismiss', 'dispatch', id, {
             dispatch_id  = id,
             action_label = ('Dismissed %s for all units'):format(label),
         })
@@ -768,8 +768,8 @@ local function getAssignedSources(dispatchId)
                 local cid = type(unit) == 'table' and unit.citizenid or nil
                 if cid then
                     local tSrc = nil
-                    if ps.getPlayerByIdentifier then
-                        local p = ps.getPlayerByIdentifier(cid)
+                    if MDT.getPlayerByIdentifier then
+                        local p = MDT.getPlayerByIdentifier(cid)
                         tSrc = p and (p.PlayerData and p.PlayerData.source or p.source) or nil
                     end
                     if not tSrc and QBCore and QBCore.Functions.GetPlayerByCitizenId then
@@ -785,7 +785,7 @@ local function getAssignedSources(dispatchId)
     return sources
 end
 
-ps.registerCallback(resourceName .. ':server:setDispatchNote', function(source, data)
+lib.callback.register(resourceName .. ':server:setDispatchNote', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'dispatch_notes') then
@@ -802,8 +802,8 @@ ps.registerCallback(resourceName .. ':server:setDispatchNote', function(source, 
 
     local existed = DispatchNotes[id] ~= nil
     local okName, author = pcall(function()
-        if ps.getCharInfo then
-            return (ps.getCharInfo('firstname', src) or '') .. ' ' .. (ps.getCharInfo('lastname', src) or '')
+        if MDT.getCharInfo then
+            return (MDT.getCharInfo(src, 'firstname') or '') .. ' ' .. (MDT.getCharInfo(src, 'lastname') or '')
         end
         return nil
     end)
@@ -811,9 +811,9 @@ ps.registerCallback(resourceName .. ':server:setDispatchNote', function(source, 
     if author then author = author:gsub('^%s+', ''):gsub('%s+$', '') end
     DispatchNotes[id] = { text = text, author = (author ~= '' and author) or nil, updatedAt = os.time() }
 
-    if ps.auditLog then
+    if MDT.auditLog then
         local label = describeCall(id)
-        ps.auditLog(src, existed and 'dispatch_note_edit' or 'dispatch_note_add', 'dispatch', id, {
+        MDT.auditLog(src, existed and 'dispatch_note_edit' or 'dispatch_note_add', 'dispatch', id, {
             dispatch_id  = id,
             note         = text,
             action_label = existed
@@ -836,7 +836,7 @@ ps.registerCallback(resourceName .. ':server:setDispatchNote', function(source, 
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteDispatchNote', function(source, data)
+lib.callback.register(resourceName .. ':server:deleteDispatchNote', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'dispatch_notes') then
@@ -848,8 +848,8 @@ ps.registerCallback(resourceName .. ':server:deleteDispatchNote', function(sourc
 
     local label = describeCall(id)
     DispatchNotes[id] = nil
-    if ps.auditLog then
-        ps.auditLog(src, 'dispatch_note_delete', 'dispatch', id, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'dispatch_note_delete', 'dispatch', id, {
             dispatch_id  = id,
             action_label = ('Removed the note from %s'):format(label),
         })
@@ -861,7 +861,7 @@ end)
 
 -- Self attach/detach for MANUAL calls (provider calls handle this themselves).
 -- No dispatch permission needed — you're only touching your own attachment.
-ps.registerCallback(resourceName .. ':server:selfDispatchAttach', function(source, data)
+lib.callback.register(resourceName .. ':server:selfDispatchAttach', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     data = data or {}
@@ -869,7 +869,7 @@ ps.registerCallback(resourceName .. ':server:selfDispatchAttach', function(sourc
     local call = id and ManualDispatches[id] or nil
     if not call then return { success = false, error = 'Unknown call' } end
 
-    local cid = ps.getIdentifier and ps.getIdentifier(src) or nil
+    local cid = MDT.getIdentifier and MDT.getIdentifier(src) or nil
     if not cid then return { success = false } end
     call.units = call.units or {}
 
@@ -881,15 +881,15 @@ ps.registerCallback(resourceName .. ':server:selfDispatchAttach', function(sourc
         local exists = false
         for _, u in ipairs(call.units) do if u.citizenid == cid then exists = true break end end
         if not exists then
-            local okFirst, firstname = pcall(function() return ps.getCharInfo('firstname', src) end)
-            local okLast,  lastname  = pcall(function() return ps.getCharInfo('lastname', src) end)
+            local okFirst, firstname = pcall(function() return MDT.getCharInfo(src, 'firstname') end)
+            local okLast,  lastname  = pcall(function() return MDT.getCharInfo(src, 'lastname') end)
             call.units[#call.units + 1] = {
                 citizenid = cid,
                 charinfo  = {
                     firstname = okFirst and firstname or nil,
                     lastname  = okLast and lastname or nil,
                 },
-                metadata  = { callsign = ps.getMetadata and ps.getMetadata(src, 'callsign') or nil },
+                metadata  = { callsign = MDT.getMetadata and MDT.getMetadata(src, 'callsign') or nil },
             }
         end
     end
@@ -905,7 +905,7 @@ end)
 -- dispatch list, so they flow into the ticker/map/assignment like any call —
 -- without touching the underlying dispatch resource.
 -- ---------------------------------------------------------------------------
-ps.registerCallback(resourceName .. ':server:createManualDispatch', function(source, data)
+lib.callback.register(resourceName .. ':server:createManualDispatch', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'dispatch_assign') then
@@ -971,8 +971,8 @@ ps.registerCallback(resourceName .. ':server:createManualDispatch', function(sou
     local note = type(data.note) == 'string' and data.note:gsub('^%s+', ''):gsub('%s+$', '') or ''
     if note ~= '' then
         local okName, author = pcall(function()
-            if ps.getCharInfo then
-                return (ps.getCharInfo('firstname', src) or '') .. ' ' .. (ps.getCharInfo('lastname', src) or '')
+            if MDT.getCharInfo then
+                return (MDT.getCharInfo(src, 'firstname') or '') .. ' ' .. (MDT.getCharInfo(src, 'lastname') or '')
             end
             return nil
         end)
@@ -981,10 +981,10 @@ ps.registerCallback(resourceName .. ':server:createManualDispatch', function(sou
         DispatchNotes[id] = { text = note:sub(1, 300), author = (author ~= '' and author) or nil, updatedAt = os.time() }
     end
 
-    if ps.auditLog then
+    if MDT.auditLog then
         local label = (title and title ~= '' and title ~= code) and ('%s (%s)'):format(code, title) or code
         local streetPart = (type(data.street) == 'string' and data.street ~= '') and (' at %s'):format(data.street) or ''
-        ps.auditLog(src, 'dispatch_create', 'dispatch', id, {
+        MDT.auditLog(src, 'dispatch_create', 'dispatch', id, {
             dispatch_id  = id,
             code         = code,
             title        = title,
@@ -1004,7 +1004,7 @@ end)
 -- ps-dispatch), which also sets their waypoint and notifies them. This keeps
 -- ps-dispatch's unit bookkeeping identical to a self-attach.
 -- ---------------------------------------------------------------------------
-ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source, data)
+lib.callback.register(resourceName .. ':server:assignToDispatch', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false } end
     if not CheckPermission(src, 'dispatch_assign') then
@@ -1033,8 +1033,8 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
     for _, cid in ipairs(citizenids) do
         local targetSrc = nil
         local targetPly = nil
-        if ps.getPlayerByIdentifier then
-            targetPly = ps.getPlayerByIdentifier(cid)
+        if MDT.getPlayerByIdentifier then
+            targetPly = MDT.getPlayerByIdentifier(cid)
             targetSrc = targetPly and (targetPly.PlayerData and targetPly.PlayerData.source or targetPly.source) or nil
         end
         if not targetSrc and QBCore and QBCore.Functions.GetPlayerByCitizenId then
@@ -1125,7 +1125,7 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
                 end)
                 alertSent = ok and sent == true
                 if not ok then
-                    ps.debug('SendTargetedAlert failed:', tostring(sent))
+                    MDT.debug('SendTargetedAlert failed:', tostring(sent))
                 end
             end
 
@@ -1154,7 +1154,7 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
         TriggerClientEvent(resourceName .. ':client:dispatchNoteChanged', -1, tostring(dispatchId))
     end
 
-    if ps.auditLog then
+    if MDT.auditLog then
         local label = describeCall(dispatchId)
         local who
         if #assignedNames == 1 then
@@ -1164,7 +1164,7 @@ ps.registerCallback(resourceName .. ':server:assignToDispatch', function(source,
         else
             who = ('%d officers'):format(#assignedNames)
         end
-        ps.auditLog(src, 'dispatch_' .. action .. '_units', 'dispatch', tostring(dispatchId), {
+        MDT.auditLog(src, 'dispatch_' .. action .. '_units', 'dispatch', tostring(dispatchId), {
             dispatch_id  = tostring(dispatchId),
             officers     = assignedNames,
             count        = hit,

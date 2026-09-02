@@ -8,7 +8,7 @@ RegisterNUICallback('getCourtCases', function(data, cb)
     end
 
     data = data or {}
-    local result = ps.callback(
+    local result = MDT.callback(
         resourceName .. ':server:getCourtCases',
         data.page or 1,
         data.limit or 20,
@@ -30,7 +30,7 @@ RegisterNUICallback('getCourtCase', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getCourtCase', data.id)
+    local result = MDT.callback(resourceName .. ':server:getCourtCase', data.id)
     cb(result)
 end)
 
@@ -40,7 +40,7 @@ RegisterNUICallback('createCourtCase', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:createCourtCase', data or {})
+    local result = MDT.callback(resourceName .. ':server:createCourtCase', data or {})
     cb(result or { success = false })
 end)
 
@@ -55,7 +55,7 @@ RegisterNUICallback('updateCourtCase', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:updateCourtCase', data.id, data.payload or {})
+    local result = MDT.callback(resourceName .. ':server:updateCourtCase', data.id, data.payload or {})
     cb(result or { success = false })
 end)
 
@@ -67,7 +67,7 @@ RegisterNUICallback('getWarrantRequests', function(data, cb)
     end
 
     data = data or {}
-    local result = ps.callback(
+    local result = MDT.callback(
         resourceName .. ':server:getWarrantRequests',
         data.page or 1,
         data.limit or 20,
@@ -82,7 +82,7 @@ RegisterNUICallback('createWarrantRequest', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:createWarrantRequest', data or {})
+    local result = MDT.callback(resourceName .. ':server:createWarrantRequest', data or {})
     cb(result or { success = false })
 end)
 
@@ -97,7 +97,7 @@ RegisterNUICallback('reviewWarrantRequest', function(data, cb)
         return
     end
 
-    local result = ps.callback(
+    local result = MDT.callback(
         resourceName .. ':server:reviewWarrantRequest',
         data.request_id,
         data.decision,
@@ -117,7 +117,7 @@ RegisterNUICallback('closeWarrantRequest', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:closeWarrantRequest', data.request_id)
+    local result = MDT.callback(resourceName .. ':server:closeWarrantRequest', data.request_id)
     cb(result or { success = false })
 end)
 
@@ -129,7 +129,7 @@ RegisterNUICallback('getCourtOrders', function(data, cb)
     end
 
     data = data or {}
-    local result = ps.callback(
+    local result = MDT.callback(
         resourceName .. ':server:getCourtOrders',
         data.page or 1,
         data.limit or 20,
@@ -145,7 +145,7 @@ RegisterNUICallback('createCourtOrder', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:createCourtOrder', data or {})
+    local result = MDT.callback(resourceName .. ':server:createCourtOrder', data or {})
     cb(result or { success = false })
 end)
 
@@ -160,7 +160,7 @@ RegisterNUICallback('updateCourtOrder', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:updateCourtOrder', data.id, data.payload or {})
+    local result = MDT.callback(resourceName .. ':server:updateCourtOrder', data.id, data.payload or {})
     cb(result or { success = false })
 end)
 
@@ -175,7 +175,7 @@ RegisterNUICallback('revokeCourtOrder', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:revokeCourtOrder', data.id)
+    local result = MDT.callback(resourceName .. ':server:revokeCourtOrder', data.id)
     cb(result or { success = false })
 end)
 
@@ -187,7 +187,7 @@ RegisterNUICallback('getLegalDocuments', function(data, cb)
     end
 
     data = data or {}
-    local result = ps.callback(
+    local result = MDT.callback(
         resourceName .. ':server:getLegalDocuments',
         data.page or 1,
         data.limit or 20,
@@ -208,7 +208,7 @@ RegisterNUICallback('getLegalDocument', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getLegalDocument', data.id)
+    local result = MDT.callback(resourceName .. ':server:getLegalDocument', data.id)
     cb(result)
 end)
 
@@ -218,7 +218,7 @@ RegisterNUICallback('createLegalDocument', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:createLegalDocument', data or {})
+    local result = MDT.callback(resourceName .. ':server:createLegalDocument', data or {})
     cb(result or { success = false })
 end)
 
@@ -233,7 +233,7 @@ RegisterNUICallback('updateLegalDocument', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:updateLegalDocument', data.id, data.payload or {})
+    local result = MDT.callback(resourceName .. ':server:updateLegalDocument', data.id, data.payload or {})
     cb(result or { success = false })
 end)
 
@@ -248,7 +248,7 @@ RegisterNUICallback('deleteLegalDocument', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:deleteLegalDocument', data.id)
+    local result = MDT.callback(resourceName .. ':server:deleteLegalDocument', data.id)
     cb(result or { success = false })
 end)
 
@@ -259,21 +259,21 @@ RegisterNUICallback('getDojDashboard', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:getDojDashboard')
+    local result = MDT.callback(resourceName .. ':server:getDojDashboard')
     cb(result or {})
 end)
 -- Warrant hearings (DOJ schedules them after approval)
 RegisterNUICallback('getWarrantHearing', function(data, cb)
     if not MDTOpen then cb({ success = false }) return end
-    cb(ps.callback(resourceName .. ':server:getWarrantHearing', data or {}) or { success = false })
+    cb(MDT.callback(resourceName .. ':server:getWarrantHearing', data or {}) or { success = false })
 end)
 
 RegisterNUICallback('scheduleWarrantHearing', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    cb(ps.callback(resourceName .. ':server:scheduleWarrantHearing', data or {}) or { success = false })
+    cb(MDT.callback(resourceName .. ':server:scheduleWarrantHearing', data or {}) or { success = false })
 end)
 
 RegisterNUICallback('removeWarrantHearing', function(data, cb)
     if not MDTOpen then cb({ success = false, error = 'MDT is not open' }) return end
-    cb(ps.callback(resourceName .. ':server:removeWarrantHearing', data or {}) or { success = false })
+    cb(MDT.callback(resourceName .. ':server:removeWarrantHearing', data or {}) or { success = false })
 end)

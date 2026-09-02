@@ -81,8 +81,8 @@ local myPatrolId      = nil -- patrol the local player currently belongs to
 local function getCitizenId()
     if exports['qb-core'] then
         return exports['qb-core']:GetCoreObject().Functions.GetPlayerData().citizenid
-    elseif ps and ps.getIdentifier then
-        return ps.getIdentifier()
+    elseif MDT and MDT.getIdentifier then
+        return MDT.getIdentifier()
     end
     return nil
 end
@@ -262,7 +262,7 @@ RegisterNUICallback("getTracking", function(_, cb)
         return
     end
 
-    local tracking = ps.callback(resourceName .. ":server:getTracking")
+    local tracking = MDT.callback(resourceName .. ":server:getTracking")
     if tracking then
         cb({ success = true, data = tracking })
     else
@@ -273,7 +273,7 @@ end)
 -- ─── Patrols ──────────────────────────────────────────────────────────────
 
 RegisterNUICallback("getPatrols", function(_, cb)
-    local result = ps.callback(resourceName .. ":server:getPatrols")
+    local result = MDT.callback(resourceName .. ":server:getPatrols")
     local patrols = result or {}
     cb({ success = true, data = patrols })
     -- Also sync zones immediately on load
@@ -349,7 +349,7 @@ local function initZonesFromServer()
         SendNUIMessage({ type = 'setLocalCitizenId', data = { citizenid = cid } })
     end
 
-    local result = ps.callback(resourceName .. ":server:getPatrols")
+    local result = MDT.callback(resourceName .. ":server:getPatrols")
     if type(result) == "table" then
         syncZones(result)
     end

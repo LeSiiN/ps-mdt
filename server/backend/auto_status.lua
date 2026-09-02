@@ -103,7 +103,7 @@ end
 local engagements = {}
 
 local function citizenidOf(src)
-    return ps.getIdentifier and ps.getIdentifier(src) or nil
+    return MDT.getIdentifier and MDT.getIdentifier(src) or nil
 end
 
 -- Stop the arrival watcher on the officer's client (safe if none is running).

@@ -1,6 +1,6 @@
 local resourceName = tostring(GetCurrentResourceName())
 
-ps.registerCallback(resourceName .. ':server:getEvidenceItems', function(source, page, limit, filters)
+lib.callback.register(resourceName .. ':server:getEvidenceItems', function(source, page, limit, filters)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -84,7 +84,7 @@ ps.registerCallback(resourceName .. ':server:getEvidenceItems', function(source,
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:searchEvidenceItems', function(source, query, page, limit)
+lib.callback.register(resourceName .. ':server:searchEvidenceItems', function(source, query, page, limit)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -154,7 +154,7 @@ ps.registerCallback(resourceName .. ':server:searchEvidenceItems', function(sour
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source, payload)
+lib.callback.register(resourceName .. ':server:addEvidenceItem', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -203,8 +203,8 @@ ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source, 
         evidence.location or '',
         evidence.stashId or '',
         evidence.stored and 1 or 0,
-        ps.getIdentifier(src),
-        ps.getIdentifier(src)
+        MDT.getIdentifier(src),
+        MDT.getIdentifier(src)
     })
 
     if not evidenceId then
@@ -214,16 +214,16 @@ ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source, 
     MySQL.insert.await([[
         INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
         VALUES (?, ?, ?, 'collected', ?)
-    ]], { evidenceId, nil, ps.getIdentifier(src), evidence.notes or '' })
+    ]], { evidenceId, nil, MDT.getIdentifier(src), evidence.notes or '' })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_added', 'evidence', evidenceId, evidence)
+    if MDT.auditLog then
+        MDT.auditLog(src, 'evidence_added', 'evidence', evidenceId, evidence)
     end
 
     return { success = true, id = evidenceId }
 end)
 
-ps.registerCallback(resourceName .. ':server:updateEvidenceItem', function(source, evidenceId, evidence)
+lib.callback.register(resourceName .. ':server:updateEvidenceItem', function(source, evidenceId, evidence)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -285,14 +285,14 @@ ps.registerCallback(resourceName .. ':server:updateEvidenceItem', function(sourc
         return { success = false, error = 'Failed to update evidence' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_updated', 'evidence', evidenceId, evidence)
+    if MDT.auditLog then
+        MDT.auditLog(src, 'evidence_updated', 'evidence', evidenceId, evidence)
     end
 
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:deleteEvidenceItem', function(source, evidenceId)
+lib.callback.register(resourceName .. ':server:deleteEvidenceItem', function(source, evidenceId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -306,14 +306,14 @@ ps.registerCallback(resourceName .. ':server:deleteEvidenceItem', function(sourc
         return { success = false, error = 'Failed to delete evidence' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_deleted', 'evidence', evidenceId, {})
+    if MDT.auditLog then
+        MDT.auditLog(src, 'evidence_deleted', 'evidence', evidenceId, {})
     end
 
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:transferEvidenceItem', function(source, evidenceId, toCitizenId, notes)
+lib.callback.register(resourceName .. ':server:transferEvidenceItem', function(source, evidenceId, toCitizenId, notes)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -322,7 +322,7 @@ ps.registerCallback(resourceName .. ':server:transferEvidenceItem', function(sou
         return { success = false, error = 'Invalid evidence transfer' }
     end
 
-    local fromCitizenId = ps.getIdentifier(src)
+    local fromCitizenId = MDT.getIdentifier(src)
     MySQL.update.await('UPDATE mdt_evidence_items SET last_holder = ? WHERE id = ?', { toCitizenId, evidenceId })
 
     MySQL.insert.await([[
@@ -330,8 +330,8 @@ ps.registerCallback(resourceName .. ':server:transferEvidenceItem', function(sou
         VALUES (?, ?, ?, 'transferred', ?)
     ]], { evidenceId, fromCitizenId, toCitizenId, notes or '' })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_transferred', 'evidence', evidenceId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'evidence_transferred', 'evidence', evidenceId, {
             fromCitizenId = fromCitizenId,
             toCitizenId = toCitizenId
         })
@@ -340,7 +340,7 @@ ps.registerCallback(resourceName .. ':server:transferEvidenceItem', function(sou
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:getEvidenceCustody', function(source, evidenceId)
+lib.callback.register(resourceName .. ':server:getEvidenceCustody', function(source, evidenceId)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -359,14 +359,14 @@ ps.registerCallback(resourceName .. ':server:getEvidenceCustody', function(sourc
     return custody or {}
 end)
 
-ps.registerCallback(resourceName .. ':server:logEvidenceViewed', function(source, evidenceId)
+lib.callback.register(resourceName .. ':server:logEvidenceViewed', function(source, evidenceId)
     local src = source
     if not CheckAuth(src) then return { success = false } end
 
     evidenceId = tonumber(evidenceId)
     if not evidenceId then return { success = false } end
 
-    local citizenid = ps.getIdentifier(src)
+    local citizenid = MDT.getIdentifier(src)
 
     MySQL.insert.await([[
         INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
@@ -376,7 +376,7 @@ ps.registerCallback(resourceName .. ':server:logEvidenceViewed', function(source
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:addEvidenceImage', function(source, evidenceId, image)
+lib.callback.register(resourceName .. ':server:addEvidenceImage', function(source, evidenceId, image)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -395,14 +395,14 @@ ps.registerCallback(resourceName .. ':server:addEvidenceImage', function(source,
     local imageId = MySQL.insert.await([[
         INSERT INTO mdt_evidence_images (evidence_id, url, label, uploaded_by)
         VALUES (?, ?, ?, ?)
-    ]], { evidenceId, url, label, ps.getIdentifier(src) })
+    ]], { evidenceId, url, label, MDT.getIdentifier(src) })
 
     if not imageId then
         return { success = false, error = 'Failed to add image' }
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_image_added', 'evidence', evidenceId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'evidence_image_added', 'evidence', evidenceId, {
             url = url,
             label = label
         })
@@ -411,7 +411,7 @@ ps.registerCallback(resourceName .. ':server:addEvidenceImage', function(source,
     return { success = true, id = imageId, url = url }
 end)
 
-ps.registerCallback(resourceName .. ':server:removeEvidenceImage', function(source, imageId)
+lib.callback.register(resourceName .. ':server:removeEvidenceImage', function(source, imageId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -433,8 +433,8 @@ ps.registerCallback(resourceName .. ':server:removeEvidenceImage', function(sour
         end
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_image_removed', 'evidence_image', imageId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'evidence_image_removed', 'evidence_image', imageId, {
             evidenceId = image and image.evidence_id or nil
         })
     end
@@ -452,7 +452,7 @@ local function linkReportToCase(reportId, caseId, citizenid)
     ]], { caseId, reportId, citizenid })
 end
 
-ps.registerCallback(resourceName .. ':server:linkEvidenceToCase', function(source, evidenceId, caseId, reportId)
+lib.callback.register(resourceName .. ':server:linkEvidenceToCase', function(source, evidenceId, caseId, reportId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -482,12 +482,12 @@ ps.registerCallback(resourceName .. ':server:linkEvidenceToCase', function(sourc
     if reportId then
         local reportExists = MySQL.single.await('SELECT id FROM mdt_reports WHERE id = ?', { reportId })
         if reportExists then
-            linkReportToCase(reportId, caseId, ps.getIdentifier(src))
+            linkReportToCase(reportId, caseId, MDT.getIdentifier(src))
         end
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_linked_case', 'evidence', evidenceId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'evidence_linked_case', 'evidence', evidenceId, {
             caseId = caseId,
             reportId = reportId
         })
@@ -496,7 +496,7 @@ ps.registerCallback(resourceName .. ':server:linkEvidenceToCase', function(sourc
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:linkEvidenceToReport', function(source, evidenceId, reportId)
+lib.callback.register(resourceName .. ':server:linkEvidenceToReport', function(source, evidenceId, reportId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -514,8 +514,8 @@ ps.registerCallback(resourceName .. ':server:linkEvidenceToReport', function(sou
 
     MySQL.update.await('UPDATE mdt_evidence_items SET report_id = ? WHERE id = ?', { reportId, evidenceId })
 
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_linked_report', 'evidence', evidenceId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'evidence_linked_report', 'evidence', evidenceId, {
             reportId = reportId
         })
     end
@@ -523,7 +523,7 @@ ps.registerCallback(resourceName .. ':server:linkEvidenceToReport', function(sou
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:createCaseFromEvidence', function(source, evidenceId, reportId)
+lib.callback.register(resourceName .. ':server:createCaseFromEvidence', function(source, evidenceId, reportId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
@@ -533,14 +533,14 @@ ps.registerCallback(resourceName .. ':server:createCaseFromEvidence', function(s
         return { success = false, error = 'Invalid evidence' }
     end
 
-    local citizenid = ps.getIdentifier(src)
-    local createdByName = (ps.getMetadata(src, 'callsign') or '') .. ' ' .. (ps.getPlayerName(src) or '')
+    local citizenid = MDT.getIdentifier(src)
+    local createdByName = (MDT.getMetadata(src, 'callsign') or '') .. ' ' .. (MDT.getPlayerName(src) or '')
     createdByName = createdByName:gsub('^%s+', ''):gsub('%s+$', '')
 
     local caseId = MySQL.insert.await([[INSERT INTO mdt_cases
         (case_number, title, summary, status, priority, assigned_department, created_by, created_by_name)
         VALUES ('', ?, ?, 'open', 'medium', ?, ?, ?)
-    ]], { 'Evidence Follow-up', 'Case created from evidence link', ps.getJobName(src) or 'police', citizenid, createdByName })
+    ]], { 'Evidence Follow-up', 'Case created from evidence link', MDT.getJobName(src) or 'police', citizenid, createdByName })
 
     if not caseId then
         return { success = false, error = 'Failed to create case' }
@@ -553,8 +553,8 @@ ps.registerCallback(resourceName .. ':server:createCaseFromEvidence', function(s
         linkReportToCase(reportId, caseId, citizenid)
     end
 
-    if ps.auditLog then
-        ps.auditLog(src, 'case_created_from_evidence', 'case', caseId, {
+    if MDT.auditLog then
+        MDT.auditLog(src, 'case_created_from_evidence', 'case', caseId, {
             evidenceId = evidenceId,
             reportId = reportId
         })

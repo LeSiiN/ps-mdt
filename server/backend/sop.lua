@@ -1,11 +1,11 @@
 local resourceName = tostring(GetCurrentResourceName())
 
 -- Get all SOP categories with their sections for the officer's department
-ps.registerCallback(resourceName .. ':server:getSOPCategories', function(source)
+lib.callback.register(resourceName .. ':server:getSOPCategories', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
     if not jobName or jobName == '' then return {} end
 
     local ok, categories = pcall(MySQL.query.await, [[
@@ -32,7 +32,7 @@ ps.registerCallback(resourceName .. ':server:getSOPCategories', function(source)
 end)
 
 -- Create a new SOP category
-ps.registerCallback(resourceName .. ':server:createSOPCategory', function(source, data)
+lib.callback.register(resourceName .. ':server:createSOPCategory', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
@@ -43,7 +43,7 @@ ps.registerCallback(resourceName .. ':server:createSOPCategory', function(source
     local title = data.title or ''
     if title == '' then return { success = false, error = 'Title is required' } end
 
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
 
     -- Get next sort order
     local maxRow = MySQL.single.await('SELECT COALESCE(MAX(sort_order), 0) as max_sort FROM mdt_sop_categories WHERE job = ?', { jobName })
@@ -59,7 +59,7 @@ ps.registerCallback(resourceName .. ':server:createSOPCategory', function(source
 end)
 
 -- Update a SOP category
-ps.registerCallback(resourceName .. ':server:updateSOPCategory', function(source, categoryId, updates)
+lib.callback.register(resourceName .. ':server:updateSOPCategory', function(source, categoryId, updates)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
@@ -89,7 +89,7 @@ ps.registerCallback(resourceName .. ':server:updateSOPCategory', function(source
 end)
 
 -- Delete a SOP category (cascades to sections)
-ps.registerCallback(resourceName .. ':server:deleteSOPCategory', function(source, categoryId)
+lib.callback.register(resourceName .. ':server:deleteSOPCategory', function(source, categoryId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
@@ -104,7 +104,7 @@ ps.registerCallback(resourceName .. ':server:deleteSOPCategory', function(source
 end)
 
 -- Create a new SOP section within a category
-ps.registerCallback(resourceName .. ':server:createSOPSection', function(source, data)
+lib.callback.register(resourceName .. ':server:createSOPSection', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
@@ -132,7 +132,7 @@ ps.registerCallback(resourceName .. ':server:createSOPSection', function(source,
 end)
 
 -- Update a SOP section
-ps.registerCallback(resourceName .. ':server:updateSOPSection', function(source, sectionId, updates)
+lib.callback.register(resourceName .. ':server:updateSOPSection', function(source, sectionId, updates)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
@@ -162,7 +162,7 @@ ps.registerCallback(resourceName .. ':server:updateSOPSection', function(source,
 end)
 
 -- Delete a SOP section
-ps.registerCallback(resourceName .. ':server:deleteSOPSection', function(source, sectionId)
+lib.callback.register(resourceName .. ':server:deleteSOPSection', function(source, sectionId)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
@@ -177,11 +177,11 @@ ps.registerCallback(resourceName .. ':server:deleteSOPSection', function(source,
 end)
 
 -- Get SOP settings for the officer's department
-ps.registerCallback(resourceName .. ':server:getSOPSettings', function(source)
+lib.callback.register(resourceName .. ':server:getSOPSettings', function(source)
     local src = source
     if not CheckAuth(src) then return {} end
 
-    local jobName = ps.getJobName(src)
+    local jobName = MDT.getJobName(src)
     if not jobName or jobName == '' then return {} end
 
     local row = MySQL.single.await('SELECT * FROM mdt_sop_settings WHERE job = ?', { jobName })
@@ -189,15 +189,15 @@ ps.registerCallback(resourceName .. ':server:getSOPSettings', function(source)
 end)
 
 -- Update SOP mission statement
-ps.registerCallback(resourceName .. ':server:updateSOPMission', function(source, missionStatement)
+lib.callback.register(resourceName .. ':server:updateSOPMission', function(source, missionStatement)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
         return { success = false, error = 'No permission to manage SOPs' }
     end
 
-    local jobName = ps.getJobName(src)
-    local citizenId = ps.getIdentifier(src)
+    local jobName = MDT.getJobName(src)
+    local citizenId = MDT.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local updatedBy = profile and profile.fullname or 'Unknown'
 
@@ -211,15 +211,15 @@ ps.registerCallback(resourceName .. ':server:updateSOPMission', function(source,
 end)
 
 -- Update SOP introduction text
-ps.registerCallback(resourceName .. ':server:updateSOPIntro', function(source, introduction)
+lib.callback.register(resourceName .. ':server:updateSOPIntro', function(source, introduction)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
         return { success = false, error = 'No permission to manage SOPs' }
     end
 
-    local jobName = ps.getJobName(src)
-    local citizenId = ps.getIdentifier(src)
+    local jobName = MDT.getJobName(src)
+    local citizenId = MDT.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local updatedBy = profile and profile.fullname or 'Unknown'
 
@@ -233,15 +233,15 @@ ps.registerCallback(resourceName .. ':server:updateSOPIntro', function(source, i
 end)
 
 -- Publish SOP (bump version, forcing all officers to re-acknowledge)
-ps.registerCallback(resourceName .. ':server:publishSOP', function(source)
+lib.callback.register(resourceName .. ':server:publishSOP', function(source)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
     if not CheckPermission(src, 'sop_manage') then
         return { success = false, error = 'No permission to manage SOPs' }
     end
 
-    local jobName = ps.getJobName(src)
-    local citizenId = ps.getIdentifier(src)
+    local jobName = MDT.getJobName(src)
+    local citizenId = MDT.getIdentifier(src)
     local profile = MySQL.single.await('SELECT fullname FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     local updatedBy = profile and profile.fullname or 'Unknown'
 
@@ -257,12 +257,12 @@ ps.registerCallback(resourceName .. ':server:publishSOP', function(source)
 end)
 
 -- Check if the officer has agreed to the current SOP version
-ps.registerCallback(resourceName .. ':server:checkSOPAgreement', function(source)
+lib.callback.register(resourceName .. ':server:checkSOPAgreement', function(source)
     local src = source
     if not CheckAuth(src) then return { agreed = true } end
 
-    local jobName = ps.getJobName(src)
-    local citizenId = ps.getIdentifier(src)
+    local jobName = MDT.getJobName(src)
+    local citizenId = MDT.getIdentifier(src)
 
     -- Get current SOP version for this department
     local settings = MySQL.single.await('SELECT version, introduction, mission_statement FROM mdt_sop_settings WHERE job = ?', { jobName })
@@ -289,12 +289,12 @@ ps.registerCallback(resourceName .. ':server:checkSOPAgreement', function(source
 end)
 
 -- Record SOP acknowledgement
-ps.registerCallback(resourceName .. ':server:acknowledgesSOP', function(source)
+lib.callback.register(resourceName .. ':server:acknowledgesSOP', function(source)
     local src = source
     if not CheckAuth(src) then return { success = false } end
 
-    local jobName = ps.getJobName(src)
-    local citizenId = ps.getIdentifier(src)
+    local jobName = MDT.getJobName(src)
+    local citizenId = MDT.getIdentifier(src)
 
     -- Get current version
     local settings = MySQL.single.await('SELECT version FROM mdt_sop_settings WHERE job = ?', { jobName })

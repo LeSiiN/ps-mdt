@@ -25,7 +25,7 @@ AddEventHandler('CEventGunShot', function(_, ped)
     local hasHit, impactPos = GetPedLastWeaponImpactCoord(playerPed)
     if not hasHit or not impactPos then return end
 
-    ps.debug(('Weapon impact at %.2f %.2f %.2f'):format(impactPos.x, impactPos.y, impactPos.z))
+    MDT.debug(('Weapon impact at %.2f %.2f %.2f'):format(impactPos.x, impactPos.y, impactPos.z))
 
     TriggerServerEvent(resourceName .. ':server:reportWeaponImpact', {
         x = impactPos.x, y = impactPos.y, z = impactPos.z,

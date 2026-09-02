@@ -252,7 +252,7 @@ local function invoke(spec, values, citizenid)
             return exports[res][spec.method](exports[res], table.unpack(args))
         end)
         if not ok then
-            ps.debug('phone: export failed', spec.method, tostring(result))
+            MDT.debug('phone: export failed', spec.method, tostring(result))
             return false
         end
         return true, result

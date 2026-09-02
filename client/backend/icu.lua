@@ -11,6 +11,6 @@ RegisterNUICallback('deleteICU', function(data, cb)
         return
     end
 
-    local result = ps.callback(resourceName .. ':server:deleteICU', data)
+    local result = MDT.callback(resourceName .. ':server:deleteICU', data)
     cb(result or { success = false, message = 'Failed to delete ICU record' })
 end)

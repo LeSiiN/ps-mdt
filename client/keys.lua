@@ -23,7 +23,7 @@ local RegisterNUICallback = RegisterNUICallback
 
 -- Check Job Authorization (returns true, false, or { isCivilian = true })
 function CheckAuth()
-    local result = ps.callback(resourceName..':server:checkAuth')
+    local result = MDT.callback(resourceName..':server:checkAuth')
     if type(result) == 'table' and result.isCivilian then
         return result
     end
@@ -101,7 +101,7 @@ CreateThread(function()
                 local now = GetGameTimer()
                 if now >= nextDeathCheck then
                     nextDeathCheck = now + 500
-                    if ps.isDead() then
+                    if MDT.isDead() then
                         CloseMDT()
                     end
                 end
@@ -127,7 +127,7 @@ local function canUseMDT(isCivilian)
     local ped = PlayerPedId()
 
     -- Don't allow if player is dead
-    if ps.isDead() then
+    if MDT.isDead() then
         return false, 'You cannot open the MDT right now'
     end
 
@@ -184,7 +184,7 @@ local function finishOpenMDT(authResult, isCivilian)
 
     if isCivilian then
         -- Civilian mode: send auth with civilian flag
-        local playerData = ps.getPlayerData()
+        local playerData = MDT.getPlayerData()
         SendNUI('updateAuth', {
             authorized = true,
             playerData = playerData,
@@ -243,7 +243,7 @@ function OpenMDT()
 
     local allowed, reason = canUseMDT(isCivilian)
     if not allowed then
-        ps.notify(reason, 'error')
+        MDT.notify(reason, 'error')
         return
     end
 
@@ -264,7 +264,7 @@ function OpenMDT()
             MDTOpen = false
             stopOpenFx()
             toggleControls(false)
-            ps.debug('MDT open aborted during camera move: ' .. tostring(camReason))
+            MDT.debug('MDT open aborted during camera move: ' .. tostring(camReason))
             return
         end
 
@@ -276,7 +276,7 @@ function OpenMDT()
             TabletCam.Stop()
             stopOpenFx()
             toggleControls(false)
-            ps.notify(stillReason, 'error')
+            MDT.notify(stillReason, 'error')
             return
         end
 
@@ -336,7 +336,7 @@ function CloseMDT(keepAnimation)
         mdtClosing = false
     end)
 
-    ps.debug('MDT closed via CloseMDT function')
+    MDT.debug('MDT closed via CloseMDT function')
     TriggerServerEvent('ps-mdt:server:trackLogout')
 end
 
@@ -358,9 +358,9 @@ end)
 
 -- Key to open MDT
 if not Config.Keys.OpenMDT.enabled then
-    ps.debug('MDT Open Keybind Disabled')
+    MDT.debug('MDT Open Keybind Disabled')
 else
-    ps.debug('MDT Open Keybind Enabled: ' .. Config.Keys.OpenMDT.key)
+    MDT.debug('MDT Open Keybind Enabled: ' .. Config.Keys.OpenMDT.key)
     local message = 'Open MDT'
-    ps.addKeybind(Config.Keys.OpenMDT.key, Config.Commands.Open.command, message)
+    MDT.addKeybind(Config.Keys.OpenMDT.key, Config.Commands.Open.command, message)
 end
