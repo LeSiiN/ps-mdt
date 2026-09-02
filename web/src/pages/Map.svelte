@@ -162,6 +162,9 @@
         time?: number;
         units?: DispatchUnitLite[];
         note?: { text: string; author?: string; updatedAt?: number } | null;
+        // Heist alerts carry the camera covering the scene; ps-dispatch passes
+        // it straight through from whatever raised the alert.
+        camId?: string;
     };
     let dispatches         = $state<MapDispatch[]>([]);
     // Calls a dispatcher has dismissed locally (cleared from ticker + map).
@@ -665,6 +668,23 @@
     // Ticker paging: browse ALL calls three at a time (newest first),
     // navigated with the on-screen arrows or the keyboard arrow keys.
     let tickerPage = $state(0);
+    // Opening a call's camera. Same NUI path the Cameras tab uses, so the id
+    // and the officer's authorisation are checked in one place, not two.
+    let camError = $state("");
+    async function viewCallCamera(camId?: string) {
+        if (!camId) return;
+        try {
+            const res: any = await fetchNui(NUI_EVENTS.CAMERA.VIEW_CAMERA, camId);
+            if (res && res.success === false) {
+                camError = res.message || "Camera unavailable";
+                setTimeout(() => (camError = ""), 2600);
+            }
+        } catch {
+            camError = "Camera unavailable";
+            setTimeout(() => (camError = ""), 2600);
+        }
+    }
+
     let tickerAll = $derived(visibleDispatches.slice().reverse());
     let tickerPages = $derived(Math.max(1, Math.ceil(tickerAll.length / 3)));
     let tickerCalls = $derived(tickerAll.slice(tickerPage * 3, tickerPage * 3 + 3));
@@ -2698,6 +2718,22 @@
                         {#if selectedDispatch.time}<span>{dispatchAge(selectedDispatch.time)}</span>{/if}
                     </div>
 
+                    <!-- Camera on scene. Heist alerts carry a camId; opening it
+                         goes through the MDT's own camera path, which already
+                         checks the id and the officer's authorisation. -->
+                    {#if selectedDispatch.camId}
+                        <div class="call-cam-row">
+                            <span class="material-icons call-cam-icon">videocam</span>
+                            <span class="call-cam-id">{selectedDispatch.camId}</span>
+                            <button class="call-cam-btn" onclick={() => viewCallCamera(selectedDispatch.camId)}>
+                                <span class="material-icons call-cam-play">play_arrow</span>View
+                            </button>
+                        </div>
+                        {#if camError}
+                            <div class="call-cam-error">{camError}</div>
+                        {/if}
+                    {/if}
+
                     <!-- Dispatch note (one per call) -->
                     <div class="call-note-block">
                         <div class="call-note-head">
@@ -4266,4 +4302,46 @@
     @keyframes slide-down { 0% { opacity:0; transform:translateY(-6px); } 100% { opacity:1; transform:translateY(0); } }
     .anim-assigned { animation: anim-assign-in 0.65s cubic-bezier(0.22,1,0.36,1) forwards, slide-down 0.25s ease-out; }
     .anim-removed  { animation: anim-remove-in 0.65s cubic-bezier(0.22,1,0.36,1) forwards, slide-down 0.25s ease-out; }
+
+    /* Camera row in a call's detail panel. */
+    .call-cam-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+        padding: 6px 8px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
+    }
+    .call-cam-icon { font-size: 14px; color: rgba(255, 255, 255, 0.4); }
+    .call-cam-id {
+        flex: 1;
+        font-family: "Courier New", monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: rgba(255, 255, 255, 0.85);
+    }
+    .call-cam-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 3px 10px 3px 7px;
+        background: rgba(var(--accent-rgb), 0.15);
+        border: 1px solid rgba(var(--accent-rgb), 0.3);
+        border-radius: 3px;
+        color: rgba(var(--accent-text-rgb), 0.95);
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.1s;
+    }
+    .call-cam-btn:hover { background: rgba(var(--accent-rgb), 0.25); }
+    .call-cam-error {
+        margin-top: 4px;
+        font-size: 10px;
+        color: rgba(248, 113, 113, 0.9);
+    }
+    .call-cam-play { font-size: 13px; }
 </style>
