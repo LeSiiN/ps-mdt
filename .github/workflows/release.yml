@@ -93,6 +93,10 @@ jobs:
         run: |
           STAGE_DIR="release-stage/ps-mdt"
           mkdir -p "${STAGE_DIR}"
+          # bridge/ carries the shared `MDT` table that every server and client
+          # file indexes. Leaving it out produced a release that loaded and then
+          # threw "attempt to index a nil value (global 'MDT')" everywhere.
+          cp -r bridge       "${STAGE_DIR}/"
           cp -r client       "${STAGE_DIR}/"
           cp -r server       "${STAGE_DIR}/"
           cp -r sql          "${STAGE_DIR}/"
@@ -104,6 +108,15 @@ jobs:
           cp    SECURITY.md  "${STAGE_DIR}/"
           mkdir -p "${STAGE_DIR}/web"
           cp -r web/dist "${STAGE_DIR}/web/dist"
+          # Fail loudly rather than shipping a package that is missing a folder
+          # the manifest loads — that is exactly how v1.2.5 went out broken.
+          for required in bridge client server; do
+            if [ ! -d "${STAGE_DIR}/${required}" ]; then
+              echo "::error::${required}/ missing from the staged release"
+              exit 1
+            fi
+          done
+
           echo "Staged contents:"
           find "${STAGE_DIR}" -maxdepth 3 -print
 
