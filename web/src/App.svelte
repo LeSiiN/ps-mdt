@@ -4,6 +4,8 @@
 	import MugshotCamera from "./components/MugshotCamera.svelte";
 	import ComplaintForm from "./pages/ComplaintForm.svelte";
 	import ApplicationForm from "./pages/ApplicationForm.svelte";
+	import Citations from "./pages/Citations.svelte";
+	import CitationPaper from "./pages/CitationPaper.svelte";
 	import ImpoundForm from "./pages/ImpoundForm.svelte";
 	import { SvelteQueryDevtools } from "@tanstack/svelte-query-devtools";
 	import { QueryClientProvider } from "@tanstack/svelte-query";
@@ -15,6 +17,16 @@
 	let cleanupInputDebug: (() => void) | undefined;
 	let showComplaintForm = $state(false);
 	let showApplicationForm = $state(false);
+	// Ticket form. Deliberately not an MDT tab: a ticket is written at the
+	// roadside, and how it is triggered — command, radial menu, item — is the
+	// server's decision, not ours.
+	let showTicketForm = $state(false);
+	let ticketFormType = $state<"citation" | "parking" | "warning">("citation");
+	// The carbon copy, opened by using the item. Read-only, and its status is
+	// fetched fresh rather than trusted from the item's metadata.
+	let showPaper = $state(false);
+	let paperNumber = $state("");
+	let paperCarbon = $state(false);
 	let applicationDept = $state("");
 	let showImpoundForm = $state(false);
 	let impoundVehicle = $state<{ plate: string; model?: string; netId: number; owner?: string; stolen?: boolean; bolo?: boolean; priorImpounds?: number } | null>(null);
@@ -41,6 +53,17 @@
 			}
 			// On-site impound form — like the complaint form, it lives outside the
 			// MDT so it works at the roadside without the tablet being open.
+			// Citation and parking ticket, same reasoning as the impound form:
+			// it belongs at the roadside, not inside the tablet.
+			if (event.data?.action === 'showCitationPaper') {
+				paperNumber = event.data.data?.number ?? "";
+				paperCarbon = event.data.data?.carbon === true;
+				showPaper = true;
+			}
+			if (event.data?.action === 'showTicketPicker') {
+				ticketFormType = event.data.data?.type ?? 'citation';
+				showTicketForm = true;
+			}
 			if (event.data?.action === 'showImpoundForm') {
 				impoundVehicle = event.data.data ?? null;
 				showImpoundForm = true;
@@ -66,5 +89,7 @@
 	<ComplaintForm show={showComplaintForm} onClose={() => { showComplaintForm = false; }} />
 	<ApplicationForm show={showApplicationForm} department={applicationDept} onClose={() => { showApplicationForm = false; applicationDept = ""; }} />
 	<ImpoundForm show={showImpoundForm} vehicle={impoundVehicle} onClose={() => { showImpoundForm = false; impoundVehicle = null; }} />
+	<Citations show={showTicketForm} type={ticketFormType} onClose={() => (showTicketForm = false)} />
+	<CitationPaper show={showPaper} number={paperNumber} carbon={paperCarbon} onClose={() => (showPaper = false)} />
 	<SvelteQueryDevtools />
 </QueryClientProvider>

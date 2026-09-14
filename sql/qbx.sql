@@ -1557,3 +1557,71 @@ CREATE TABLE IF NOT EXISTS `mdt_bulletin_posts` (
   KEY `idx_mdt_bulletin_posts_job` (`job`,`pinned`),
   KEY `idx_mdt_bulletin_posts_job_category` (`job`,`category`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Citations and parking tickets ───────────────────────────────────────────
+-- One table for both: they differ in which penal codes they may carry and
+-- whether a plate is mandatory, not in their shape. A second table would have
+-- duplicated every column and every query.
+CREATE TABLE IF NOT EXISTS `mdt_citations` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `citation_number` varchar(24) NOT NULL,
+  `type` enum('citation','parking','warning') NOT NULL DEFAULT 'citation',
+ 
+  -- Recipient. A parking ticket may be written against a plate before the
+  -- owner is known, so citizenid is nullable and plate is not always optional.
+  `citizenid` varchar(50) DEFAULT NULL,
+  `recipient_name` varchar(100) DEFAULT NULL,
+  `plate` varchar(16) DEFAULT NULL,
+  `vehicle` varchar(64) DEFAULT NULL,
+  `vehicle_color` varchar(32) DEFAULT NULL,
+ 
+  -- Issuing officer, denormalised so an old ticket still names who wrote it
+  -- after that officer leaves the department.
+  `officer_citizenid` varchar(50) NOT NULL,
+  `officer_name` varchar(100) NOT NULL,
+  `officer_callsign` varchar(20) DEFAULT NULL,
+  `officer_job` varchar(50) DEFAULT NULL,
+ 
+  `location` varchar(128) DEFAULT NULL,
+  `postal` varchar(16) DEFAULT NULL,
+  `speed_measured` int(10) unsigned DEFAULT NULL,
+  `speed_limit` int(10) unsigned DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+ 
+  -- The charges as written, with their fine and points at the time of issue.
+  -- Stored rather than joined: amending the penal code later must not silently
+  -- rewrite what somebody was already ticketed for.
+  `charges` longtext NOT NULL DEFAULT '[]' CHECK (json_valid(`charges`)),
+  `fine_total` int(10) unsigned NOT NULL DEFAULT 0,
+  `points_total` int(10) unsigned NOT NULL DEFAULT 0,
+ 
+  -- The MDT only tracks the state. Payment itself happens in whatever banking
+  -- or phone resource holds the money.
+  `status` enum('open','paid','void','overdue') NOT NULL DEFAULT 'open',
+  `paid_at` timestamp NULL DEFAULT NULL,
+  `paid_by` varchar(50) DEFAULT NULL,
+ 
+  `issued_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `due_at` timestamp NULL DEFAULT NULL,
+  -- Set when an unpaid ticket has been escalated, so the sweep never files the
+  -- same warrant twice.
+  `warrant_reportid` int(10) unsigned DEFAULT NULL,
+ 
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `citation_number` (`citation_number`),
+  KEY `citizenid` (`citizenid`),
+  KEY `plate` (`plate`),
+  KEY `status_due` (`status`, `due_at`),
+  KEY `officer` (`officer_citizenid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+ 
+-- Which ticket types a penal code may appear in. Flags on the existing row
+-- rather than two separate lists: a law stays one record, so changing its fine
+-- changes it everywhere at once.
+ALTER TABLE `mdt_penal_codes`
+  ADD COLUMN IF NOT EXISTS `in_citation` tinyint(1) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS `in_parking`  tinyint(1) NOT NULL DEFAULT 0;
+
+ALTER TABLE `mdt_citations`
+  ADD COLUMN IF NOT EXISTS `signed_at` timestamp NULL DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `signed_by` varchar(50) DEFAULT NULL;

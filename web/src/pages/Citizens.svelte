@@ -359,6 +359,41 @@
 	}
 
 	let hasActiveWarrants = $derived((selectedProfile?.activeWarrants?.length ?? 0) > 0);
+
+	// Citations are fetched separately rather than folded into the profile
+	// payload: most profile views never look at them, and the list grows with
+	// every ticket ever written.
+	type CitationRow = {
+		citation_number: string;
+		type: "citation" | "parking" | "warning";
+		plate?: string;
+		officer_name: string;
+		officer_callsign?: string;
+		charges: Array<{ code: string; label: string; fine: number }>;
+		fine_total: number;
+		status: "open" | "paid" | "void" | "overdue";
+		issued_at: string;
+		due_at?: string;
+	};
+	let citations = $state<CitationRow[]>([]);
+	let citationsFor = $state<string | null>(null);
+
+	$effect(() => {
+		const cid = selectedProfile?.citizenid;
+		if (!cid || cid === citationsFor) return;
+		citationsFor = cid;
+		citations = [];
+		fetchNui<CitationRow[]>(NUI_EVENTS.CITATION.GET_CITATIONS, cid)
+			.then((rows) => { if (selectedProfile?.citizenid === cid) citations = rows ?? []; })
+			.catch(() => { /* leave the panel empty */ });
+	});
+
+	// What an officer opening a profile wants to know: is anything outstanding.
+	// Warnings carry no money, so they never count as outstanding — but they do
+	// belong in the file, which is the whole point of writing one.
+	let openCitations = $derived(citations.filter(c =>
+		c.type !== "warning" && (c.status === "open" || c.status === "overdue")));
+	let outstandingTotal = $derived(openCitations.reduce((sum, c) => sum + (Number(c.fine_total) || 0), 0));
 	let hasActiveBolos = $derived((selectedProfile?.activeBolos?.length ?? 0) > 0);
 
 	// Fingerprint editing
@@ -1253,6 +1288,49 @@
 							</div>
 						</div>
 
+						<!-- Citations and parking tickets. Unsettled first, because
+						     that is what an officer opening a profile is checking. -->
+						<div class="panel" class:panel-warning={openCitations.length > 0}>
+							<div class="panel-title">
+								Citations
+								<span class="cnt" class:cnt-warning={openCitations.length > 0}>{citations.length}</span>
+							</div>
+							{#if outstandingTotal > 0}
+								<div class="panel-caution caution-warning">${outstandingTotal.toLocaleString()} OUTSTANDING</div>
+							{/if}
+							<div class="section-list">
+								{#if citations.length > 0}
+									{#each citations.slice(0, 4) as c}
+										<div class="sitem" class:sitem-danger={c.status === "overdue"}>
+											<div class="sitem-info">
+												<!-- What it is and whether it still stands -->
+												<span class="sitem-primary">
+													<span class="cit-num">{c.citation_number}</span>
+													{#if c.type !== "warning"}
+														<span class="badge {c.status === 'paid' ? 'badge-green' : c.status === 'overdue' ? 'badge-red' : c.status === 'void' ? 'badge-grey' : 'badge-amber'}">{c.status}</span>
+													{/if}
+													{#if c.type === "parking"}<span class="badge badge-grey">Parking</span>{/if}
+													{#if c.type === "warning"}<span class="badge badge-grey">Warning</span>{/if}
+													{#if c.type !== "warning"}<span class="cit-amount">${Number(c.fine_total).toLocaleString()}</span>{/if}
+												</span>
+												<!-- What for -->
+												<span class="sitem-secondary">
+													{c.charges?.[0]?.label ?? "No charges"}{#if (c.charges?.length ?? 0) > 1} <span class="cit-more">+{c.charges.length - 1} more</span>{/if}
+												</span>
+												<!-- Who and when, set apart: it is provenance, not the point
+												     of the row, and reading it inline made every line a soup. -->
+												<span class="cit-meta">
+													{#if c.officer_callsign}<span class="cit-callsign">{c.officer_callsign}</span>{/if}
+													{c.officer_name} · {c.issued_at}
+												</span>
+											</div>
+										</div>
+									{/each}
+									{#if citations.length > 4}<div class="sitem-overflow">+{citations.length - 4} more citations</div>{/if}
+								{:else}<div class="empty-msg">No citations</div>{/if}
+							</div>
+						</div>
+
 						<!-- Vehicles -->
 						<div class="panel">
 							<div class="panel-title">Vehicles <span class="cnt">{selectedProfile.ownedVehicles?.length || 0}</span></div>
@@ -2084,6 +2162,8 @@
 	.badge { padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; flex-shrink: 0; border: 1px solid transparent; text-transform: capitalize; }
 	.badge-green { background: rgba(16,185,129,0.12); color: #34d399; border-color: rgba(16,185,129,0.15); }
 	.badge-red { background: rgba(239,68,68,0.12); color: #f87171; border-color: rgba(239,68,68,0.15); }
+	.badge-amber { background: rgba(251,191,36,0.12); color: #fcd34d; border-color: rgba(251,191,36,0.16); }
+	.badge-grey { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.45); border-color: rgba(255,255,255,0.08); }
 
 	.view-btn { background: transparent; color: rgba(255,255,255,0.3); border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.12s; flex-shrink: 0; }
 	.view-btn:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.04); }
@@ -2218,4 +2298,20 @@
 	.lightbox-close { position: absolute; top: 0; right: 0; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.12); border-radius: 4px; color: rgba(255,255,255,0.6); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.1s; z-index: 10; }
 	.lightbox-close:hover { background: rgba(255,255,255,0.2); color: #fff; }
 	.lightbox-img { max-width: 90vw; max-height: calc(90vh - 40px); object-fit: contain; display: block; border-radius: 4px; }
+
+	/* Citation rows. Number and amount lead, the charge explains, and who wrote
+	   it sits underneath — three lines that each answer one question, instead of
+	   one line that answered four at once. */
+	.cit-num { font-family: "Courier New", monospace; font-size: 11px; letter-spacing: 0.4px; }
+	.cit-amount { margin-left: auto; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.85); }
+	.cit-more { color: rgba(255,255,255,0.35); }
+	.cit-meta { display: block; margin-top: 2px; font-size: 10px; color: rgba(255,255,255,0.32); }
+	.cit-callsign {
+		font-family: "Courier New", monospace;
+		padding: 0 4px;
+		margin-right: 4px;
+		border-radius: 2px;
+		background: rgba(255,255,255,0.06);
+		color: rgba(255,255,255,0.5);
+	}
 </style>

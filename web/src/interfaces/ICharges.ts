@@ -7,6 +7,10 @@ export interface Charge {
 	type: "felony" | "misdemeanor" | "infraction";
 	category: string;
 	color?: string;
+	// Which ticket types this law may be written on. Flags on the law itself,
+	// so its fine is edited in one place and applies to both.
+	in_citation?: boolean | number;
+	in_parking?: boolean | number;
 }
 
 export interface GroupedCharges {

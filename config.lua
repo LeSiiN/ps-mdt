@@ -3,7 +3,7 @@ Config = {}
 -- Basic Settings
 -- Debug output can also be switched on without editing this file, via
 -- `setr ps_mdt_debug 1` in server.cfg or the /mdtdebug 1 console command.
-Config.Debug = false -- Enable/disable debug mode (boolean)
+Config.Debug = true -- Enable/disable debug mode (boolean)
 Config.OnlyShowOnDuty = true -- Only allow the MDT to be opened when on duty (boolean)
 
 -- Civilian Access Settings
@@ -1522,6 +1522,169 @@ Config.Court = {
         { id = 'all_ems',       label = 'All EMS',        role = 'attendee', domain = 'ems', jobType = Config.MedicalJobType },
         { id = 'ems_rookies',   label = 'EMS Rookies',    role = 'trainee',  domain = 'ems', jobType = Config.MedicalJobType, maxGrade = 1 },
         { id = 'ems_on_duty',   label = 'On-Duty EMS',    role = 'attendee', domain = 'ems', jobType = Config.MedicalJobType, onlyOnDuty = true },
+    },
+}
+
+-- ── Citations and parking tickets ───────────────────────────────────────────
+-- The MDT tracks whether a ticket is paid; it never moves a citizen's money.
+-- Payment happens in whatever banking or phone resource already holds it, and
+-- that resource marks the ticket paid. Two systems with an opinion about one
+-- balance is how balances drift.
+--
+-- Money collected does flow the other way: a paid ticket is deposited into the
+-- issuing department's account through Config.DepartmentBanking, the same path
+-- impound fees already use.
+Config.Citations = {
+    Enabled = true,
+
+    -- Prefix for the citation number shown on the paper. The running number is
+    -- appended, e.g. CIT-000148.
+    NumberPrefix = { citation = 'CIT', parking = 'PRK', warning = 'WRN' },
+
+    -- Days a recipient has to pay before the ticket goes overdue.
+    DueDays = { citation = 7, parking = 14 },
+
+    -- How long a warning stays on the record before it stops counting against
+    -- somebody. It remains visible in the file; it simply reads as spent.
+    WarningExpiryDays = 14,
+
+    -- Charges a single ticket may carry. The form stops accepting more.
+    MaxCharges = 5,
+
+    -- The two ticket types find their subject differently, because they are
+    -- written in different situations:
+    --
+    --   citation — an officer has someone in front of them. The picker lists
+    --              nearby people; a vehicle is optional and attached by hand.
+    --   parking  — the car is unattended and there is nobody to pick. The
+    --              picker lists nearby vehicles instead, and the recipient is
+    --              resolved from the plate's registered owner.
+    --
+    -- Radii in metres. Police vehicles are skipped in both cases: an officer's
+    -- own car is never the one being ticketed.
+    PersonSearchRadius = 5.0,    -- citation: nearby people
+    VehicleSearchRadius = 10.0,  -- parking: nearby vehicles
+
+    -- A parking ticket against a plate with no registered owner still stands —
+    -- it is written against the vehicle. Set false to require a known owner.
+    AllowUnknownOwner = false,
+
+    -- Postal codes. The field is hidden entirely — in the form and on the
+    -- paper — when no resource is set or the named one isn't running, rather
+    -- than showing a box that can never be filled.
+    -- Set Resource = false to switch postals off.
+    Postal = {
+        Resource = 'nearest-postal',
+        Export = 'getPostal',
+    },
+
+    -- Sits next to payImpounds and works the same way: the citizen has the ticket,
+    -- so they settle it themselves instead of finding an officer or a third
+    -- resource. The MDT already owns both the record and the money path.
+    payCitations = true,
+
+    -- Account a fine is taken from when a citizen settles it ('bank' or 'cash').
+    PayAccount = 'bank',
+
+
+    Overdue = {
+        -- An unpaid ticket eventually becomes a warrant. Someone who has not
+        -- paid a fine cannot be punished with a larger fine, so the debt is
+        -- converted into time instead.
+        Enabled = true,
+
+        -- How often the sweep looks for overdue tickets, in minutes.
+        CheckMinutes = 30,
+
+        -- Fine to jail conversion. Every this many dollars owed becomes one
+        -- month on the warrant.
+        DollarsPerMonth = 250,
+
+        -- Bounds on the result, so a $50 parking ticket doesn't produce a
+        -- zero-month warrant and a stacked one doesn't produce a life sentence.
+        MinMonths = 1,
+        MaxMonths = 12,
+
+        -- Which column of mdt_reports_warrants the months land in. Unpaid
+        -- fines are infractions, not felonies — the warrant should read as
+        -- what it is.
+        Class = 'infractions',
+
+        -- Warrants hang off a report, so the sweep files one. This is its
+        -- title; the citation number is appended.
+        ReportTitle = 'Failure to pay citation',
+    },
+
+    -- ── Radar ───────────────────────────────────────────────────────────────
+    -- The speed field can be filled from the last radar reading instead of from
+    -- memory. Which resource and export to ask is configured here, because
+    -- radars differ — and a remembered speed is a rounded speed, which matters
+    -- when it decides the charge.
+    --
+    -- The export may return either a bare number or a table; both are handled:
+    --     return 121
+    --     return { speed = 121, plate = 'ABC123' }
+    --
+    -- With a plate, the form warns when the reading belongs to a different car
+    -- than the one on the ticket. Set Resource = false to hide the button.
+    Radar = {
+        Resource = 'lsn-radar',
+        Export = 'GetLastSpeed',
+    },
+
+    -- ── Animations ──────────────────────────────────────────────────────────
+    -- Every entry is configurable; set one to false to skip it. `props` takes a
+    -- list, because a notepad wants a pencil with it.
+    Animations = {
+        Enabled = true,
+
+        -- Held while the form is open: notepad in one hand, pencil in the other.
+        Writing = {
+            dict = 'missheistdockssetup1clipboard@base',
+            clip = 'base',
+            props = {
+                { name = 'prop_notepad_01', bone = 18905,
+                  pos = vec3(0.10, 0.02, 0.05),  rot = vec3(10.0, 0.0, 0.0) },
+                { name = 'prop_pencil_01',  bone = 58866,
+                  pos = vec3(0.11, -0.02, 0.001), rot = vec3(-120.0, 0.0, 0.0) },
+            },
+        },
+
+        -- Held while a copy is open. Reading is not writing: the sheet is held
+        -- up rather than written on.
+        Reading = {
+            dict = 'missfam4',
+            clip = 'base',
+            props = {
+                { name = 'p_amb_clipboard_01', bone = 36029,
+                  pos = vec3(0.16, 0.08, 0.10), rot = vec3(-130.0, -50.0, 0.0) },
+            },
+        },
+
+        -- Handing it over. The give gesture is the one that reads as an
+        -- exchange; 28422 is PH_R_Hand, so the paper is in the hand that
+        -- extends.
+        Handover = {
+            dict = 'mp_common',
+            clip = 'givetake1_a',
+            props = {
+                { name = 'prop_notepad_01', bone = 28422,
+                  pos = vec3(0.13, 0.02, 0.02), rot = vec3(-100.0, 0.0, 0.0) },
+            },
+            duration = 2200,
+            -- The recipient plays the receiving half, so it reads as one
+            -- exchange rather than two people gesturing past each other.
+            recipientClip = 'givetake1_b',
+        },
+
+        -- Putting a ticket on a windscreen. GTA has no wiper-blade animation,
+        -- so this borrows the parking-meter pose: bent forward, arm out. No
+        -- prop — the paper is left on the car.
+        Windscreen = {
+            dict = 'amb@prop_human_parking_meter@male@idle_a',
+            clip = 'idle_a',
+            duration = 2600,
+        },
     },
 }
 
