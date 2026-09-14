@@ -13,7 +13,7 @@
 
 	type Row = {
 		citation_number: string;
-		type: "citation" | "parking";
+		type: "citation" | "parking" | "warning";
 		recipient_name?: string;
 		plate?: string;
 		vehicle?: string;
@@ -76,16 +76,6 @@
 		busy = false;
 	}
 
-	async function pay() {
-		if (!row) return;
-		busy = true;
-		try {
-			const res: any = await fetchNui(NUI_EVENTS.CITATION.PAY_CITATION, { number });
-			if (res?.success) await load();
-			else msg = res?.message ?? "Could not pay.";
-		} catch { msg = "Could not pay."; }
-		busy = false;
-	}
 
 	function copyNote() {
 		if (!row?.notes) return;
@@ -103,7 +93,7 @@
 	}
 
 	function close() {
-		fetchNui(NUI_EVENTS.CITATION.CLOSE_TICKET_FORM, {}).catch(() => {});
+		fetchNui(NUI_EVENTS.CITATION.CLOSE_PAPER, {}).catch(() => {});
 		onClose();
 	}
 
@@ -135,17 +125,30 @@
 
 {#if show}
 <div class="cc-overlay">
-  <div class="cc-sheet">
+  <div class="cc-sheet" class:carbon={carbon}>
     <button class="cc-close" onclick={close}>✕</button>
+
+    {#if carbon}
+      <!-- Said out loud, because the two are the same sheet and an officer
+           holding the wrong one would otherwise just find the buttons missing
+           and assume it is broken. -->
+      <div class="cc-kind">Carbon copy · department record · not the holder's copy</div>
+    {/if}
 
     {#if !row}
       <div class="cc-empty">{msg || "Reading…"}</div>
     {:else}
-      <!-- The one thing that decides whether this slip still matters. -->
-      <div class="cc-status s-{row.status}">
-        {STATUS_LABEL[row.status] ?? row.status}
-        {#if row.status !== "paid" && row.due_at}· due {fmt(row.due_at)}{/if}
-      </div>
+      <!-- The one thing that decides whether this slip still matters. A
+           warning has no money attached, so "unpaid" would be a lie — it says
+           what it is instead. -->
+      {#if row.type === "warning"}
+        <div class="cc-status s-warning">Warning · no fine · recorded only</div>
+      {:else}
+        <div class="cc-status s-{row.status}">
+          {STATUS_LABEL[row.status] ?? row.status}
+          {#if row.status !== "paid" && row.due_at}· due {fmt(row.due_at)}{/if}
+        </div>
+      {/if}
 
       <div class="p-head">
         <div>
@@ -153,7 +156,7 @@
           <div class="p-agency">{(row.officer_job ?? "Police Department").toUpperCase()}</div>
         </div>
         <div class="p-mid">
-          <div class="p-title">{row.type === "parking" ? "PARKING VIOLATION" : "NOTICE TO APPEAR"}</div>
+          <div class="p-title">{row.type === "parking" ? "PARKING VIOLATION" : row.type === "warning" ? "WRITTEN WARNING" : "NOTICE TO APPEAR"}</div>
           <div class="p-sub">Traffic Citation · Penal &amp; Vehicle Code</div>
         </div>
         <div class="p-no">
@@ -201,21 +204,26 @@
       {/if}
 
       <table class="p-table">
-        <thead><tr><th class="n">#</th><th>Code section</th><th>Description</th><th class="b">Bail</th></tr></thead>
+        <thead><tr>
+          <th class="n">#</th><th>Code section</th><th>Description</th>
+          {#if row.type !== "warning"}<th class="b">Bail</th>{/if}
+        </tr></thead>
         <tbody>
           {#each row.charges ?? [] as c, i}
             <tr>
               <td class="n">{i + 1}</td>
               <td class="mono">{c.code}</td>
               <td>{c.label}</td>
-              <td class="b">${Number(c.fine).toLocaleString()}</td>
+              {#if row.type !== "warning"}<td class="b">${Number(c.fine).toLocaleString()}</td>{/if}
             </tr>
           {/each}
         </tbody>
-        <tfoot><tr>
-          <td colspan="2">TOTAL</td>
-          <td colspan="2" class="b">${Number(row.fine_total).toLocaleString()}</td>
-        </tr></tfoot>
+        {#if row.type !== "warning"}
+          <tfoot><tr>
+            <td colspan="2">TOTAL</td>
+            <td colspan="2" class="b">${Number(row.fine_total).toLocaleString()}</td>
+          </tr></tfoot>
+        {/if}
       </table>
 
       {#if row.notes}
@@ -233,6 +241,13 @@
         <div class="p-sig">
           {#if row.signed_at}
             <span class="p-sig-name">{row.recipient_name ?? ""}</span>
+          {:else if !carbon && row.status !== "void"}
+            <!-- Signing happens on the line, because that is where a signature
+                 goes. A button elsewhere asks you to find the action; this puts
+                 it where you were already looking. -->
+            <button class="p-sig-line sign" disabled={busy} onclick={sign}>
+              <span class="sign-hint">{busy ? "Signing…" : "Click to sign"}</span>
+            </button>
           {:else}
             <span class="p-sig-line"></span>
           {/if}
@@ -248,14 +263,6 @@
 
       <!-- The officer's copy is a record; the recipient's is a thing to act on. -->
       {#if !carbon && row.status !== "paid" && row.status !== "void"}
-        <div class="cc-actions">
-          {#if !row.signed_at}
-            <button class="cc-btn" disabled={busy} onclick={sign}>Sign</button>
-          {/if}
-          <button class="cc-btn pay" disabled={busy} onclick={pay}>
-            Pay ${Number(row.fine_total).toLocaleString()}
-          </button>
-        </div>
       {/if}
     {/if}
   </div>
@@ -295,6 +302,8 @@
 	.s-overdue { background: rgba(179,38,30,0.15);  color: #b3261e; }
 	.s-paid    { background: rgba(20,120,70,0.15);  color: #147846; }
 	.s-void    { background: rgba(0,0,0,0.06);      color: rgba(0,0,0,0.45); }
+	/* Not a status at all — a statement of what the sheet is. */
+	.s-warning { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.5); }
 
 	.p-head { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 8px; }
 	.p-state { font-size: 10px; letter-spacing: 0.5px; }
@@ -354,4 +363,39 @@
 	.cc-btn:hover:not(:disabled) { background: rgba(0,0,0,0.1); }
 	.cc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 	.cc-btn.pay { background: rgba(20,120,70,0.15); border-color: rgba(20,120,70,0.4); color: #147846; }
+
+	/* The signature line, made clickable. It keeps the look of a ruled line —
+	   the hint only appears on hover, so a signed sheet and a blank one read the
+	   same at a glance. */
+	button.p-sig-line.sign {
+		width: 100%; padding: 0;
+		background: none; border: none;
+		border-bottom: 1px solid #17181c;
+		cursor: pointer; text-align: left;
+		transition: background 0.12s;
+	}
+	button.p-sig-line.sign:hover:not(:disabled) { background: rgba(20,120,70,0.1); }
+	button.p-sig-line.sign:disabled { cursor: wait; }
+	.sign-hint {
+		font-family: Georgia, "Times New Roman", serif;
+		font-style: italic; font-size: 13px;
+		color: rgba(0,0,0,0.3);
+		opacity: 0; transition: opacity 0.12s;
+	}
+	button.p-sig-line.sign:hover .sign-hint,
+	button.p-sig-line.sign:disabled .sign-hint { opacity: 1; }
+
+	/* The officer keeps a carbon: greyer stock, a stamped band across the top,
+	   and no buttons. A record, not a thing to act on. */
+	.cc-sheet.carbon { background: #e6e3da; }
+	.cc-kind {
+		margin: -4px 0 12px;
+		padding: 5px 8px;
+		border: 1px dashed rgba(0,0,0,0.35);
+		border-radius: 3px;
+		font-size: 10px; font-weight: 700;
+		text-transform: uppercase; letter-spacing: 1px;
+		color: rgba(0,0,0,0.5);
+		text-align: center;
+	}
 </style>

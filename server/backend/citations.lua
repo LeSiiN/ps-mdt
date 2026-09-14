@@ -173,7 +173,20 @@ local function issueCopies(src, number, recipientCitizenId, row)
 
     if not recipientCitizenId then return end
 
-    local target = MDT.getSourceFromIdentifier and MDT.getSourceFromIdentifier(recipientCitizenId) or nil
+    -- MDT.getSourceFromIdentifier does not exist — the bridge calls it
+    -- getSource. Written as `X and X(...) or nil`, the mistake was silent: the
+    -- expression simply evaluated to nil, so the recipient looked offline and
+    -- their copy was never handed out. A scan backs it up.
+    local target = MDT.getSource and MDT.getSource(recipientCitizenId) or nil
+    if not target then
+        for _, pid in ipairs(GetPlayers()) do
+            pid = tonumber(pid)
+            if pid and MDT.getIdentifier(pid) == recipientCitizenId then
+                target = pid
+                break
+            end
+        end
+    end
     if not target then
         -- Offline. No queue by design: the ticket is in their file and they
         -- will meet it at the next MDT contact or traffic stop. The item is a
@@ -181,6 +194,10 @@ local function issueCopies(src, number, recipientCitizenId, row)
         return
     end
 
+    if MDT.isDebug and MDT.isDebug() then
+        MDT.debug(('issueCopies: recipient %s -> src %s'):format(
+            tostring(recipientCitizenId), tostring(target)))
+    end
     giveCopy(target, 'citation_copy', number, row)
     -- Told either way: the paper is a convenience, the notice is what stops a
     -- ticket quietly ageing into a warrant.
@@ -312,12 +329,6 @@ local function createCitation(src, payload)
             })
         end)
     end
-
-    -- Paper for both sides. Deferred so a slow inventory can't hold up the
-    -- officer's confirmation.
-    CreateThread(function()
-        pcall(issueCopies, src, number, payload.citizenid, { fine_total = fine, type = ticketType })
-    end)
 
     -- Paper for both sides, deferred so a slow inventory can't hold up the
     -- officer's confirmation.
@@ -728,4 +739,17 @@ lib.callback.register(resourceName .. ':server:payCitation', function(source, nu
     -- matter who settled it.
     MarkCitationPaid(number, citizenid)
     return { success = true, paid = owed }
+end)
+
+--- A citizen's own citations. Separate from getCitations, which is gated on
+--- CheckAuth — that gate is right for an officer looking up somebody else and
+--- wrong for a civilian looking at their own file, which is why the civilian
+--- MDT came back empty.
+---
+--- No citizenid parameter on purpose: it is taken from the caller, so this can
+--- only ever return your own.
+lib.callback.register(resourceName .. ':server:getMyCitations', function(source)
+    local citizenid = MDT.getIdentifier(source)
+    if not citizenid then return {} end
+    return citationsFor(citizenid)
 end)

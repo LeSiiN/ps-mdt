@@ -87,9 +87,10 @@ end
 RegisterNUICallback('getTicketContext', function(data, cb)
 
     local ticketType = type(data) == 'table' and data.type or 'citation'
-    local radius = (ticketType == 'parking')
-        and (tonumber(citCfg().VehicleSearchRadius) or 10.0)
-        or  (tonumber(citCfg().PlateSearchRadius or citCfg().VehicleSearchRadius) or 10.0)
+    -- One radius, one config key. PlateSearchRadius was renamed and the
+    -- fallback chain kept a dead name alive, which made the effective distance
+    -- hard to reason about.
+    local radius = tonumber(citCfg().VehicleSearchRadius) or 10.0
 
     local ped = cache and cache.ped or PlayerPedId()
     local coords = GetEntityCoords(ped)
@@ -187,24 +188,37 @@ local function openTicketForm(ticketType)
     -- picker, and only then does the form open with everything already filled.
     -- Asking for it inside the form meant an officer could start writing
     -- against nobody and find out at the end.
+    formOpen = true
     SendNUIMessage({ action = 'showTicketPicker', data = { type = ticketType } })
     SetNuiFocus(true, true)
 end
 
 exports('OpenCitationForm', function() openTicketForm('citation') end)
 exports('OpenParkingTicketForm', function() openTicketForm('parking') end)
-exports('OpenWarningForm', function() openTicketForm('warning') end)
 
 RegisterCommand('citation', function() openTicketForm('citation') end, false)
 RegisterCommand('parkingticket', function() openTicketForm('parking') end, false)
-RegisterCommand('warning', function() openTicketForm('warning') end, false)
 
 TriggerEvent('chat:addSuggestion', '/citation', 'Write a traffic citation')
 TriggerEvent('chat:addSuggestion', '/parkingticket', 'Write a parking ticket')
-TriggerEvent('chat:addSuggestion', '/warning', 'Write a warning — recorded, no fine')
 
 -- The form closes itself; releasing focus is the client's job.
+-- The paper closes on its own path, so the two windows cannot switch each
+-- other's animation off.
+RegisterNUICallback('closePaper', function(_, cb)
+    paperOpen = false
+    suppressStartUntil = GetGameTimer() + 1500
+    if not delivering then StopTicketAnim() end
+    SetNuiFocus(false, false)
+    cb({})
+end)
+
 RegisterNUICallback('closeTicketForm', function(_, cb)
+    -- Closing ends the pose, here rather than in the UI: one path instead of
+    -- several that can disagree.
+    formOpen = false
+    suppressStartUntil = GetGameTimer() + 1500
+    if not delivering then StopTicketAnim() end
     SetNuiFocus(false, false)
     cb({})
 end)
@@ -322,6 +336,10 @@ RegisterNUICallback('getTicketTargets', function(data, cb)
         out = kept
     end
 
+    if MDT.isDebug and MDT.isDebug() then
+        MDT.debug(('ticket targets: %d found (%s)'):format(#out, ticketType))
+    end
+
     table.sort(out, function(a, b) return a.distance < b.distance end)
     cb(out)
 end)
@@ -338,6 +356,17 @@ local animActive = false
 -- The form closes 1.5s after issuing, and its stop used to cut the handover
 -- off mid-gesture. A delivery outlives the window that ordered it.
 local delivering = false
+-- Whether a ticket form is on screen at all. The animation follows this, not
+-- the order in which the UI's effects happen to fire — three of them racing to
+-- send start and stop is how a start arrived after the close.
+local formOpen = false
+-- The paper has its own flag. Sharing one with the form meant closing a copy
+-- switched the form's animation off, and vice versa — two windows, two states.
+local paperOpen = false
+-- Svelte's effects fire in an order this side cannot see, and a stale one keeps
+-- sending a start just after the close. Rather than guess at the order, ignore
+-- any start that arrives in the moment after a window was shut.
+local suppressStartUntil = 0
 
 local function animCfg(key)
     local a = (citCfg().Animations) or {}
@@ -419,6 +448,7 @@ local function playLoop(entry)
         CreateThread(function()
             while animActive do
                 Wait(500)
+                if not animActive then break end
                 if IsPedInAnyVehicle(ped, false) or IsPedDeadOrDying(ped, true) then
                     StopTicketAnim()
                     SendNUIMessage({ action = 'closeTicketForm' })
@@ -430,7 +460,10 @@ local function playLoop(entry)
         return
     end
 
-    if not MDT.requestAnim(entry.dict, 2000) then return end
+    if not MDT.requestAnim(entry.dict, 2000) then
+        MDT.error(('Animation dict failed to load: %s'):format(tostring(entry.dict)))
+        return
+    end
 
     animActive = true
     attachProp(entry)
@@ -442,6 +475,11 @@ local function playLoop(entry)
     CreateThread(function()
         while animActive do
             Wait(500)
+            -- Checked again after the wait. The stop can land during those 500
+            -- milliseconds, and the rest of this iteration would then re-assert
+            -- the very animation that was just cancelled — which is why it kept
+            -- coming back a moment after closing, no matter what the UI sent.
+            if not animActive then break end
             if IsPedInAnyVehicle(ped, false) or IsPedDeadOrDying(ped, true) then
                 StopTicketAnim()
                 SendNUIMessage({ action = 'closeTicketForm' })
@@ -456,6 +494,20 @@ local function playLoop(entry)
 end
 
 RegisterNUICallback('ticketAnimStart', function(_, cb)
+    -- A start that arrives after the close is ignored. The UI may send them in
+    -- either order; the client decides which one is still true.
+    -- The start IS the signal that the form is up. Gating it on a flag set by
+    -- the command was backwards: the UI reaches stage "write" some time after
+    -- the command, and anything that touched the flag in between — closing a
+    -- carbon copy, for one — silenced the pose for good.
+    --
+    -- Stopping stays authoritative, so a stray start can still be undone.
+    if GetGameTimer() < suppressStartUntil then cb({}) return end
+    formOpen = true
+
+    if not animCfg('Writing') then
+        MDT.error('Config.Citations.Animations.Writing is missing or disabled')
+    end
     playLoop(animCfg('Writing'))
     cb({})
 end)
@@ -463,6 +515,7 @@ end)
 -- Reading a copy has its own pose: the officer holds it up rather than writes
 -- on it.
 RegisterNUICallback('ticketAnimRead', function(_, cb)
+    if not paperOpen or GetGameTimer() < suppressStartUntil then cb({}) return end
     playLoop(animCfg('Reading'))
     cb({})
 end)
@@ -537,6 +590,7 @@ end)
 -- travels in the item; everything else — including whether it has been paid —
 -- is read fresh, so a slip written yesterday cannot contradict this morning.
 local function openPaper(number, carbon)
+    paperOpen = true
     if type(number) ~= 'string' or number == '' then
         MDT.notify('This copy is unreadable.', 'error')
         return
@@ -603,6 +657,10 @@ local function readCopy(data)
 end
 
 exports('useCitationCopy', function(data)
+    if MDT.isDebug and MDT.isDebug() then
+        MDT.debug(('useCitationCopy: name=%s slot=%s')
+            :format(tostring(data and data.name), tostring(data and data.slot)))
+    end
     local number, name = readCopy(data)
     if not number then
         -- Say what actually arrived. "Unreadable" on its own tells whoever has
@@ -671,4 +729,8 @@ RegisterNetEvent('ps-mdt:client:citationSigned', function(data)
     if type(data) ~= 'table' then return end
     MDT.notify(('%s signed citation %s.')
         :format(data.name or 'The recipient', data.number or ''), 'success')
+end)
+
+RegisterNUICallback('getMyCitations', function(_, cb)
+    cb(MDT.callback(resourceName .. ':server:getMyCitations') or {})
 end)

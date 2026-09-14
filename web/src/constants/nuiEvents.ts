@@ -178,10 +178,12 @@ export const NUI_EVENTS = {
 	CITATION: {
 		CREATE_CITATION: "createCitation",
 		GET_CITATIONS: "getCitations",
+		GET_MY_CITATIONS: "getMyCitations",
 		GET_CITATION: "getCitation",
 		VOID_CITATION: "voidCitation",
 		GET_TICKET_CONTEXT: "getTicketContext",
 		CLOSE_TICKET_FORM: "closeTicketForm",
+		CLOSE_PAPER: "closePaper",
 		GET_TICKET_CHARGES: "getTicketCharges",
 		GET_TICKET_TARGETS: "getTicketTargets",
 		ANIM_START: "ticketAnimStart",

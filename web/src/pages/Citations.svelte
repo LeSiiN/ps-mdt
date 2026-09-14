@@ -224,8 +224,12 @@
 	});
 
 	// A warning draws on the same laws but never carries money.
-	let isWarning = $derived(ticketType === "warning");
-	let fineTotal = $derived(isWarning ? 0 : positions.reduce((s, p) => s + (p.fine || 0), 0));
+	// Decided at the end, not at the start: a switch part-way through would
+	// quietly turn a $500 ticket into nothing, and that is a decision, not a
+	// formatting choice. Both buttons draw on the same charges.
+	let asWarning = $state(false);
+	let isWarning = $derived(asWarning);
+	let fineTotal = $derived(positions.reduce((s, p) => s + (p.fine || 0), 0));
 	let pointsTotal = $derived(positions.reduce((s, p) => s + (p.points || 0), 0));
 	let full = $derived(positions.length >= MAX_POSITIONS);
 
@@ -316,7 +320,8 @@
 		closing = false;
 	}
 
-	async function submit() {
+	async function submit(warning = false) {
+		asWarning = warning;
 		error = "";
 		if (positions.length === 0) {
 			error = "No charge selected — pick at least one from the list above.";
@@ -330,7 +335,7 @@
 			error = "No recipient — close the form and pick the person again.";
 			return;
 		}
-		if (!isWarning && fineTotal <= 0) {
+		if (!warning && fineTotal <= 0) {
 			error = "Every selected charge carries a $0 fine. Set an amount in the Charges tab first.";
 			return;
 		}
@@ -338,7 +343,7 @@
 		saving = true;
 		try {
 			const res = await fetchNui<any>(NUI_EVENTS.CITATION.CREATE_CITATION, {
-				type: ticketType,
+				type: warning ? "warning" : ticketType,
 				citizenid: recipientId.trim() || null,
 				recipientName: recipientName.trim() || null,
 				plate: plate.trim() || null,
@@ -430,8 +435,8 @@
     <!-- Left: the form -->
     <div class="cit-form">
       <div class="cit-head">
-        <span class="cit-title">{ticketType === "parking" ? "Parking ticket" : isWarning ? "Written warning" : "Citation"}</span>
-        <span class="cit-sub">{ticketType === "parking" ? "Parking Violation" : isWarning ? "No fine — recorded only" : "Notice to Appear"}</span>
+        <span class="cit-title">{ticketType === "parking" ? "Parking ticket" : "Citation"}</span>
+        <span class="cit-sub">{ticketType === "parking" ? "Parking Violation" : "Notice to Appear"}</span>
         <button class="cit-close" onclick={() => { fetchNui(NUI_EVENTS.CITATION.CLOSE_TICKET_FORM, {}).catch(() => {}); onClose(); }}>✕</button>
       </div>
 
@@ -558,12 +563,22 @@
       <div class="cit-foot">
         <div class="tot">
           <span class="tot-l">Total</span>
-          <span class="tot-v">{isWarning ? "No fine" : "$" + fineTotal.toLocaleString()}</span>
+          <span class="tot-v">${fineTotal.toLocaleString()}</span>
         </div>
         {#if issued}
           <button class="btn" onclick={reset}>New ticket</button>
         {:else}
-          <button class="btn primary" disabled={saving || positions.length === 0} onclick={submit}>
+          {#if ticketType !== "parking"}
+            <!-- A warning is the same paperwork with the fine dropped, so it
+                 belongs beside the issue button rather than behind its own
+                 command. -->
+            <button class="btn warn" disabled={saving || positions.length === 0}
+              onclick={() => submit(true)}>
+              Warning only
+            </button>
+          {/if}
+          <button class="btn primary" disabled={saving || positions.length === 0}
+            onclick={() => submit(false)}>
             {saving ? "Issuing…" : "Sign & issue"}
           </button>
         {/if}
@@ -579,7 +594,7 @@
           <div class="p-agency">{agency.toUpperCase()}</div>
         </div>
         <div class="p-mid">
-          <div class="p-title">{ticketType === "parking" ? "PARKING VIOLATION" : isWarning ? "WRITTEN WARNING" : "NOTICE TO APPEAR"}</div>
+          <div class="p-title">{ticketType === "parking" ? "PARKING VIOLATION" : "NOTICE TO APPEAR"}</div>
           <div class="p-sub">Traffic Citation · Penal &amp; Vehicle Code</div>
         </div>
         <div class="p-no">
@@ -714,7 +729,11 @@
 	.cit-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px; }
 
 	.lbl {
-		display: block; margin-bottom: 4px;
+		/* Fixed height, and the icon button inside is taken out of the flow.
+		   Without this, a label with a button in it sits taller than its
+		   neighbours and the field below it drops out of line. */
+		display: flex; align-items: center;
+		height: 14px; margin-bottom: 4px;
 		font-size: 9px; font-weight: 700; text-transform: uppercase;
 		letter-spacing: 0.7px; color: rgba(255,255,255,0.4);
 	}
@@ -800,6 +819,13 @@
 		font-size: 11px; font-weight: 600; cursor: pointer;
 	}
 	.btn.primary { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #34d399; }
+	.btn.warn {
+		margin-left: auto;
+		background: rgba(251,191,36,0.12);
+		border-color: rgba(251,191,36,0.3);
+		color: #fcd34d;
+	}
+	.btn.warn + .btn.primary { margin-left: 0; }
 	.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 	/* ── The paper ──
@@ -943,12 +969,13 @@
 	   glyph and stops competing with the label beside it. */
 	.icon-btn {
 		display: inline-grid; place-items: center;
-		width: 20px; height: 20px; padding: 0; margin-left: 6px;
+		width: 16px; height: 14px; padding: 0; margin-left: 5px;
+		flex-shrink: 0;
 		background: none; border: none; border-radius: 3px;
 		color: rgba(255,255,255,0.4); cursor: pointer; transition: all 0.1s;
 	}
 	.icon-btn:hover { color: rgba(var(--accent-text-rgb), 0.95); background: rgba(255,255,255,0.06); }
-	.icon-btn .material-icons { font-size: 15px; }
+	.icon-btn .material-icons { font-size: 14px; line-height: 1; }
 	.tgt-img.veh { border-radius: 4px; object-fit: contain; background: rgba(255,255,255,0.04); }
 
 	/* A citation's vehicle is context, not the case — quieter than the rows

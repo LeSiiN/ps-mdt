@@ -12,6 +12,7 @@ Config.CivilianAccess = {
     command = true,   -- Allow /mdt command for civilians
     showWarrants = true, -- Show active warrants on civilian profile
     showBolos = true,    -- Show active BOLOs on civilian profile
+    payCitations = true,
 
     -- Let citizens see and settle the impound fees on their OWN vehicles.
     -- Paying the release fee is paperwork, not police work: an officer had to be
