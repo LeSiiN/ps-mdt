@@ -1,8 +1,8 @@
 Config = {}
 
--- Basic Settings
--- Debug output can also be switched on without editing this file, via
--- `setr ps_mdt_debug 1` in server.cfg or the /mdtdebug 1 console command.
+-- Basic Settings Debug output can also be switched on without editing this
+-- file, via `setr ps_mdt_debug 1` in server.cfg or the /mdtdebug 1 console
+-- command.
 Config.Debug = true -- Enable/disable debug mode (boolean)
 Config.OnlyShowOnDuty = true -- Only allow the MDT to be opened when on duty (boolean)
 
@@ -15,11 +15,6 @@ Config.CivilianAccess = {
     payCitations = true,
 
     -- Let citizens see and settle the impound fees on their OWN vehicles.
-    -- Paying the release fee is paperwork, not police work: an officer had to be
-    -- present to take the money, which meant a citizen with an impounded car had to
-    -- find one and ask them to press a button. This lets them pay it themselves.
-    -- The vehicle still isn't released until an officer releases it — this only
-    -- settles the bill.
     payImpounds = true,
 }
 
@@ -31,8 +26,8 @@ Config.DateTime = {
 
 -- Department data sharing
 Config.Sharing = {
-    -- Mutual Sharing (Bidirectional)
-    -- All departments in this group can see each other's data
+    -- Mutual Sharing (Bidirectional) All departments in this group can see each
+    -- other's.
     Mutual = {
         types = {
             'reports',
@@ -48,8 +43,8 @@ Config.Sharing = {
         }
     },
 
-    -- One-Way Sharing (Unidirectional)
-    -- Viewers can see target department data, but not vice versa
+    -- One-Way Sharing (Unidirectional) Viewers can see target department data,
+    -- but not vice.
     OneWay = {
         { -- Example: FIB and GOV 
             viewers = {
@@ -113,8 +108,7 @@ Config.Dispatch = {
     FilterByJob = true,
 }
 
--- 10-codes offered in the "Create Call" modal. `code` shows in the dropdown,
--- `label` is the human name (also used as the call title if none is typed).
+-- 10-codes offered in the "Create Call" modal.
 Config.DispatchCodes = {
     { code = '10-13', label = 'Officer Needs Assistance' },
     { code = '10-71', label = 'Shooting' },
@@ -154,21 +148,18 @@ Config.Fuel = 'LegacyFuel' -- Fuel resource name for vehicle fuel management
 -- Leave Resource = '' to use charinfo.phone for display and disable court SMS/mail.
 Config.Phone = {
     -- Which phone script does your server run? Set this one value:
-    --
     --   'lb-phone'          lb-phone
     --   'jpr-phonesystem'   JPR Phone System
     --   'yseries'           YSeries (teamsgg)
     --   'none'              no phone script — court SMS and e-mails are off,
     --                       phone numbers come from the character's charinfo
     --   'custom'            something else — see the Custom block at the end
-    --
     -- Nothing else needs changing to switch: how each script has to be called
     -- is handled in server/backend/phone.lua.
     Provider = 'lb-phone',
 
-    -- Use the character's charinfo.phone when the phone script has no number
-    -- for them. Leave this on — JPR Phone cannot look up another player's
-    -- number at all, so with it off court SMS have no address to send to.
+    -- Use the character's charinfo.phone when the phone script has no number for
+    -- them.
     UseCharinfoFallback = true,
 
     -- Shown as the sender on court messages.
@@ -197,48 +188,30 @@ Config.Phone = {
     },
 }
 
--- ═══════════════════════════════════════════════════════════════════════════
---  Phone tracking
---  Locating a phone is surveillance, so it runs on a warrant: an officer
---  submits the number with a justification, a judge approves or denies it, and
---  only then does the phone report in. The position is deliberately imprecise
---  and the track expires on its own — nobody has to remember to switch it off.
--- ═══════════════════════════════════════════════════════════════════════════
+-- Phone tracking Locating a phone is surveillance, so it runs on a warrant:
+-- an officer submits the number with a justification, a judge approves or
+-- denies it, and only then does the phone report in.
 Config.PhoneTracking = {
     Enabled = true,
  
-    -- Judicial approval. Turning this off grants the request immediately, but
-    -- the officer still has to execute it — the warrant step is skipped, not
-    -- the trigger. A policy decision for your server, not a convenience
-    -- setting; the audit log records it either way.
+    -- Judicial approval.
     RequireApproval = true,
  
-    -- How long a granted warrant stays executable, in seconds. Approval does
-    -- not start anything: the officer runs the track themselves, when they are
-    -- actually in a position to act on it. This is the window they have to do
-    -- that in — an approval read in the morning should not still authorise
-    -- surveillance that evening. Unused warrants lapse and need a new request.
+    -- How long a granted warrant stays executable, in seconds.
     ApprovalValidFor = 7200,  -- 2 hours
  
-    -- How long an approved track runs, in seconds, and how far apart the
-    -- pings are. With the defaults that is three pings: one on approval and
-    -- one a minute later, then a third, then the track expires. Enough to see
-    -- roughly where somebody is and which way they are moving, without
-    -- turning into a live feed.
+    -- How long an approved track runs, in seconds, and how far apart the pings
+    -- are.
     Duration     = 180,
     PingInterval = 60,
  
-    -- Radius in metres the reported position is scattered within. This is what
-    -- makes it a rough fix rather than a GPS lock — the marker on the map is
-    -- drawn at this size, so officers can see the uncertainty instead of
-    -- having to be told about it.
+    -- Radius in metres the reported position is scattered within.
     Accuracy = 150,
  
     -- How many tracks may run at once, server-wide.
     MaxActive = 3,
  
     -- Keep expired tracks and their pings for this many days, then delete.
-    -- Surveillance records should not accumulate forever.
     RetentionDays = 14,
 }
 
@@ -247,15 +220,12 @@ Config.PhoneTracking = {
 -- defined somewhere. There is deliberately NO global fallback: a job with no range
 -- configured is a configuration mistake, and the MDT says so instead of quietly
 -- handing out numbers from a range nobody chose.
---
 -- Lookup order for an officer:
 --   1. Callsigns.Jobs[<job name>]      — e.g. 'lspd'
 --   2. Callsigns.JobTypes[<job type>]  — e.g. 'leo'
 --   3. nothing → the picker refuses and tells you which job is unconfigured
---
 -- A Jobs entry replaces the JobTypes entry completely; it is not merged into it. If
 -- one department needs its own block of numbers, spell that block out in full.
---
 -- Per block:
 --   Min, Max   (required) the pickable range
 --   Pad        digits to pad to: 2 → 01..99, 3 → 001..999. 0 or omitted = no padding
@@ -266,13 +236,11 @@ Config.PhoneTracking = {
 --   Blocked    forbidden outright. No permission unlocks a blocked callsign — it is
 --              the config saying "this number does not exist". Use it for numbers the
 --              radio uses, numbers you're holding back, or ones you never want issued.
---
 -- Reserved and Blocked take a LIST of entries — single numbers and ranges:
 --   Reserved = {
 --       { n = 1, why = 'Chief of Police' },             -- one number
 --       { from = 2, to = 5, why = 'Command staff' },    -- a range
 --   }
---
 -- The bracket form ([1] = 'Chief of Police') is NOT accepted, and that's deliberate.
 -- In Lua a keyless entry IS index 1, so writing
 --       { [1] = 'Chief of Police', { from = 2, to = 5, why = 'Command staff' } }
@@ -350,19 +318,14 @@ Config.IA = {
     -- Anti-spam: how long a citizen must wait between filing complaints.
     CooldownMs = 300000, -- 5 minutes
 
-    -- E-mail the complainant when their complaint changes status. Uses the phone
-    -- resource from Config.Phone; silently skipped if none is running.
+    -- E-mail the complainant when their complaint changes status.
     NotifyComplainant = true,
     MailSender = 'Internal Affairs',
 }
 
 
--- Housing / Properties Integration
--- The MDT shows the properties a citizen owns on their profile. Every housing
--- resource stores this in a different table with different column names, so
--- pick the system you run below — or define a fully custom mapping.
---
--- To switch systems you normally ONLY change `Config.Housing.system`.
+-- Housing / Properties Integration The MDT shows the properties a citizen
+-- owns on their profile.
 Config.Housing = {
     enabled = true,             -- false = hide the properties feature entirely (no housing DB queries are run)
     system  = 'qbx_properties', -- which preset below to use, or 'custom'
@@ -375,13 +338,11 @@ Config.Housing = {
     --   coords     = column holding coords as JSON (used for the "set waypoint" button; optional)
     --   keyholders = column holding keyholders as JSON array/object (optional)
     -- Set a column to nil if your system doesn't have it.
-    --
     -- For TWO-TABLE systems (e.g. qb-houses), where the property definition and
     -- the ownership live in separate tables, add a `join` (see the qb_houses
     -- preset below for a complete example).
     Presets = {
-        -- Qbox properties (default). This matches the table the MDT used before
-        -- this option existed, so leaving it selected keeps the old behaviour.
+        -- Qbox properties (default).
         qbx_properties = {
             table = 'properties',
             columns = {
@@ -394,8 +355,6 @@ Config.Housing = {
         },
 
         -- Project Sloth Housing (ps-housing).
-        -- ps-housing has no single coords column (it uses door_data), and the
-        -- display name comes from `street`.
         ps_housing = {
             table = 'properties',
             columns = {
@@ -470,34 +429,15 @@ Config.Housing = {
     },
 }
 
--- ─────────────────────────────────────────────────────────────────────────────
---  Vehicle MDT — License Points
--- ─────────────────────────────────────────────────────────────────────────────
--- "License points" are shown on a vehicle's MDT profile and (optionally) in the
--- vehicle list. Officers add them one at a time, or via quick presets, on the
--- vehicle detail view (requires the `vehicles_edit_dmv` permission).
+-- Vehicle MDT — License Points "License points" are shown on a vehicle's MDT
+-- profile and (optionally) in the vehicle list.
 Config.VehiclePoints = {
     enabled   = false, -- false = hide points everywhere (list column, profile, editor) and reject point writes
     visualMax = 12,   -- how many pips the points bar draws before showing a "+N" overflow badge
 }
 
--- ─────────────────────────────────────────────────────────────────────────────
---  Vehicle MDT — Insurance Integration
--- ─────────────────────────────────────────────────────────────────────────────
--- When enabled, a vehicle's STATUS (the pill shown top-right on the profile and
--- in the vehicle list) is driven LIVE by your insurance resource instead of being
--- set by hand — officers can no longer edit status/reason manually.
---
--- When DISABLED, the status simply defaults to "Valid" everywhere and NO insurance
--- lookups are performed.
---
--- The lookup is fully configurable so you can point it at whatever insurance script
--- you run. Example (m-Insurance), which uses a callback-style export:
---     exports['m-Insurance']:HasCarInsurance('ABC123', function(hasInsurance) ... end)
---
--- NOTE: lookups always FAIL OPEN — a missing resource/export, an error, or a
--- timeout is treated as "insured", so a broken insurance script can never wrongly
--- flag every vehicle as uninsured.
+-- Vehicle MDT — Insurance Integration When enabled, a vehicle's STATUS (the
+-- pill shown top-right on the profile and in.
 Config.VehicleInsurance = {
     enabled  = false,
     resource = 'm-Insurance',     -- resource that exposes the export
@@ -510,9 +450,7 @@ Config.VehicleInsurance = {
 
     timeout  = 2000, -- ms to wait for a callback answer before failing open (treated as insured)
 
-    -- Resolve insurance for EVERY row in the vehicle list? On large servers this is
-    -- one lookup per vehicle. Set false to only resolve it on the detail view (the
-    -- list then shows "Valid" until a vehicle is opened).
+    -- Resolve insurance for EVERY row in the vehicle list?
     resolveInList = true,
 
     -- How the insured/uninsured result maps onto the existing status/reason pill:
@@ -521,22 +459,8 @@ Config.VehicleInsurance = {
     uninsuredReason = 'No active insurance',  -- reason text shown next to the pill
 }
 
--- ─────────────────────────────────────────────────────────────────────────────
---  Vehicle MDT — Registration Integration
--- ─────────────────────────────────────────────────────────────────────────────
--- A sibling of Config.VehicleInsurance. When enabled, a vehicle's REGISTRATION
--- (shown as its own Registered/Unregistered field on the profile + in the vehicle
--- list, and as a pill in the profile detail view) is resolved LIVE from a
--- configurable resource. When disabled, every vehicle simply reads "Registered"
--- and NO registration lookups are performed.
---
--- The lookup is fully configurable. Example (m-Insurance), which uses a
--- callback-style export:
---     exports['m-Insurance']:HasCarRegistration('ABC123', function(hasReg) ... end)
---
--- NOTE: lookups always FAIL OPEN — a missing resource/export, an error, or a
--- timeout is treated as "registered", so a broken script can never wrongly flag
--- every vehicle as unregistered.
+-- Vehicle MDT — Registration Integration A sibling of
+-- Config.VehicleInsurance.
 Config.VehicleRegistration = {
     enabled  = false,
     resource = 'm-Insurance',        -- resource that exposes the export
@@ -549,9 +473,7 @@ Config.VehicleRegistration = {
 
     timeout  = 2000, -- ms to wait for a callback answer before failing open (treated as registered)
 
-    -- Resolve registration for EVERY row in the vehicle list? On large servers this
-    -- is one lookup per vehicle. Set false to only resolve it on the detail view
-    -- (the list then shows "Registered" until a vehicle is opened).
+    -- Resolve registration for EVERY row in the vehicle list?
     resolveInList = true,
 
     -- Reason text shown next to the pill when a vehicle is NOT registered:
@@ -564,25 +486,10 @@ Config.RegisterCreatedWeapons = false -- Also auto-register weapons on item crea
 
 -- Weapon Image Path 
 Config.WeaponImagePath = 'nui://ox_inventory/web/images/'
--- ─────────────────────────────────────────────────────────────────────────────
--- Impound
--- ─────────────────────────────────────────────────────────────────────────────
--- Releasing a vehicle puts it straight back into the owner's garage — they
--- retrieve it there like any other car. Lots are purely a record of WHERE the
--- vehicle is being held while impounded.
+-- Impound Releasing a vehicle puts it straight back into the owner's garage
+-- — they retrieve it there like any other car.
 Config.Impound = {
     -- Master switch for the whole impound feature.
-    --
-    -- Off means off everywhere, not merely hidden: the on-site command is never
-    -- registered, every server callback refuses, the tab and the dashboard tile
-    -- disappear, the civilian view stops offering to settle fees, and the plate
-    -- check drops its impound-history flag. A server that tows through another
-    -- resource should not have a second half-wired impound system sitting
-    -- behind a hidden button.
-    --
-    -- Existing records are left alone. Turning this back on brings the history
-    -- back exactly as it was, and vehicles already held stay held — the state
-    -- lives in mdt_impound and player_vehicles, not in this flag.
     Enabled = true,
 
     Lots = {
@@ -592,10 +499,6 @@ Config.Impound = {
 
     -- Impound reasons offered in the MDT, each with a default fee (the officer
     -- can still edit the fee when impounding).
-    -- `hold` is the duration id (see Durations below) that gets pre-selected when an
-    -- officer picks this reason. It's a recommendation, not a rule: the officer can
-    -- always change it before filing. Omit it and the reason falls back to
-    -- DefaultDuration.
     Reasons = {
         { label = 'Evidence / Investigation', fee = 0,    hold = 'hold' },
         { label = 'Reckless Driving',         fee = 750,  hold = '1d' },
@@ -628,46 +531,31 @@ Config.Impound = {
     },
     DefaultDuration = 'hold',
 
-    -- Collecting the fee takes money out of a citizen's account. An officer pressing a
-    -- button on the other side of the map to do that is a strange kind of power — no
-    -- towing company on earth debits your account remotely.
-    --
-    -- So Collect becomes what it pretends to be: a payment taken at the counter, with
-    -- both people standing there. The owner must be within this many metres of the
-    -- officer. Citizens who aren't nearby can still settle the bill themselves in the
-    -- civilian MDT (Config.CivilianAccess.payImpounds).
-    --
-    -- Set to 0 to disable the check and go back to collecting from any distance.
+    -- Collecting the fee takes money out of a citizen's account.
     CollectRange = 6.0,
 
-    -- How many vehicles the lot view lists before the "Load more" button. A busy lot
-    -- otherwise renders every held vehicle at once and the modal scrolls forever.
+    -- How many vehicles the lot view lists before the "Load more" button.
     LotPageSize = 10,
 
     -- E-mail the owner when their vehicle is impounded, charged, or released.
-    -- The owner is usually nowhere near the vehicle when it happens, so an on-screen
-    -- notification they never see is worse than useless. Uses Config.Phone.
     NotifyOwner = true,
     MailSender  = 'Vehicle Impound Unit',
 
     -- Storage fee: grows for every day the vehicle sits in the lot, capped so it
-    -- can never run away. Computed from the impound date, never accumulated by a
-    -- timer, so it survives restarts and can't drift.
+    -- can never run away.
     Storage = {
         PerDay  = 500,
         MaxDays = 7,    -- after this many days the storage fee stops growing
     },
 
     -- On-site impound: /impound takes the vehicle the officer is in, or the
-    -- nearest one. Vehicles that nobody owns (NPC traffic) are simply removed and
-    -- the officer gets a small payout for keeping the streets clear.
+    -- nearest one.
     OnSite = {
         Command   = 'mdtimpound',
         -- How far the officer may stand from the vehicle.
         MaxDistance = 6.0,
 
-        -- The officer documents the vehicle, then radios it in. Both steps are
-        -- cancellable: walking away aborts the impound and nothing is written.
+        -- The officer documents the vehicle, then radios it in.
         Sequence = {
             NotepadMs = 4500,   -- writing it up on the clipboard
             RadioMs   = 6000,   -- calling the tow truck in
@@ -681,9 +569,8 @@ Config.Impound = {
             RewardMin   = 100,
             RewardMax   = 200,
             Account     = 'cash',
-            -- Anti-abuse: seconds between payouts, and how many an officer can
-            -- earn per shift (resets when they go off duty / the server restarts).
-            -- everything is logged
+            -- Anti-abuse: seconds between payouts, and how many an officer can earn per
+            -- shift (resets when they go off duty / the server restarts).
             Cooldown    = 120,
             MaxPerShift = 20,
         },
@@ -715,64 +602,43 @@ Config.MedicalJobs = {
 -- Lets a plate scanner ask the MDT what it knows about a plate, and pushes a
 -- ps-dispatch alert to the scanning officer when something is worth stopping
 -- for. Hook it up from your radar resource:
---
 --     exports['ps-mdt']:PlateCheckAlert(source, plate, coords)  -- look up + alert
 --     local res = exports['ps-mdt']:CheckPlate(plate)           -- look up only
---
 -- The lookup works without ps-dispatch; only the alert is skipped then.
 Config.PlateCheck = {
     -- Chat command for manual checks and testing. false disables it.
     command = 'checkplate',
 
-    -- Job types allowed to run plate checks. CheckAuth (the MDT's general
-    -- access gate) also accepts EMS and DOJ, which have no business querying
-    -- plates — so this narrows it to police only by default. Add job types to
-    -- widen it, or set to false to allow everyone CheckAuth accepts.
+    -- Job types allowed to run plate checks.
     allowedJobTypes = { Config.PoliceJobType },
 
-    -- Write an entry to mdt_audit_logs so who ran which plate stays
-    -- reviewable. Only scans that actually ALERT are logged: a continuous
-    -- radar passes hundreds of plates a minute and logging each one would
-    -- bury the interesting queries and out-write the rest of the MDT.
+    -- Write an entry to mdt_audit_logs so who ran which plate stays reviewable.
     audit = true,
     auditEveryScan = false, -- true: log every single scan (write-heavy)
 
     -- ── Built for continuous scanning ────────────────────────────────────
-    -- Repeat lookups of the same plate are answered from memory for this
-    -- long instead of hitting the database again. Concurrent lookups of one
-    -- plate additionally share a single query.
-    -- Rough sizing: one entry per distinct plate seen within cacheSeconds,
-    -- shared across ALL officers. On a busy 500-slot server with 30 units
-    -- scanning, 2000 is comfortable (a few hundred KB); raise cacheSeconds
-    -- before raising the cap if the database is the bottleneck.
+    -- Repeat lookups of the same plate are answered from memory for this long
+    -- instead of hitting the database again.
     cacheSeconds = 60,
     cacheMaxEntries = 2000,
 
-    -- Do not alert the same officer about the same plate again within this
-    -- many seconds. 0 disables the cooldown.
+    -- Do not alert the same officer about the same plate again within this many
+    -- seconds.
     alertCooldown = 120,
 
-    -- Hard ceiling on plate alerts per officer per minute, so a street full
-    -- of flagged cars stays readable. 0 disables the ceiling.
+    -- Hard ceiling on plate alerts per officer per minute, so a street full of
+    -- flagged cars stays readable.
     maxAlertsPerMinute = 6,
 
     -- Which flags are looked for, and how urgent a hit is.
-    -- 'critical' -> priority 1 alert (red card + urgent sound)
-    -- 'warning'  -> routine alert
     checks = {
         bolo         = { enabled = true,  severity = 'critical' },
         stolen       = { enabled = true,  severity = 'critical' },
         warrants     = { enabled = true,  severity = 'critical' }, -- owner wanted
-        -- Registered owner has no driver licence. Only an explicit `false` in
-        -- their metadata counts — a missing entry is treated as unknown, not
-        -- as unlicensed, so characters whose framework never wrote the key do
-        -- not all light up. (Compare Config.PlateScanForDriversLicense, which
-        -- does the same for the Wolfknight radar integration.)
+        -- Registered owner has no driver licence.
         driverLicense = { enabled = true, severity = 'warning' },
-        -- Impound HISTORY, not a yes/no: how often this vehicle has ended up
-        -- in a lot. Below minCount it stays quiet (one impound says nothing),
-        -- from criticalCount it counts as critical — as does a vehicle whose
-        -- record says it is currently held, since it should not be driving.
+        -- Impound HISTORY, not a yes/no: how often this vehicle has ended up in a
+        -- lot.
         impounds     = { enabled = true,  severity = 'warning', minCount = 2, criticalCount = 5 },
         insurance    = { enabled = true,  severity = 'warning'  }, -- needs Config.VehicleInsurance
         registration = { enabled = true,  severity = 'warning'  }, -- needs Config.VehicleRegistration
@@ -781,9 +647,7 @@ Config.PlateCheck = {
 
     alert = {
         enabled = true,
-        -- Stay silent on clean plates. Leave this true unless the scanner is
-        -- manually triggered: a ping on every passing car is noise within
-        -- minutes, and officers stop reading the alerts entirely.
+        -- Stay silent on clean plates.
         silentWhenClean = true,
         code = '10-28',   -- shown on the alert card
         alertTime = 12,   -- seconds on screen
@@ -825,40 +689,32 @@ Config.Warrants = {
     DefaultExpiryDays = 7, -- Default warrant expiry when no date is provided
 }
 
--- ---------------------------------------------------------------------------
 -- Personnel data cleanup (Phase 1 core)
--- ---------------------------------------------------------------------------
 -- When an officer is terminated, the boss panel can optionally wipe that
 -- person's PERSONAL MDT footprint. The guiding rule: remove only data that
 -- belongs to the individual (their own file/footprint) and that cannot harm
 -- ongoing investigations or other officers' records.
---
 -- DELETED (their own data): profile tags, sessions, identifiers, clock records,
 --   gallery, officer status, SOP acknowledgements, their FTO trainee file,
 --   PPRs written ABOUT them, messages they sent, patrol membership, and audit
 --   log entries about them.
---
 -- ALWAYS KEPT (investigative / shared / other officers): reports, charges,
 --   evidence, BOLOs, cases, warrants, arrests, weapons, court records,
 --   licenses, the core mdt_profiles identity row (kept so FK-cascaded
 --   investigative rows like warrants are never removed), award/penal/SOP
 --   definitions, and any record the person authored in SOMEONE ELSE'S file
 --   (e.g. DORs they wrote as a trainer, PPRs they authored about others).
---
 -- The cleanup engine schema-checks every table/column at runtime, so missing
 -- or renamed tables are skipped instead of erroring. Toggle the optional parts:
 Config.PersonnelCleanup = {
     -- Master switch: even if the boss ticks the box, cleanup only runs when this
-    -- is true. Lets server owners disable the destructive path entirely.
+    -- is true.
     Enabled = true,
 
     -- Remove audit-log rows whose subject (entity_id) is the fired person.
-    -- Their actions-as-actor logs are left intact for accountability unless you
-    -- also enable DeleteActorAuditLogs below.
     DeleteSubjectAuditLogs = true,
 
-    -- Also remove audit-log rows where the fired person was the ACTOR. Off by
-    -- default because it erases "who did what" history other staff may rely on.
+    -- Also remove audit-log rows where the fired person was the ACTOR.
     DeleteActorAuditLogs = false,
 
     -- Remove messages the fired person sent.
@@ -909,7 +765,6 @@ Config.CameraViewer = {
     },
 }
 
--- ============================================================================
 --  Dashcams (police vehicle cameras)
 --  IMPORTANT: a vehicle only gets a working dashcam if its model is listed in
 --  `Positions.models` below. Unconfigured vehicles still show in the camera
@@ -918,7 +773,6 @@ Config.CameraViewer = {
 --  Offsets are in the vehicle's local space: side = +right, forward = +front,
 --  height = +up (metres), pitch = camera tilt (negative looks down). Rear
 --  values are optional and fall back to the front values. Keys are spawn names.
--- ============================================================================
 Config.Dashcam = {
     -- Only vehicles of this class are considered (18 = Emergency, same as the
     -- tracking system uses to identify police vehicles). Checked on the client.
@@ -946,7 +800,6 @@ Config.TabletCam = {
     ExitDuration = 700,  -- tablet -> gameplay cam
  
     -- Block driving / exiting / combat while the tablet is open.
-    -- Set to false if your server wants passengers to keep control.
     DisableDriving = true,
  
     -- Hide the minimap while the tablet cam is up
@@ -967,7 +820,6 @@ Config.TabletCam = {
     },
  
     -- Only add models where the base values actually look wrong.
-    -- Generate these lines in game with /mdtcamtune -> E (see tablet_cam_tune.lua)
     Overrides = {
         [`police5`] = { offset = vec3(0.430, 0.150, 0.440), rot = vec3(-26.0, 0.0, -19.5), fov = 45.0 },
         -- [`sheriff2`] = { offset = vec3(...), rot = vec3(...), fov = 45.0 },
@@ -1085,13 +937,11 @@ Config.Bodycam = {
     DutyResource = 'qb-core',
     MultiJobResource = 'ps-multijob',
 
-    -- Officers control their own bodycam. Turning it off is deliberately NOT blocked —
-    -- it is recorded instead. Every change lands in mdt_bodycam_log with who, when and
-    -- why, readable in the MDT. Accountability rather than a lock.
+    -- Officers control their own bodycam.
     Command = 'bodycam',
 
-    -- Default for the "switch automatically with duty" preference in Settings, used
-    -- until a player saves their own choice.
+    -- Default for the "switch automatically with duty" preference in Settings,
+    -- used until a player saves their own choice.
     AutoDutyDefault = true,
 
     -- Tell the officer when their bodycam changes state.
@@ -1099,15 +949,9 @@ Config.Bodycam = {
 
 }
 
--- Officer Status (Map tab) ---------------------------------------------------
--- Defines every selectable status. `id` is the stable key stored in the DB and
--- sent over the wire — never rename an existing id, only add new ones, or
--- officers who saved an old status will fall back to Default below.
--- `id`   : stable key (string, no spaces, lowercase recommended)
--- `label`: display name shown in the UI
--- `color`: hex used for the badge/dot and map marker ring
--- `icon` : optional emoji/short glyph shown next to the label (purely visual)
--- To add a new status, just append a new entry — no other file needs to change.
+-- Officer Status (Map tab)
+-- --------------------------------------------------- Defines every
+-- selectable status.
 Config.OfficerStatus = {
     -- `dashboard` controls whether the status appears as a chip in the
     -- dashboard's dispatch breakdown widget. Officers in a hidden status
@@ -1130,20 +974,13 @@ Config.OfficerStatus = {
     ChangeCooldownMs = 1500,
 
     -- ── Automatic status from dispatch lifecycle ────────────────────────────
-    -- Attach to a call        -> EnRouteStatus
-    -- Arrive at call coords   -> OnSceneStatus
-    -- Detach / call dismissed -> RevertStatus
-    -- The automation NEVER fights the officer: it only replaces statuses
-    -- listed in Overridable, and a manual status change while en route /
-    -- on scene disengages the automation for that call entirely.
+    -- Attach to a call -> EnRouteStatus Arrive at.
     Auto = {
         Enabled = true,
         EnRouteStatus = 'enroute',
         OnSceneStatus = 'onscene',
         RevertStatus  = 'active',
         -- Statuses the automation is allowed to replace on assignment.
-        -- Deliberate away-states (break/training/unavailable) are preserved:
-        -- assigning such an officer leaves their status untouched.
         Overridable = { 'active', 'busy', 'enroute', 'onscene' },
         -- Metres (2D) from the call coords that count as "arrived".
         OnSceneRadius = 100.0,
@@ -1155,13 +992,10 @@ Config.OfficerStatus = {
     },
 }
 
--- ---------------------------------------------------------------------------
 --  Department policy permissions
--- ---------------------------------------------------------------------------
 -- Permissions that come WITH A RANK, the way a department's own regulations
 -- would grant them — not something a supervisor hands out in the Management
 -- tab. In the MDT they show up ticked and locked, labelled "Department Policy".
---
 -- Example:
 -- Config.PermissionDefaults = {
 --     police = {
@@ -1172,46 +1006,31 @@ Config.OfficerStatus = {
 Config.PermissionDefaults = Config.PermissionDefaults or {}
 
 -- Ranks build on each other: a grade also gets everything the lower grades
--- are granted. In the example above a grade 1 officer holds BOTH
--- access_reports and view_bodycams, and grades you never list still inherit
--- from below instead of ending up with nothing.
--- Set to false if each grade should only get its own exact list.
+-- are granted.
 Config.PermissionDefaultsCumulative = true
 
 -- How policy interacts with what a boss configures in the Management tab:
---
 --   'merge'          Policy always applies, on top of whatever is stored.
 --                    Add a permission here and every matching rank has it
 --                    immediately, including ranks saved months ago. Bosses
 --                    grant EXTRA permissions on top; they cannot revoke
 --                    policy ones. (Recommended, and what most people expect
 --                    the word "defaults" to mean.)
---
 --   'seed'           The old behaviour: policy only fills in a rank that has
 --                    never been saved in the MDT. The first time a boss saves
 --                    that rank — even without changing anything — this config
 --                    stops affecting it for good.
---
 --   'authoritative'  Policy is the only source. The Management tab becomes
 --                    read-only in effect; for servers that manage permissions
 --                    in this file exclusively.
 Config.PermissionDefaultsMode = 'merge'
 
--- ---------------------------------------------------------------------------
---  Camera tampering
--- ---------------------------------------------------------------------------
--- Cameras can be shot out. Detection works off the shooter's last bullet impact
--- position rather than an entity, so it covers BOTH player-placed cameras (which spawn a
--- prop) and virtual cameras mapped onto existing world models, with one code path and no
--- dependency on any other resource.
---
--- Officers cannot toggle cameras from the MDT by design — a camera goes down because
--- someone put a bullet in it, and comes back on its own after a cooldown.
+-- Camera tampering Cameras can be shot out.
 Config.CameraTamper = {
     Enabled = true,
 
-    -- How close a bullet impact must land to count as a hit on the camera, in metres.
-    -- Generous enough to feel fair, tight enough that stray rounds don't kill cameras.
+    -- How close a bullet impact must land to count as a hit on the camera, in
+    -- metres.
     HitRadius = 2.0,
 
     -- How long a camera stays down after being shot.
@@ -1220,13 +1039,11 @@ Config.CameraTamper = {
     -- Only count impacts from actual firearms (melee/explosions ignored).
     RequireFirearm = true,
 
-    -- Fire `ps-mdt:server:cameraTampered` so a server can route the alert into whatever
-    -- dispatch it runs. The MDT itself doesn't call into another resource.
+    -- Fire `ps-mdt:server:cameraTampered` so a server can route the alert into
+    -- whatever dispatch it runs.
     EmitEvent = true,
 
-    -- Client-side gap between two reported shots. CEventGunShot fires per round, so this
-    -- keeps sustained automatic fire from reporting every single one. Short enough that a
-    -- follow-up shot at a camera still counts.
+    -- Client-side gap between two reported shots.
     ReportCooldownMs = 250,
 
     -- Server-side throttle on impact reports, per player, as a second line of defence.
@@ -1234,9 +1051,7 @@ Config.CameraTamper = {
     ReportWindowMs = 1000,
 }
 
--- ---------------------------------------------------------------------------
 --  Applications (civilian job applications)
--- ---------------------------------------------------------------------------
 -- Civilians apply for a department in-game via a command. Each department has its own
 -- command so the applicant lands straight on the right form. The QUESTIONS themselves
 -- are NOT configured here — they're managed live in the MDT (Management → Applications),
@@ -1244,9 +1059,7 @@ Config.CameraTamper = {
 Config.Applications = {
     Enabled = true,
 
-    -- One command per department. `id` must match the department id used everywhere else
-    -- (the job name is the natural choice). `label` is the form's title. `description` is
-    -- the chat autocomplete hint; omit it and it defaults to "Apply to <label>".
+    -- One command per department.
     Departments = {
         { id = 'police',    command = 'applypolice', label = 'LSPD Application', description = 'Apply to join the LSPD' },
         { id = 'ambulance', command = 'applyems',    label = 'EMS Application',  description = 'Apply to join EMS' },
@@ -1263,13 +1076,8 @@ Config.Applications = {
     MaxAnswerLength = 2000,
 }
 
--- ---------------------------------------------------------------------------
---  Rate limiting
--- ---------------------------------------------------------------------------
--- A client can send NUI events as fast as it can generate them. These caps stop one
--- misbehaving client from flooding the database with records. They're deliberately
--- generous — a real officer writing quickly will never hit them — and apply per player,
--- per action. { max, windowMs }: at most `max` of that action per `windowMs`.
+-- Rate limiting A client can send NUI events as fast as it can generate
+-- them.
 Config.RateLimits = {
     Enabled = true,
 
@@ -1281,14 +1089,8 @@ Config.RateLimits = {
     sendMessage    = { max = 20, windowMs = 15000 },
 }
 
--- ---------------------------------------------------------------------------
---  Department banking
--- ---------------------------------------------------------------------------
--- Fines and impound fees were taken off citizens and then simply ceased to exist.
--- That money should land somewhere: the department that collected it.
---
--- Every banking script has its own idea of how to be paid, so this doesn't pick one.
--- Choose a Method and fill in the block for it; if none of them fit, write Custom.
+-- Department banking Fines and impound fees were taken off citizens and then
+-- simply ceased to exist.
 Config.DepartmentBanking = {
     Enabled = true,
 
@@ -1303,8 +1105,8 @@ Config.DepartmentBanking = {
         -- ['ambulance'] = 'ems',
     },
 
-    -- Where the money goes when the department can't be determined (an old impound
-    -- record from before this existed, say). Leave nil to skip the deposit instead.
+    -- Where the money goes when the department can't be determined (an old
+    -- impound record from before this existed, say).
     Fallback = nil,
 
     -- Method = 'export'
@@ -1320,19 +1122,15 @@ Config.DepartmentBanking = {
         -- Renewed-Banking:
         resource = 'Renewed-Banking', method = 'addAccountMoney',
         args = { 'account', 'amount' }
-        --
         -- okokBanking:
         --   resource = 'okokBanking', method = 'AddMoney',
         --   args = { 'account', 'amount' }
-        --
         -- qb-management (older QBCore):
         --   resource = 'qb-management', method = 'AddMoney',
         --   args = { 'account', 'amount' }
-        --
         -- tgg-banking:
         -- resource = 'tgg-banking', method   = 'AddSocietyMoney',
         -- args     = { 'account', 'amount' },
-        --
         -- esx_addonaccount is not an export — use Method = 'custom' below.
     },
 
@@ -1350,22 +1148,17 @@ Config.DepartmentBanking = {
     ---@param reason string
     ---@return boolean
     Custom = function(account, amount, reason)
-        -- ESX example:
-        -- TriggerEvent('esx_addonaccount:getSharedAccount', 'society_' .. account,
-        --     function(acc) acc.addMoney(amount) end)
-        -- return true
+        -- ESX example: TriggerEvent('esx_addonaccount:getSharedAccount', 'society_'
+        -- ..
         return false
     end,
 }
 
--- ---------------------------------------------------------------------------
 --  Audit log retention
--- ---------------------------------------------------------------------------
 -- The audit log grows with every report, search, impound and login, and nothing
 -- ever removed rows from it. That's fine for a week and a problem after a year:
 -- the Activity page runs a COUNT(*) over the whole table on every page load, and
 -- InnoDB has no cached row count, so it gets slower in step with the table.
---
 -- Keeping a bounded window fixes that at the root. Set Enabled = false if you'd
 -- rather keep everything forever (or ship it off to FiveManage and prune there).
 Config.AuditRetention = {
@@ -1377,16 +1170,11 @@ Config.AuditRetention = {
     -- How often the sweep runs. It also runs once shortly after startup.
     IntervalHours = 24,
 
-    -- Rows deleted per statement. The sweep loops until it's done, yielding between
-    -- batches, so the very first run on a huge table doesn't hold a long lock or
-    -- stall the server thread.
+    -- Rows deleted per statement.
     BatchSize = 2000,
 }
 
--- HIGHLY recommended not tuse this natively. Use FiveManage for this.
--- Activity Tracking - Controls which actions are logged to the audit trail
--- Categories can be toggled on/off from the Settings page in the MDT
--- These are the DEFAULT values; runtime changes are stored in the mdt_settings table
+-- HIGHLY recommended not tuse this natively.
 Config.AuditTracking = {
     authentication = true,   -- Login/logout events
     reports = true,          -- Report create, update, delete
@@ -1436,13 +1224,8 @@ Config.CameraModels = {
     ['cctv_cam_09'] = 'hei_prop_bank_cctv_02',
 }
 
--- ============================================================================
---  Static Camera Placer (admin tool)
---  Opens an in-game menu to create / edit / reposition / delete static
---  security cameras using a 3D gizmo. The entry command is registered through
---  ox_lib's lib.addCommand, whose `restricted` field handles the admin gating
---  server-side (it auto-creates the `command.<name>` ace).
--- ============================================================================
+-- Static Camera Placer (admin tool) Opens an in-game menu to create / edit /
+-- reposition / delete static security cameras using a 3D gizmo.
 Config.CameraPlacer = {
     command = 'cameraplacer',  -- Chat command that opens the placer menu
     restricted = 'group.admin', -- ox_lib restricted group/ace allowed to use it
@@ -1457,17 +1240,15 @@ Config.Weapons = {
     { model = "weapon_navyrevolver", label = "Navy Revolver" },
     { model = "weapon_musket", label = "Musket" },
 }
--- ============================================================================
---  Court / Calendar (hearings, meetings, trainings)
---  Drives the DOJ calendar: reminder SMS, invite e-mails, automatic status
---  lifecycle and the attendee quick-add groups.
--- ============================================================================
+-- Court / Calendar (hearings, meetings, trainings) Drives the DOJ calendar:
+-- reminder SMS, invite e-mails, automatic status lifecycle and the attendee
+-- quick-add groups.
 Config.Court = {
     -- How many minutes before a hearing the reminder SMS goes out.
     ReminderLeadMinutes = 15,
 
     -- When a hearing created from a warrant is completed, auto-resolve the
-    -- linked BOLO (matched on the warrant's reportId). Set false to opt out.
+    -- linked BOLO (matched on the warrant's reportId).
     ResolveBolosOnComplete = true,
 
     -- Default lead time (days) for hearings scheduled straight from a warrant
@@ -1484,8 +1265,7 @@ Config.Court = {
     Email = {
         enabled = true,
         -- If a hearing is created with MORE attendees than this, the per-person
-        -- e-mails are skipped entirely (they still get the reminder SMS). This
-        -- prevents lag spikes on huge invite lists.
+        -- e-mails are skipped entirely (they still get the reminder SMS).
         MaxRecipients = 25,
         SendDelayMs = 50,    -- ms between each mail send
     },
@@ -1493,8 +1273,8 @@ Config.Court = {
     -- ---- Automatic status lifecycle --------------------------------------
     AutoStatus = {
         enabled = true,
-        -- scheduled  -> in_session  once scheduled_at is reached
-        -- in_session -> completed   once scheduled_at + duration + grace passed
+        -- scheduled -> in_session once scheduled_at is reached in_session ->
+        -- completed once scheduled_at + duration + grace.
         CompleteGraceMinutes = 5,
         -- true  = a completed hearing is deleted (calendar self-cleans)
         -- false = a completed hearing is kept with status 'completed'
@@ -1526,15 +1306,9 @@ Config.Court = {
     },
 }
 
--- ── Citations and parking tickets ───────────────────────────────────────────
--- The MDT tracks whether a ticket is paid; it never moves a citizen's money.
--- Payment happens in whatever banking or phone resource already holds it, and
--- that resource marks the ticket paid. Two systems with an opinion about one
--- balance is how balances drift.
---
--- Money collected does flow the other way: a paid ticket is deposited into the
--- issuing department's account through Config.DepartmentBanking, the same path
--- impound fees already use.
+-- ── Citations and parking tickets
+-- ─────────────────────────────────────────── The MDT tracks whether a
+-- ticket is paid; it never moves a citizen's money.
 Config.Citations = {
     Enabled = true,
 
@@ -1546,7 +1320,7 @@ Config.Citations = {
     DueDays = { citation = 7, parking = 14 },
 
     -- How long a warning stays on the record before it stops counting against
-    -- somebody. It remains visible in the file; it simply reads as spent.
+    -- somebody.
     WarningExpiryDays = 14,
 
     -- Charges a single ticket may carry. The form stops accepting more.
@@ -1554,20 +1328,18 @@ Config.Citations = {
 
     -- The two ticket types find their subject differently, because they are
     -- written in different situations:
-    --
     --   citation — an officer has someone in front of them. The picker lists
     --              nearby people; a vehicle is optional and attached by hand.
     --   parking  — the car is unattended and there is nobody to pick. The
     --              picker lists nearby vehicles instead, and the recipient is
     --              resolved from the plate's registered owner.
-    --
     -- Radii in metres. Police vehicles are skipped in both cases: an officer's
     -- own car is never the one being ticketed.
     PersonSearchRadius = 5.0,    -- citation: nearby people
     VehicleSearchRadius = 10.0,  -- parking: nearby vehicles
 
     -- A parking ticket against a plate with no registered owner still stands —
-    -- it is written against the vehicle. Set false to require a known owner.
+    -- it is written against the vehicle.
     AllowUnknownOwner = false,
 
     -- Postal codes. The field is hidden entirely — in the form and on the
@@ -1579,9 +1351,9 @@ Config.Citations = {
         Export = 'getPostal',
     },
 
-    -- Sits next to payImpounds and works the same way: the citizen has the ticket,
-    -- so they settle it themselves instead of finding an officer or a third
-    -- resource. The MDT already owns both the record and the money path.
+    -- Sits next to payImpounds and works the same way: the citizen has the
+    -- ticket, so they settle it themselves instead of finding an officer or a
+    -- third resource.
     payCitations = true,
 
     -- Account a fine is taken from when a citizen settles it ('bank' or 'cash').
@@ -1589,55 +1361,44 @@ Config.Citations = {
 
 
     Overdue = {
-        -- An unpaid ticket eventually becomes a warrant. Someone who has not
-        -- paid a fine cannot be punished with a larger fine, so the debt is
-        -- converted into time instead.
+        -- An unpaid ticket eventually becomes a warrant.
         Enabled = true,
 
         -- How often the sweep looks for overdue tickets, in minutes.
         CheckMinutes = 30,
 
-        -- Fine to jail conversion. Every this many dollars owed becomes one
-        -- month on the warrant.
+        -- Fine to jail conversion.
         DollarsPerMonth = 250,
 
-        -- Bounds on the result, so a $50 parking ticket doesn't produce a
-        -- zero-month warrant and a stacked one doesn't produce a life sentence.
+        -- Bounds on the result, so a $50 parking ticket doesn't produce a zero-month
+        -- warrant and a stacked one doesn't produce a life sentence.
         MinMonths = 1,
         MaxMonths = 12,
 
-        -- Which column of mdt_reports_warrants the months land in. Unpaid
-        -- fines are infractions, not felonies — the warrant should read as
-        -- what it is.
+        -- Which column of mdt_reports_warrants the months land in.
         Class = 'infractions',
 
-        -- Warrants hang off a report, so the sweep files one. This is its
-        -- title; the citation number is appended.
+        -- Warrants hang off a report, so the sweep files one.
         ReportTitle = 'Failure to pay citation',
     },
 
     -- ── Contesting ──────────────────────────────────────────────────────────
     -- Not signing a ticket finally means something: the recipient disputes it,
-    -- the clock stops, and a court decides. Until this existed, refusing to
-    -- sign had no consequence at all.
+    -- the clock stops, and a court decides.
     Contest = {
         Enabled = true,
 
-        -- Days the court has to rule. An unheard challenge lapses IN THE
-        -- CITIZEN'S FAVOUR — the ticket is dismissed. Deliberately that way
-        -- round: the delay is the department's, and somebody who disputed a
-        -- fine should not be punished for a hearing nobody held.
+        -- Days the court has to rule.
         DeadlineDays = 7,
 
-        -- Minimum length of the reason. Not a formality: a judge reading "no"
-        -- has nothing to weigh against the officer's account.
+        -- Minimum length of the reason.
         MinReasonLength = 20,
 
         -- Cap on the free-text fields.
         MaxReasonLength = 1000,
 
-        -- Notify the issuing officer that their ticket is being challenged, so
-        -- they can put their side on record before the hearing.
+        -- Notify the issuing officer that their ticket is being challenged, so they
+        -- can put their side on record before the hearing.
         NotifyOfficer = true,
     },
 
@@ -1646,11 +1407,9 @@ Config.Citations = {
     -- memory. Which resource and export to ask is configured here, because
     -- radars differ — and a remembered speed is a rounded speed, which matters
     -- when it decides the charge.
-    --
     -- The export may return either a bare number or a table; both are handled:
     --     return 121
     --     return { speed = 121, plate = 'ABC123' }
-    --
     -- With a plate, the form warns when the reading belongs to a different car
     -- than the one on the ticket. Set Resource = false to hide the button.
     Radar = {
@@ -1659,8 +1418,7 @@ Config.Citations = {
     },
 
     -- ── Animations ──────────────────────────────────────────────────────────
-    -- Every entry is configurable; set one to false to skip it. `props` takes a
-    -- list, because a notepad wants a pencil with it.
+    -- Every entry is configurable; set one to false to skip it.
     Animations = {
         Enabled = true,
 
@@ -1676,8 +1434,7 @@ Config.Citations = {
             },
         },
 
-        -- Held while a copy is open. Reading is not writing: the sheet is held
-        -- up rather than written on.
+        -- Held while a copy is open.
         Reading = {
             dict = 'missfam4',
             clip = 'base',
@@ -1687,9 +1444,7 @@ Config.Citations = {
             },
         },
 
-        -- Handing it over. The give gesture is the one that reads as an
-        -- exchange; 28422 is PH_R_Hand, so the paper is in the hand that
-        -- extends.
+        -- Handing it over.
         Handover = {
             dict = 'mp_common',
             clip = 'givetake1_a',
@@ -1698,14 +1453,12 @@ Config.Citations = {
                   pos = vec3(0.13, 0.02, 0.02), rot = vec3(-100.0, 0.0, 0.0) },
             },
             duration = 2200,
-            -- The recipient plays the receiving half, so it reads as one
-            -- exchange rather than two people gesturing past each other.
+            -- The recipient plays the receiving half, so it reads as one exchange rather
+            -- than two people gesturing past each other.
             recipientClip = 'givetake1_b',
         },
 
-        -- Putting a ticket on a windscreen. GTA has no wiper-blade animation,
-        -- so this borrows the parking-meter pose: bent forward, arm out. No
-        -- prop — the paper is left on the car.
+        -- Putting a ticket on a windscreen.
         Windscreen = {
             dict = 'amb@prop_human_parking_meter@male@idle_a',
             clip = 'idle_a',
@@ -1714,14 +1467,7 @@ Config.Citations = {
     },
 }
 
--- ═══════════════════════════════════════════════════════════════════════════
---  Radio in MDT
---  Lets players talk on the radio while the MDT is open. Because the MDT holds
---  full NUI focus, the game never sees a keypress — so instead of guessing at
---  the player's radio keybind, the MDT shows its own push-to-talk button in the
---  top bar. Hold it to transmit, release to stop. No keybind, nothing to
---  configure per player, and it works the same on every voice system.
--- ═══════════════════════════════════════════════════════════════════════════
+-- Radio in MDT Lets players talk on the radio while the MDT is open.
 Config.Radio = {
     Enabled = true,
  
