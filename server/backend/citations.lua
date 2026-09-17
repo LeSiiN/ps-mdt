@@ -753,3 +753,248 @@ lib.callback.register(resourceName .. ':server:getMyCitations', function(source)
     if not citizenid then return {} end
     return citationsFor(citizenid)
 end)
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  Contesting a citation
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Refusing to sign now means something: the recipient disputes the ticket, the
+-- deadline stops, and a court rules. Three accounts go into that decision —
+-- the ticket as written, the citizen's reason, and the officer's statement —
+-- because a judge holding only the form and a complaint is choosing between
+-- two assertions.
+
+local function contestCfg()
+    return (cfg().Contest) or {}
+end
+
+--- Dispute a ticket. Only your own, only while it is still owed.
+lib.callback.register(resourceName .. ':server:contestCitation', function(source, payload)
+    local src = source
+    if contestCfg().Enabled == false then
+        return { success = false, error = 'Contesting is disabled' }
+    end
+
+    local citizenid = MDT.getIdentifier(src)
+    local number = type(payload) == 'table' and payload.number or nil
+    local reason = type(payload) == 'table' and payload.reason or nil
+    if not citizenid or type(number) ~= 'string' then
+        return { success = false, error = 'Unknown citation' }
+    end
+
+    local minLen = tonumber(contestCfg().MinReasonLength) or 20
+    if type(reason) ~= 'string' or #reason < minLen then
+        return { success = false, error = ('Give a reason of at least %d characters'):format(minLen) }
+    end
+    reason = reason:sub(1, tonumber(contestCfg().MaxReasonLength) or 1000)
+
+    local row = MySQL.single.await([[
+        SELECT id, citizenid, status, type, officer_citizenid, citation_number
+        FROM mdt_citations WHERE citation_number = ?
+    ]], { number })
+    if not row then return { success = false, error = 'Unknown citation' } end
+    if row.citizenid ~= citizenid then
+        return { success = false, error = 'That citation was written for somebody else' }
+    end
+    -- Paying is acceptance. A warning has nothing to dispute.
+    if row.status == 'paid' then return { success = false, error = 'You already paid this ticket' } end
+    if row.status == 'void' then return { success = false, error = 'This ticket was already withdrawn' } end
+    if row.status == 'contested' then return { success = false, error = 'You already contested this ticket' } end
+    if row.type == 'warning' then return { success = false, error = 'A warning carries nothing to contest' } end
+
+    local days = tonumber(contestCfg().DeadlineDays) or 7
+    MySQL.update.await([[
+        UPDATE mdt_citations
+        SET status = 'contested',
+            contested_at = CURRENT_TIMESTAMP,
+            contest_reason = ?,
+            contest_deadline = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)
+        WHERE id = ?
+    ]], { reason, days, row.id })
+
+    -- The officer gets to put their side on record before the hearing. Their
+    -- silence is itself something a judge can weigh, so this is an invitation
+    -- rather than a requirement.
+    if contestCfg().NotifyOfficer ~= false and row.officer_citizenid then
+        local officer = MDT.getSource and MDT.getSource(row.officer_citizenid)
+        if not officer then
+            for _, pid in ipairs(GetPlayers()) do
+                pid = tonumber(pid)
+                if pid and MDT.getIdentifier(pid) == row.officer_citizenid then officer = pid break end
+            end
+        end
+        if officer then
+            TriggerClientEvent('ps-mdt:client:citationContested', officer, { number = number })
+        end
+    end
+
+    if MDT.auditLog then
+        CreateThread(function()
+            pcall(MDT.auditLog, src, 'citation_contested', 'citation', number, {
+                action_label = 'Contested citation ' .. number,
+            })
+        end)
+    end
+
+    return { success = true, deadlineDays = days }
+end)
+
+--- The officer's account of the stop, added after the fact.
+lib.callback.register(resourceName .. ':server:citationStatement', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+
+    local number = type(payload) == 'table' and payload.number or nil
+    local text = type(payload) == 'table' and payload.statement or nil
+    if type(number) ~= 'string' or type(text) ~= 'string' or text == '' then
+        return { success = false, error = 'Nothing to file' }
+    end
+
+    local citizenid = MDT.getIdentifier(src)
+    local row = MySQL.single.await(
+        'SELECT id, officer_citizenid FROM mdt_citations WHERE citation_number = ?', { number })
+    if not row then return { success = false, error = 'Unknown citation' } end
+    -- Only the officer who wrote it. A colleague's recollection of a stop they
+    -- were not at is not evidence.
+    if row.officer_citizenid ~= citizenid then
+        return { success = false, error = 'Only the issuing officer can file a statement' }
+    end
+
+    MySQL.update.await([[
+        UPDATE mdt_citations SET officer_statement = ?, statement_at = CURRENT_TIMESTAMP WHERE id = ?
+    ]], { text:sub(1, tonumber(contestCfg().MaxReasonLength) or 1000), row.id })
+
+    return { success = true }
+end)
+
+--- Every contested ticket, for the DOJ. Returns the whole picture in one read:
+--- the ticket as written, both accounts, and the timeline — so a judge is not
+--- choosing between two assertions with the paperwork somewhere else.
+lib.callback.register(resourceName .. ':server:getContested', function(source)
+    if not CheckAuth(source) then return {} end
+
+    -- An officer sees only the challenges against tickets THEY wrote: those are
+    -- the ones they can answer, and a colleague's stop is not theirs to account
+    -- for. The court sees all of them, because deciding is its job.
+    local isCourt = MDT.getJobType and MDT.getJobType(source) == 'doj'
+    local mine = (not isCourt) and MDT.getIdentifier(source) or nil
+
+    local rows = MySQL.query.await([[
+        SELECT id, citation_number, type, citizenid, recipient_name, plate, vehicle,
+               officer_name, officer_callsign, officer_job, location,
+               speed_measured, speed_limit, notes, charges,
+               fine_total, original_fine, signed_at,
+               contest_reason, officer_statement,
+               DATE_FORMAT(issued_at,        '%Y-%m-%d %H:%i') AS issued_at,
+               DATE_FORMAT(contested_at,     '%Y-%m-%d %H:%i') AS contested_at,
+               DATE_FORMAT(statement_at,     '%Y-%m-%d %H:%i') AS statement_at,
+               DATE_FORMAT(contest_deadline, '%Y-%m-%d %H:%i') AS contest_deadline,
+               TIMESTAMPDIFF(HOUR, CURRENT_TIMESTAMP, contest_deadline) AS hours_left
+        FROM mdt_citations
+        WHERE status = 'contested'
+          AND (? IS NULL OR officer_citizenid = ?)
+        -- Closest to lapsing first: an unheard challenge is dismissed, so the
+        -- one about to expire is the one the court needs to look at.
+        ORDER BY contest_deadline ASC
+    ]], { mine, mine }) or {}
+
+    for i = 1, #rows do
+        local ok, decoded = pcall(json.decode, rows[i].charges)
+        rows[i].charges = ok and decoded or {}
+    end
+    return rows
+end)
+
+--- Rule on a challenge.
+---@param payload table { number, verdict = 'upheld'|'dismissed'|'reduced', fine?, note? }
+lib.callback.register(resourceName .. ':server:citationVerdict', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+
+    local number = type(payload) == 'table' and payload.number or nil
+    local verdict = type(payload) == 'table' and payload.verdict or nil
+    if type(number) ~= 'string' or not ({ upheld = true, dismissed = true, reduced = true })[verdict] then
+        return { success = false, error = 'Invalid verdict' }
+    end
+
+    local row = MySQL.single.await([[
+        SELECT id, status, fine_total, original_fine FROM mdt_citations WHERE citation_number = ?
+    ]], { number })
+    if not row then return { success = false, error = 'Unknown citation' } end
+    if row.status ~= 'contested' then return { success = false, error = 'This citation is not under challenge' } end
+
+    local judge = MDT.getPlayerName(src) or 'Court'
+    local note = type(payload.note) == 'string' and payload.note:sub(1, 1000) or nil
+
+    if verdict == 'dismissed' then
+        -- Thrown out: nothing owed, and the record says why rather than simply
+        -- vanishing.
+        MySQL.update.await([[
+            UPDATE mdt_citations
+            SET status = 'void', verdict = 'dismissed', verdict_by = ?, verdict_note = ?,
+                verdict_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ]], { judge, note, row.id })
+
+    elseif verdict == 'reduced' then
+        local newFine = math.max(0, math.floor(tonumber(payload.fine) or 0))
+        local cap = tonumber(row.fine_total) or 0
+        -- A court may lower a fine, not raise one. Anything else would turn
+        -- disputing a ticket into a gamble.
+        if newFine > cap then newFine = cap end
+        local days = (cfg().DueDays or {}).citation or 7
+        MySQL.update.await(([[
+            UPDATE mdt_citations
+            SET status = 'open', fine_total = ?,
+                original_fine = COALESCE(original_fine, %d),
+                verdict = 'reduced', verdict_by = ?, verdict_note = ?,
+                verdict_at = CURRENT_TIMESTAMP,
+                due_at = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)
+            WHERE id = ?
+        ]]):format(cap), { newFine, judge, note, days, row.id })
+
+    else -- upheld
+        -- Stands, and the clock starts again from today: somebody who waited on
+        -- a hearing should not find the ticket already overdue.
+        local days = (cfg().DueDays or {}).citation or 7
+        MySQL.update.await([[
+            UPDATE mdt_citations
+            SET status = 'open', verdict = 'upheld', verdict_by = ?, verdict_note = ?,
+                verdict_at = CURRENT_TIMESTAMP,
+                due_at = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)
+            WHERE id = ?
+        ]], { judge, note, days, row.id })
+    end
+
+    return { success = true }
+end)
+
+-- Challenges nobody heard. The deadline is the department's to meet, so a
+-- lapsed one goes the citizen's way — the alternative is a fine that grows
+-- while somebody waits for a hearing that never comes.
+CreateThread(function()
+    Wait(45000)
+    while true do
+        if cfg().Enabled ~= false and contestCfg().Enabled ~= false then
+            local lapsed = MySQL.query.await([[
+                SELECT id, citation_number FROM mdt_citations
+                WHERE status = 'contested'
+                  AND contest_deadline IS NOT NULL
+                  AND contest_deadline < CURRENT_TIMESTAMP
+                LIMIT 25
+            ]]) or {}
+
+            for i = 1, #lapsed do
+                MySQL.update.await([[
+                    UPDATE mdt_citations
+                    SET status = 'void', verdict = 'dismissed', verdict_by = 'Court (no hearing)',
+                        verdict_note = 'Dismissed: not heard before the deadline.',
+                        verdict_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ]], { lapsed[i].id })
+                MDT.debug(('Contest lapsed -> dismissed: %s'):format(lapsed[i].citation_number))
+                Wait(50)
+            end
+        end
+        Wait(math.max(1, tonumber(overdueCfg().CheckMinutes) or 30) * 60000)
+    end
+end)

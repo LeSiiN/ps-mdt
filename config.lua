@@ -1616,6 +1616,31 @@ Config.Citations = {
         ReportTitle = 'Failure to pay citation',
     },
 
+    -- ── Contesting ──────────────────────────────────────────────────────────
+    -- Not signing a ticket finally means something: the recipient disputes it,
+    -- the clock stops, and a court decides. Until this existed, refusing to
+    -- sign had no consequence at all.
+    Contest = {
+        Enabled = true,
+
+        -- Days the court has to rule. An unheard challenge lapses IN THE
+        -- CITIZEN'S FAVOUR — the ticket is dismissed. Deliberately that way
+        -- round: the delay is the department's, and somebody who disputed a
+        -- fine should not be punished for a hearing nobody held.
+        DeadlineDays = 7,
+
+        -- Minimum length of the reason. Not a formality: a judge reading "no"
+        -- has nothing to weigh against the officer's account.
+        MinReasonLength = 20,
+
+        -- Cap on the free-text fields.
+        MaxReasonLength = 1000,
+
+        -- Notify the issuing officer that their ticket is being challenged, so
+        -- they can put their side on record before the hearing.
+        NotifyOfficer = true,
+    },
+
     -- ── Radar ───────────────────────────────────────────────────────────────
     -- The speed field can be filled from the last radar reading instead of from
     -- memory. Which resource and export to ask is configured here, because

@@ -21,6 +21,7 @@
 	import Reports from "../pages/Reports.svelte";
 	import Warrants from "../pages/Warrants.svelte";
 	import Charges from "../pages/Charges.svelte";
+	import Contests from "../pages/Contests.svelte";
 	import Roster from "../pages/Roster.svelte";
 	import Map from "../pages/Map.svelte";
 	import Citizens from "../pages/Citizens.svelte";
@@ -192,6 +193,7 @@
 			reports: "Reports",
 			warrants: "Warrants",
 			charges: "Charges",
+			contests: "Contests",
 			awards: "Awards",
 			cameras: "Cameras",
 			calendar: "Calendar",
@@ -247,6 +249,8 @@
 			<Warrants {tabService} {authService} />
 		{:else if activeComponent === "charges"}
 			<Charges {authService} />
+		{:else if activeComponent === "contests"}
+			<Contests {authService} />
 		{:else if activeComponent === "awards"}
 			<Awards {tabService} jobType={authService.jobType} />
 		{:else if activeComponent === "roster"}

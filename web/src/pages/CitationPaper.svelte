@@ -29,16 +29,44 @@
 		charges: Array<{ code: string; label: string; fine: number }>;
 		fine_total: number;
 		points_total: number;
-		status: "open" | "paid" | "void" | "overdue";
+		status: "open" | "paid" | "void" | "overdue" | "contested";
 		issued_at?: string;
 		due_at?: string;
 		signed_at?: string;
+		contest_reason?: string;
+		contested_at?: string;
+		statement_at?: string;
+		officer_statement?: string;
+		contest_deadline?: string;
+		verdict?: "upheld" | "dismissed" | "reduced";
+		verdict_by?: string;
+		verdict_note?: string;
+		original_fine?: number;
 	};
 
 	let row = $state<Row | null>(null);
 	let busy = $state(false);
 	let msg = $state("");
 	let copied = $state(false);
+
+	// Contesting is the other thing you can do instead of signing. It lives
+	// beside the signature because that is the choice being made: acknowledge
+	// it, or dispute it.
+	let contesting = $state(false);
+	let contestReason = $state("");
+
+	async function contest() {
+		if (!row) return;
+		busy = true;
+		try {
+			const res: any = await fetchNui(NUI_EVENTS.CITATION.CONTEST_CITATION, {
+				number, reason: contestReason,
+			});
+			if (res?.success) { contesting = false; contestReason = ""; await load(); }
+			else msg = res?.error ?? "Could not contest.";
+		} catch { msg = "Could not contest."; }
+		busy = false;
+	}
 
 	// Status is read fresh every time, never from item metadata. A slip written
 	// yesterday must not claim "unpaid" after the fine was settled this morning.
@@ -143,6 +171,10 @@
            what it is instead. -->
       {#if row.type === "warning"}
         <div class="cc-status s-warning">Warning · no fine · recorded only</div>
+      {:else if row.status === "contested"}
+        <div class="cc-status s-contested">
+          Contested · awaiting a hearing{#if row.contest_deadline} · decided by {fmt(row.contest_deadline)}{/if}
+        </div>
       {:else}
         <div class="cc-status s-{row.status}">
           {STATUS_LABEL[row.status] ?? row.status}
@@ -251,13 +283,66 @@
           {:else}
             <span class="p-sig-line"></span>
           {/if}
-          <span class="p-l">Signature of defendant{#if row.signed_at} · {fmt(row.signed_at)}{:else} · not signed{/if}</span>
+          <span class="p-l">
+            Signature of defendant{#if row.signed_at} · {fmt(row.signed_at)}
+            {:else if row.status === "contested"} · contested
+            {:else} · not signed{/if}
+          </span>
+          {#if !carbon && !row.signed_at && row.status !== "contested" && row.status !== "void" && row.type !== "warning"}
+            <!-- The alternative to signing, in the same place. Not a hidden
+                 action: refusing to acknowledge a ticket IS the dispute. -->
+            <button class="p-contest" onclick={() => (contesting = true)}>or contest this citation</button>
+          {/if}
         </div>
         <div class="p-sig">
           <span class="p-sig-name">{row.officer_callsign ? row.officer_callsign + " " : ""}{row.officer_name}</span>
           <span class="p-l">Arresting / citing officer</span>
         </div>
       </div>
+
+      {#if contesting}
+        <div class="cc-contest">
+          <div class="p-l">Why are you contesting this?</div>
+          <textarea class="cc-area" rows="3" bind:value={contestReason}
+            placeholder="The court reads this. Say what happened."></textarea>
+          <div class="cc-contest-act">
+            <button class="cc-btn" onclick={() => (contesting = false)}>Cancel</button>
+            <button class="cc-btn danger" disabled={busy || contestReason.trim().length < 20}
+              onclick={contest}>
+              {busy ? "Filing…" : "File contest"}
+            </button>
+          </div>
+        </div>
+      {/if}
+
+      {#if row.status === "contested" || row.verdict}
+        <!-- Both accounts on the sheet itself, so the holder sees what the
+             court will see. -->
+        <div class="cc-case">
+          {#if row.contest_reason}
+            <div class="cc-case-part">
+              <span class="p-l">Contested {#if row.contested_at}· {fmt(row.contested_at)}{/if}</span>
+              {row.contest_reason}
+            </div>
+          {/if}
+          {#if row.officer_statement}
+            <div class="cc-case-part">
+              <span class="p-l">Officer's statement {#if row.statement_at}· {fmt(row.statement_at)}{/if}</span>
+              {row.officer_statement}
+            </div>
+          {/if}
+          {#if row.verdict}
+            <div class="cc-case-part verdict">
+              <span class="p-l">Verdict · {row.verdict_by ?? "Court"}</span>
+              <strong>{row.verdict === "dismissed" ? "Dismissed" : row.verdict === "reduced" ? "Fine reduced" : "Upheld"}</strong>
+              {#if row.verdict === "reduced" && row.original_fine}
+                · was ${Number(row.original_fine).toLocaleString()}
+              {/if}
+              {#if row.verdict_note}<div class="cc-note">{row.verdict_note}</div>{/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       {#if msg}<div class="cc-msg">{msg}</div>{/if}
 
@@ -398,4 +483,31 @@
 		color: rgba(0,0,0,0.5);
 		text-align: center;
 	}
+
+	.s-contested { background: rgba(59,130,246,0.12); color: #1d4ed8; }
+	.p-contest {
+		display: block; margin-top: 4px; padding: 0;
+		background: none; border: none;
+		color: rgba(0,0,0,0.45);
+		font-size: 9px; text-decoration: underline; cursor: pointer;
+	}
+	.p-contest:hover { color: #b3261e; }
+
+	.cc-contest { margin-top: 12px; padding: 10px; border: 1px solid rgba(0,0,0,0.25); border-radius: 4px; }
+	.cc-area {
+		width: 100%; box-sizing: border-box; margin: 4px 0 8px;
+		padding: 7px; resize: vertical; min-height: 56px;
+		background: rgba(255,255,255,0.6);
+		border: 1px solid rgba(0,0,0,0.2); border-radius: 3px;
+		font-family: inherit; font-size: 12px; color: #17181c;
+	}
+	.cc-contest-act { display: flex; gap: 8px; }
+	.cc-btn.danger { background: rgba(179,38,30,0.12); border-color: rgba(179,38,30,0.4); color: #b3261e; }
+
+	/* Both accounts, and the ruling. Printed on the sheet so the holder sees
+	   exactly what the court sees. */
+	.cc-case { margin-top: 12px; border-top: 1px dashed rgba(0,0,0,0.3); padding-top: 10px; }
+	.cc-case-part { margin-bottom: 9px; font-size: 12px; line-height: 1.45; }
+	.cc-case-part.verdict { padding: 7px 9px; background: rgba(0,0,0,0.05); border-radius: 3px; }
+	.cc-note { margin-top: 3px; font-size: 11px; opacity: 0.75; }
 </style>

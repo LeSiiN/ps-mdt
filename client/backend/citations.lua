@@ -734,3 +734,44 @@ end)
 RegisterNUICallback('getMyCitations', function(_, cb)
     cb(MDT.callback(resourceName .. ':server:getMyCitations') or {})
 end)
+
+-- ── Contesting ──────────────────────────────────────────────────────────────
+
+RegisterNUICallback('contestCitation', function(data, cb)
+    cb(MDT.callback(resourceName .. ':server:contestCitation', data)
+        or { success = false, error = 'The server callback failed' })
+end)
+
+RegisterNUICallback('citationStatement', function(data, cb)
+    cb(MDT.callback(resourceName .. ':server:citationStatement', data)
+        or { success = false, error = 'The server callback failed' })
+end)
+
+RegisterNUICallback('getContested', function(_, cb)
+    cb(MDT.callback(resourceName .. ':server:getContested') or {})
+end)
+
+RegisterNUICallback('citationVerdict', function(data, cb)
+    cb(MDT.callback(resourceName .. ':server:citationVerdict', data)
+        or { success = false, error = 'The server callback failed' })
+end)
+
+-- The officer learns their ticket is being challenged, so they can put their
+-- side on record before the hearing rather than after it.
+RegisterNetEvent('ps-mdt:client:citationContested', function(data)
+    if type(data) ~= 'table' then return end
+    MDT.notify(('Citation %s has been contested — file your statement in the MDT.')
+        :format(data.number or ''), 'inform')
+end)
+
+RegisterNUICallback('hearingFromContest', function(data, cb)
+    cb(MDT.callback(resourceName .. ':server:createHearingFromContest', data)
+        or { success = false, error = 'The server callback failed' })
+end)
+
+-- Both sides learn they are due in court rather than finding out by accident.
+RegisterNetEvent('ps-mdt:client:hearingScheduled', function(data)
+    if type(data) ~= 'table' then return end
+    MDT.notify(('A hearing for citation %s is listed for %s.')
+        :format(data.number or '', data.at or ''), 'inform')
+end)

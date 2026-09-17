@@ -1624,3 +1624,42 @@ ALTER TABLE `mdt_penal_codes`
 ALTER TABLE `mdt_citations`
   ADD COLUMN IF NOT EXISTS `signed_at` timestamp NULL DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS `signed_by` varchar(50) DEFAULT NULL;
+
+-- ── Written warnings ────────────────────────────────────────────────────────
+-- Documented, but no money. The officer lets somebody off and still puts it on
+-- record, so the next officer can see it was not the first time. Same table,
+-- because it is the same paperwork with the fine at zero.
+ALTER TABLE `mdt_citations`
+  MODIFY COLUMN `type` enum('citation','parking','warning') NOT NULL DEFAULT 'citation';
+
+-- ── Contesting ──────────────────────────────────────────────────────────────
+-- Not signing a ticket finally means something: the recipient disputes it, the
+-- clock stops, and a court decides. Kept on the citation row rather than in its
+-- own table — there is at most one challenge per ticket, and splitting it would
+-- mean a join on every read for columns that are only ever used together.
+ALTER TABLE `mdt_citations`
+  MODIFY COLUMN `status` enum('open','paid','void','overdue','contested') NOT NULL DEFAULT 'open',
+
+  -- The citizen's side.
+  ADD COLUMN IF NOT EXISTS `contested_at` timestamp NULL DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `contest_reason` text DEFAULT NULL,
+
+  -- The officer's, written after the fact so a challenge that arrives days
+  -- later still gets an account of how the stop went.
+  ADD COLUMN IF NOT EXISTS `officer_statement` text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `statement_at` timestamp NULL DEFAULT NULL,
+
+  -- The court's. contest_deadline is what stops a challenge sitting forever:
+  -- an unheard one lapses in the citizen's favour, which puts the pressure on
+  -- the department rather than on the person waiting.
+  ADD COLUMN IF NOT EXISTS `contest_deadline` timestamp NULL DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `verdict` enum('upheld','dismissed','reduced') DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `verdict_by` varchar(100) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `verdict_note` text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `verdict_at` timestamp NULL DEFAULT NULL,
+  -- What it was before a reduction, so the change stays visible instead of
+  -- silently overwriting the original amount.
+  ADD COLUMN IF NOT EXISTS `original_fine` int(10) unsigned DEFAULT NULL;
+
+-- The lapse sweep filters on both, every few minutes.
+CREATE INDEX IF NOT EXISTS `contest_deadline` ON `mdt_citations` (`status`, `contest_deadline`);
