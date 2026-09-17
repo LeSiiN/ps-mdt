@@ -77,6 +77,8 @@ lawyer = {
 
 Run `sql/qbcore.sql` or `sql/qbx.sql` against your FiveM database. This creates all the tables the MDT needs. Use phpMyAdmin, HeidiSQL, or whatever database tool you prefer.
 
+For the ticket system, also add the two items to `ox_inventory/data/items.lua` (see [Carbon copies](#carbon-copies)).
+
 ### 3. Build the frontend ( not needed if downloaded release version )
 
 If you grabbed a release with `web/dist` already in it, skip this step.
@@ -324,6 +326,116 @@ Config.CivilianAccess.payImpounds = true
 ```
 
 Citizens then see their impounded vehicles in the civilian MDT with the fee itemised (impound fee + accrued storage), any hold that's in force, and a button to pay. Paying does **not** release the vehicle — an officer still does that.
+
+### Citations, parking tickets and warnings
+
+Officers write tickets at the roadside without opening the MDT. `/citation` and `/parkingticket` open a picker (people or vehicles nearby), then the form.
+
+```lua
+Config.Citations = {
+    Enabled = true,
+    NumberPrefix = { citation = 'CIT', parking = 'PRK', warning = 'WRN' },
+    DueDays = { citation = 7, parking = 14 },
+    MaxCharges = 5,
+    PersonSearchRadius = 5.0,
+    VehicleSearchRadius = 10.0,
+    AllowUnknownOwner = true,
+    PayAccount = 'bank',
+}
+```
+
+Mark which laws may appear on each type in the Charges tab (`Citation` / `Parking ticket` toggles).
+
+| Type | Written against | Fine | Escalates |
+|---|---|---|---|
+| Citation | a person | yes | yes |
+| Parking ticket | a vehicle (owner resolved from the plate) | yes | yes |
+| Warning | a person | no | no |
+
+A warning is the `Warning only` button next to `Sign & issue`. On a citation the vehicle is optional — attach one and it appears on the paper, leave it and it doesn't.
+
+**Postal codes.** The field is hidden unless the named resource is running:
+
+```lua
+Postal = { Resource = 'nearest-postal', Export = 'getPostal' },
+```
+
+**Radar.** A button next to `Measured (mph)` fills in the last reading:
+
+```lua
+Radar = { Resource = 'lsn-radar', Export = 'GetLastSpeed' },
+```
+
+The export may return `121` or `{ speed = 121, plate = 'ABC123' }`. With a plate, the form warns when the reading belongs to a different car.
+
+**Animations.** Every dict, clip and prop is configurable under `Config.Citations.Animations` — writing, handover, windscreen. Set one to `false` to skip it.
+
+**Unpaid tickets become warrants.** The fine is converted to jail time:
+
+```lua
+Overdue = {
+    Enabled = true,
+    CheckMinutes = 30,
+    DollarsPerMonth = 250,
+    MinMonths = 1,
+    MaxMonths = 12,
+    Class = 'infractions',
+},
+```
+
+### Carbon copies
+
+Both sides get paper via ox_inventory. Add to `data/items.lua`:
+
+```lua
+['citation_copy']   = { label = 'Citation', weight = 5, stack = false, close = true,
+                        client = { export = 'ps-mdt.useCitationCopy' } },
+['citation_carbon'] = { label = 'Citation (carbon copy)', weight = 5, stack = false, close = true,
+                        client = { export = 'ps-mdt.useCitationCopy' } },
+```
+
+Only the citation number is stored in the item — status and amount are read fresh each time, so an old slip can't claim "unpaid" after it was settled. Losing the paper changes nothing.
+
+The recipient's copy can be signed and contested. The officer's is a record.
+
+### Paying tickets
+
+Citizens settle their own tickets in the civilian MDT, worst-first:
+
+```lua
+Config.CivilianAccess.payCitations = true
+```
+
+Money goes to the issuing department through `Config.DepartmentBanking`.
+
+### Contesting
+
+Instead of signing, a recipient can dispute a ticket. The deadline stops and a court decides.
+
+```lua
+Contest = {
+    Enabled = true,
+    DeadlineDays = 7,
+    MinReasonLength = 20,
+    MaxReasonLength = 1000,
+    NotifyOfficer = true,
+},
+```
+
+**An unheard challenge lapses in the citizen's favour** — the delay is the department's, not theirs.
+
+The `Contests` tab holds the file: the ticket, the recipient's reason, the officer's statement, and the timeline. Officers see only their own tickets; the DOJ sees all of them and rules:
+
+| Verdict | Result |
+|---|---|
+| Dismiss | ticket voided |
+| Reduce | new amount, original kept on record |
+| Uphold | stands, deadline restarts |
+
+A court may lower a fine, never raise one.
+
+The DOJ can list a hearing from the same view. Both parties are added as attendees and get the calendar's invite e-mail and reminder SMS. One hearing per citation, and it must fall before the challenge lapses.
+
 
 ### Bodycams
 
@@ -616,6 +728,12 @@ Firearm registry with serial tracking and ownership history.
 ### Security Cameras
 Place cameras around the map (23 prop models available). View feeds with pan, zoom, and FOV controls.
 
+### Tickets
+Citations, parking tickets and warnings, written at the roadside without opening the MDT. Pick the person or vehicle from a list of who's actually there, charges come from the penal code, and both sides walk away with paper. Recipients pay in the civilian MDT.
+
+### Contests
+A ticket that isn't signed can be disputed. The deadline stops, the officer files a statement, and the DOJ rules — dismiss, reduce or uphold. An unheard challenge lapses in the citizen's favour.
+
 ### Bodycams
 Watch live feeds from on-duty officers.
 
@@ -689,6 +807,9 @@ For other resources to interact with the MDT.
 | `IsMDTOpen` | - | `boolean` | Returns whether the MDT is currently open |
 | `IsLEOJob` | `jobName: string?` | `boolean` | Checks if a job is law enforcement. If no argument is passed, checks the current player's job |
 | `isViewingCamera` | - | `boolean` | Returns whether the player is currently viewing a security camera feed |
+| `OpenCitationForm` | - | — | Opens the citation form (for a radial menu, item, or keybind) |
+| `OpenParkingTicketForm` | - | — | Opens the parking ticket form |
+| `useCitationCopy` | `data: table` | — | Called by ox_inventory when a citation copy is used |
 | `openComplaint` | - | — | Opens the standalone IA complaint form (works outside the MDT, useful for civilian resources) |
 | `openCivilianMDT` | - | — | Opens the MDT in civilian mode (profile + legislation view only). Use from phone apps, courthouse scripts, etc. |
 | `impoundNearbyVehicle` | - | — | Runs the on-site impound on the vehicle the officer is in or standing next to. Hang this off a target or a keybind instead of the command |
@@ -700,6 +821,7 @@ For other resources to interact with the MDT.
 | `IsCidFelon` | `citizenid: string`, `cb: function?` | `boolean` | Checks if a citizen has any felony charges on record. Supports both callback and direct return |
 | `registerWeapon` | `citizenid: string`, `weaponName: string`, `serial: string`, `info: string?` | - | Registers a weapon in the MDT firearms registry with ownership history |
 | `GetCitizenPhoneNumber` | `citizenid: string` | `string?` | Returns a citizen's phone number |
+| `MarkCitationPaid` | `number: string`, `citizenid: string?` | `boolean` | Marks a citation paid from an external banking or phone resource |
 | `isRequestVehicle` | `vehicleId: number` | `boolean` | **Deprecated.** Always returns `false`. Kept so v1 resources that call it don't error — impound state now lives in the `mdt_impound` table |
 
 # 1of1 Servers - VPS & Dedicated Servers
