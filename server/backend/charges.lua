@@ -35,6 +35,10 @@ lib.callback.register('ps-mdt:getChargeList', function(source)
             months AS time,
             fine,
             color,
+            -- Ticket eligibility travels with the law, so the citation form
+            -- can filter without a second query.
+            in_citation,
+            in_parking,
             COALESCE(NULLIF(category, ''), CASE
                 WHEN charge_class = 'felony' THEN 'Offenses Against Persons'
                 WHEN charge_class = 'misdemeanor' THEN 'Offenses Against Public Order'
@@ -151,6 +155,17 @@ lib.callback.register(resourceName .. ':server:updateCharge', function(source, p
         penalUpdates[#penalUpdates + 1] = 'color = ?'
         penalValues[#penalValues + 1] = payload.color
     end
+    -- Which ticket types this law may be written on. Flags on the law itself,
+    -- so a fine changed here changes it for citations and parking alike.
+    if payload.in_citation ~= nil then
+        penalUpdates[#penalUpdates + 1] = 'in_citation = ?'
+        penalValues[#penalValues + 1] = payload.in_citation and 1 or 0
+    end
+    if payload.in_parking ~= nil then
+        penalUpdates[#penalUpdates + 1] = 'in_parking = ?'
+        penalValues[#penalValues + 1] = payload.in_parking and 1 or 0
+    end
+
     -- charge_class is an enum; only accept valid values.
     local validClass = { felony = true, misdemeanor = true, infraction = true }
     local newType = payload.type or payload.charge_class
@@ -232,8 +247,8 @@ lib.callback.register(resourceName .. ':server:createCharge', function(source, p
     end
 
     local ok = MySQL.insert.await([[
-        INSERT INTO mdt_penal_codes (code, label, charge_class, months, fine, color, description, category)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO mdt_penal_codes (code, label, charge_class, months, fine, color, description, category, in_citation, in_parking)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         code,
         label,
@@ -243,6 +258,8 @@ lib.callback.register(resourceName .. ':server:createCharge', function(source, p
         type(payload.color) == 'string' and payload.color ~= '' and payload.color or '#6b7280',
         type(payload.description) == 'string' and payload.description or '',
         type(payload.category) == 'string' and payload.category or '',
+        payload.in_citation and 1 or 0,
+        payload.in_parking and 1 or 0,
     })
 
     if ok and MDT.auditLog then

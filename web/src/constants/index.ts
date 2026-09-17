@@ -11,6 +11,9 @@ export const MDT_TABS = [
 	{ name: "Vehicles", icon: "directions_car" },
 	{ name: "Weapons", icon: "security" },
 	{ name: "Charges", icon: "balance" },
+	// front_hand, not gavel: gavel is already the Court group, Warrant Review
+	// and Court Orders, and a raised hand is what an objection looks like.
+	{ name: "Contests", icon: "front_hand" },
 	{ name: "Awards", icon: "emoji_events" },
 	{ name: "Roster", icon: "group" },
 	{ name: "Map", icon: "map" },
@@ -46,6 +49,7 @@ export const EMS_TABS: readonly (typeof MDT_TABS)[number]["name"][] = [
 /** Get filtered tabs based on job type */
 export const DOJ_TABS: readonly string[] = [
 	"Dashboard",
+	"Contests",
 	"Reports",
 	"Court Cases",
 	"Calendar",
@@ -91,7 +95,7 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
 	{ id: "dashboard", tabs: ["Dashboard", "Bulletin Board"] },
 	{ id: "operations", label: "Operations", icon: "assignment", tabs: ["Reports", "Cases", "Evidence", "BOLOs", "Warrants"] },
-	{ id: "records", label: "Records", icon: "folder_open", tabs: ["Citizens", "Vehicles", "Weapons", "Charges"] },
+	{ id: "records", label: "Records", icon: "folder_open", tabs: ["Citizens", "Vehicles", "Weapons", "Charges", "Contests"] },
 	{ id: "personnel", label: "Personnel", icon: "badge", tabs: ["Roster", "Awards", "IA", "PPR", "FTO", "SOP", "Calendar"] },
 	{ id: "surveillance", label: "Surveillance", icon: "visibility", tabs: ["Map", "Cameras", "Bodycams"] },
 	{ id: "bottom", tabs: ["Preferences", "Settings"] },
@@ -99,7 +103,7 @@ export const NAV_GROUPS: NavGroup[] = [
 
 export const DOJ_NAV_GROUPS: NavGroup[] = [
 	{ id: "dashboard", tabs: ["Dashboard"] },
-	{ id: "court", label: "Court", icon: "account_balance", tabs: ["Court Cases", "Calendar", "Warrant Review", "Court Orders"] },
+	{ id: "court", label: "Court", icon: "account_balance", tabs: ["Court Cases", "Contests", "Calendar", "Warrant Review", "Court Orders"] },
 	{ id: "legal", label: "Legal", icon: "description", tabs: ["Legal Documents", "Charges"] },
 	{ id: "records", label: "Records", icon: "folder_open", tabs: ["Reports", "Citizens", "Cases", "Evidence"] },
 	{ id: "bottom", tabs: ["Preferences", "Settings"] },
@@ -156,6 +160,7 @@ export function getTabLabel(name: MDTTab): string {
 /** Component identifiers for tab routing */
 export type ComponentId =
 	| "dashboard"
+	| "contests"
 	| "citizens"
 	| "bolos"
 	| "vehicles"
@@ -195,6 +200,7 @@ export const TAB_TO_COMPONENT_MAP: Record<MDTTab, ComponentId> = {
 	Reports: "reports",
 	Warrants: "warrants",
 	Charges: "charges",
+	Contests: "contests",
 	Awards: "awards",
 	Roster: "roster",
 	Map: "map",
@@ -273,6 +279,7 @@ export const COMPONENT_DISPLAY_NAMES: Record<ComponentId, string> = {
 	reports: "Reports",
 	warrants: "Warrants",
 	charges: "Charges",
+	contests: "Contests",
 	awards: "Awards",
 	roster: "Roster",
 	map: "Map",

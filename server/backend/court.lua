@@ -1061,3 +1061,160 @@ CreateThread(function()
         Wait(60000) -- once per minute
     end
 end)
+--- Schedule a hearing for a contested citation.
+---
+--- Same shape as createHearingFromWarrant, but both sides are known in advance:
+--- the recipient who disputed it and the officer who wrote it. Filling them in
+--- by hand would mean re-typing names that are already on the record, and a
+--- mistyped one is a hearing the wrong person is summoned to.
+lib.callback.register(resourceName .. ':server:createHearingFromContest', function(source, payload)
+    local src = source
+    payload = payload or {}
+    local number = payload.number
+    if type(number) ~= 'string' then return { success = false, error = 'Unknown citation' } end
+
+    local domain = callerCalendarDomain(src)
+    local category = normalizeCategory(payload.category)
+    if not categoryAllowedForDomain(category, domain) then
+        return { success = false, error = 'Not your calendar' }
+    end
+    if not CheckPermission(src, permForCategory(category, 'create')) then
+        return { success = false, error = 'Unauthorized' }
+    end
+
+    local cit = MySQL.single.await([[
+        SELECT citation_number, citizenid, recipient_name, officer_citizenid, officer_name,
+               fine_total, contest_deadline, status
+        FROM mdt_citations WHERE citation_number = ?
+    ]], { number })
+    if not cit then return { success = false, error = 'Unknown citation' } end
+    if cit.status ~= 'contested' then
+        return { success = false, error = 'That citation is not under challenge' }
+    end
+
+    -- One hearing per citation. A second listing for the same dispute would put
+    -- two dates in the calendar for one decision, and both parties would be
+    -- told to attend both.
+    local existing = MySQL.scalar.await([[
+        SELECT id FROM mdt_court_hearings
+        WHERE title LIKE ? AND status <> 'cancelled'
+        LIMIT 1
+    ]], { ('Contested citation %s%%'):format(cit.citation_number) })
+    if existing then
+        return { success = false, error = 'A hearing for this citation is already listed' }
+    end
+
+    -- Listed before the challenge lapses, not on a fixed lead time: an unheard
+    -- one is dismissed, so a hearing scheduled after the deadline would decide
+    -- something already decided.
+    -- The court picks the moment. A suggested default is offered in the UI, but
+    -- a calendar that schedules itself is one the clerk has to correct.
+    local scheduledAt = type(payload.scheduled_at) == 'string' and payload.scheduled_at or nil
+    if not scheduledAt then
+        return { success = false, error = 'Pick a date and time' }
+    end
+
+    -- A hearing after the deadline would rule on something already decided: an
+    -- unheard challenge is dismissed when the clock runs out.
+    if cit.contest_deadline then
+        local late = MySQL.scalar.await(
+            'SELECT ? > ?', { scheduledAt, cit.contest_deadline })
+        if late == 1 or late == true then
+            return { success = false, error = 'That is after the challenge lapses — pick an earlier slot' }
+        end
+    end
+
+    local citizenid = MDT.getIdentifier(src)
+    local hearingId = MySQL.insert.await([[
+        INSERT INTO mdt_court_hearings
+            (title, category, hearing_type, defendant_cid, defendant_name,
+             scheduled_at, duration_minutes, status, notes, created_by, created_by_name, job_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ]], {
+        ('Contested citation %s — %s'):format(cit.citation_number, cit.recipient_name or 'Unknown'),
+        category,
+        normalizeType(payload.hearing_type),
+        cit.citizenid,
+        cit.recipient_name,
+        scheduledAt,
+        30,
+        normalizeStatus('scheduled'),
+        -- The officer goes in the notes because the hearings table has one
+        -- defendant and no attendee list; naming them here is better than
+        -- leaving the court to look it up separately.
+        ('Citation %s · $%s · issued by %s'):format(
+            cit.citation_number, cit.fine_total or 0, cit.officer_name or 'Unknown'),
+        citizenid,
+        getOfficerDisplayName(src),
+        domain,
+    })
+
+    if not hearingId then return { success = false, error = 'Failed to create hearing' } end
+
+    -- Both parties become real attendees rather than names in a note. That is
+    -- what makes the reminder sweep pick them up: it reads mdt_court_attendees,
+    -- so a hearing nobody is attached to sends nothing, however correct it
+    -- looks in the calendar.
+    local targets = {}
+    if cit.citizenid then
+        targets[#targets + 1] = {
+            citizenid = cit.citizenid,
+            display_name = cit.recipient_name or 'Unknown',
+            -- The schema has no 'defendant' role; the hearing row already
+            -- records who that is via defendant_cid.
+            role = 'attendee',
+        }
+    end
+    -- Skipped when the officer IS the recipient. That happens while testing,
+    -- and it would also happen on a server where somebody writes a ticket
+    -- against their own civilian character — mdt_court_attendees allows one row
+    -- per person per hearing, and somebody cannot be summoned twice.
+    if cit.officer_citizenid and cit.officer_citizenid ~= cit.citizenid then
+        targets[#targets + 1] = {
+            citizenid = cit.officer_citizenid,
+            display_name = cit.officer_name or 'Officer',
+            role = 'officer',
+        }
+    end
+
+    if #targets > 0 then
+        local values, params = {}, {}
+        for _, t in ipairs(targets) do
+            values[#values + 1] = '(?, ?, ?, ?)'
+            params[#params + 1] = hearingId
+            params[#params + 1] = t.citizenid
+            params[#params + 1] = t.display_name
+            params[#params + 1] = t.role
+        end
+        -- IGNORE rather than a plain insert: a second attempt should leave the
+        -- hearing intact instead of erroring out after it was already created.
+        MySQL.query.await(
+            'INSERT IGNORE INTO mdt_court_attendees (hearing_id, citizenid, display_name, role) VALUES '
+            .. table.concat(values, ', '), params)
+    end
+
+    -- Invite e-mails now, reminder SMS later from the same sweep every other
+    -- hearing uses. Off the request thread so a slow phone resource does not
+    -- hold up the answer.
+    CreateThread(function()
+        pcall(dispatchCreateEmails, {
+            id = hearingId,
+            title = ('Contested citation %s — %s'):format(cit.citation_number, cit.recipient_name or 'Unknown'),
+            category = category,
+            scheduled_at = scheduledAt,
+            duration_minutes = 30,
+            location = payload.location,
+        }, targets)
+    end)
+
+    if MDT.auditLog then
+        CreateThread(function()
+            pcall(MDT.auditLog, src, 'hearing_from_contest', 'citation', number, {
+                hearing_id = hearingId,
+                action_label = 'Scheduled a hearing for citation ' .. number,
+            })
+        end)
+    end
+
+    return { success = true, hearingId = hearingId, scheduledAt = scheduledAt }
+end)

@@ -38,6 +38,7 @@ export const SECURITY_CONFIG = {
 		"Reports",
 		"Warrants",
 		"Charges",
+		"Contests",
 		"Awards",
 		"Roster",
 		"Map",

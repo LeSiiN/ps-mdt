@@ -30,6 +30,8 @@
 		time: number;
 		color: string;
 		description: string;
+		in_citation: boolean;
+		in_parking: boolean;
 	};
 	let categories = $state<string[]>([]);
 	let showModal = $state(false);
@@ -38,6 +40,7 @@
 	let modalForm = $state<ChargeForm>({
 		code: "", label: "", type: "misdemeanor", category: "",
 		fine: 0, time: 0, color: "#6b7280", description: "",
+		in_citation: false, in_parking: false,
 	});
 	let isSavingModal = $state(false);
 	let confirmDelete = $state(false);
@@ -188,6 +191,7 @@
 		modalForm = {
 			code: "", label: "", type: "misdemeanor", category: "",
 			fine: 0, time: 0, color: "#6b7280", description: "",
+		in_citation: false, in_parking: false,
 		};
 		showModal = true;
 	}
@@ -206,6 +210,11 @@
 			time: Number(charge.time) || 0,
 			color: charge.color || "#6b7280",
 			description: charge.description || "",
+			// The server returns 0/1; the form works in booleans.
+			// Boolean, number or string depending on the driver — Number(true)
+			// is NaN, so the tick boxes came up empty on an edit.
+			in_citation: charge.in_citation === true || Number(charge.in_citation) === 1,
+			in_parking: charge.in_parking === true || Number(charge.in_parking) === 1,
 		};
 		showModal = true;
 	}
@@ -247,6 +256,8 @@
 						fine: modalForm.fine,
 						time: modalForm.time,
 						description: modalForm.description,
+						in_citation: modalForm.in_citation,
+						in_parking: modalForm.in_parking,
 					},
 				);
 				if (!res?.success) {
@@ -421,6 +432,26 @@
 					<span class="field-label">Description</span>
 					<textarea class="form-input" rows="3" bind:value={modalForm.description} placeholder="Description"></textarea>
 				</div>
+
+				<!-- Where this law may be written. Flags on the law rather than
+				     two separate lists: its fine is edited once and applies to
+				     both kinds of ticket. -->
+				<div class="form-group form-full">
+					<span class="field-label">Available on tickets</span>
+					<div class="ticket-flags">
+						<label class="ticket-flag" class:active={modalForm.in_citation}>
+							<input type="checkbox" bind:checked={modalForm.in_citation} />
+							<span class="material-icons">receipt_long</span>
+							Citation
+						</label>
+						<label class="ticket-flag" class:active={modalForm.in_parking}>
+							<input type="checkbox" bind:checked={modalForm.in_parking} />
+							<span class="material-icons">local_parking</span>
+							Parking ticket
+						</label>
+					</div>
+				</div>
+
 				{#if modalError}
 					<div class="form-group form-full"><span class="modal-error">{modalError}</span></div>
 				{/if}
@@ -616,5 +647,33 @@
 	@keyframes spin {
 		0% { transform: rotate(0deg); }
 		100% { transform: rotate(360deg); }
+	}
+
+	/* Ticket eligibility. Two toggles rather than a dropdown: a law can belong
+	   to both, and both being off is a meaningful state — it simply never
+	   appears on a ticket. */
+	.ticket-flags { display: flex; gap: 6px; }
+	.ticket-flag {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex: 1;
+		padding: 7px 10px;
+		background: rgba(0, 0, 0, 0.2);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 4px;
+		color: rgba(255, 255, 255, 0.5);
+		font-size: 11px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.1s;
+	}
+	.ticket-flag:hover { color: rgba(255, 255, 255, 0.8); }
+	.ticket-flag input { display: none; }
+	.ticket-flag .material-icons { font-size: 15px; }
+	.ticket-flag.active {
+		background: rgba(var(--accent-rgb), 0.14);
+		border-color: rgba(var(--accent-rgb), 0.3);
+		color: rgba(var(--accent-text-rgb), 0.95);
 	}
 </style>

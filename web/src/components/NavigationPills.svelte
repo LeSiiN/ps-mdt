@@ -1,5 +1,37 @@
 <script lang="ts">
 	import { MDT_TABS, NAV_GROUPS, DOJ_NAV_GROUPS, getTabsForJob, getTabLabel, type MDTTab, type ComponentId } from "../constants";
+	import { fetchNui } from "../utils/fetchNui";
+	import { NUI_EVENTS } from "../constants/nuiEvents";
+
+	// Polled rather than pushed: the count only has to be roughly current, and
+	// a minute's lag on a seven-day deadline changes nothing.
+	let contestCount = $state(0);
+	$effect(() => {
+		let alive = true;
+		const tick = async () => {
+			try {
+				const rows = await fetchNui<unknown[]>(NUI_EVENTS.CITATION.GET_CONTESTED, {});
+				if (alive) contestCount = Array.isArray(rows) ? rows.length : 0;
+			} catch { /* leave the last count */ }
+		};
+		tick();
+		const id = setInterval(tick, 60000);
+
+		// The Contests page announces the new count whenever it reloads, so
+		// filing a statement or ruling on a case updates the badge at once
+		// instead of a minute later.
+		const onChange = (e: Event) => {
+			const n = (e as CustomEvent).detail;
+			if (typeof n === "number") contestCount = n;
+		};
+		window.addEventListener("mdt:contests", onChange);
+
+		return () => {
+			alive = false;
+			clearInterval(id);
+			window.removeEventListener("mdt:contests", onChange);
+		};
+	});
 	import type { createTabService } from "../services/tabService.svelte";
 	import type { JobType } from "../interfaces/IUser";
 	import type { AuthService } from "../services/authService.svelte";
@@ -143,7 +175,14 @@
 									onclick={() => handleTabClick(tab)}
 								>
 									<span class="material-icons nav-icon">{tab.icon}</span>
-									<span>{getTabLabel(tab.name)}</span>
+					<span>{getTabLabel(tab.name)}</span>
+									{#if tab.name === "Contests" && contestCount > 0}
+										<!-- A contested ticket lapses in the citizen's favour if nobody
+										     rules on it. Without a count on the tab, that happens
+										     quietly — the pressure was meant to be on the department,
+										     not on somebody waiting for a hearing nobody noticed. -->
+										<span class="nav-badge">{contestCount}</span>
+									{/if}
 								</button>
 							{/if}
 						{/each}
@@ -415,5 +454,17 @@
 	}
 	.collapse-button .nav-icon {
 		font-size: 17px;
+	}
+
+	/* Count on a tab. Red because an unheard challenge expires — this is a
+	   deadline, not a notification. */
+	.nav-badge {
+		margin-left: auto;
+		min-width: 17px; padding: 1px 5px;
+		border-radius: 9px;
+		background: rgba(239, 68, 68, 0.9);
+		color: #fff;
+		font-size: 9px; font-weight: 700;
+		text-align: center;
 	}
 </style>

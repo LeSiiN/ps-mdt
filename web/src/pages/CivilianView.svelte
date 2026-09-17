@@ -68,8 +68,89 @@
 	});
 
 	onMount(async () => {
+		// Citations need the citizenid, so they wait for the profile. Running
+		// them in parallel meant the lookup went out with an undefined id and
+		// came back empty — the section then rendered nothing and looked
+		// missing rather than broken.
 		await Promise.all([loadProfile(), loadCharges(), loadImpounds()]);
+		await loadCitations();
 	});
+
+	// ── My citations ──────────────────────────────────────────────────────────
+	// Everything still owed, worst first. A citizen should be able to see what
+	// is outstanding and settle it without finding an officer — the same
+	// reasoning that put impound fees here.
+	type MyCitation = {
+		citation_number: string;
+		type: "citation" | "parking" | "warning";
+		plate?: string;
+		charges: Array<{ code: string; label: string; fine: number }>;
+		fine_total: number;
+		status: "open" | "paid" | "void" | "overdue";
+		officer_name: string;
+		issued_at?: string;
+		due_at?: string;
+	};
+
+	let citations = $state<MyCitation[]>([]);
+	let loadingCitations = $state(true);
+	let payingNumber = $state<string | null>(null);
+	let citationMsg = $state("");
+
+	// Overdue first, then by how little time is left. What is about to become a
+	// warrant should be at the top, not buried under what was written today.
+	let unpaidCitations = $derived(
+		citations
+			.filter(c => c.type !== "warning" && (c.status === "open" || c.status === "overdue"))
+			.sort((a, b) => {
+				if ((a.status === "overdue") !== (b.status === "overdue")) {
+					return a.status === "overdue" ? -1 : 1;
+				}
+				return (dueMs(a.due_at) ?? Infinity) - (dueMs(b.due_at) ?? Infinity);
+			}),
+	);
+	let citationsOwed = $derived(unpaidCitations.reduce((sum, c) => sum + (Number(c.fine_total) || 0), 0));
+
+	function dueMs(v?: string): number | null {
+		if (!v) return null;
+		const d = /^\d+$/.test(String(v)) ? new Date(Number(v)) : new Date(String(v).replace(" ", "T"));
+		return isNaN(d.getTime()) ? null : d.getTime();
+	}
+
+	// "in 3 days" reads faster than a date when the question is how much time
+	// is left.
+	function dueLabel(c: MyCitation): string {
+		const ms = dueMs(c.due_at);
+		if (ms === null) return "";
+		const days = Math.round((ms - Date.now()) / 86400000);
+		if (c.status === "overdue" || days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`;
+		if (days === 0) return "due today";
+		return `due in ${days} day${days === 1 ? "" : "s"}`;
+	}
+
+	async function loadCitations() {
+		loadingCitations = true;
+		try {
+			// No id passed: the server takes it from whoever is asking, so this
+			// can only return your own — and it needs no police authorisation.
+			citations = (await fetchNui<MyCitation[]>(NUI_EVENTS.CITATION.GET_MY_CITATIONS, {})) ?? [];
+		} catch { citations = []; }
+		loadingCitations = false;
+	}
+
+	async function payCitation(number: string) {
+		payingNumber = number;
+		citationMsg = "";
+		try {
+			const res: any = await fetchNui(NUI_EVENTS.CITATION.PAY_CITATION, { number });
+			// Re-read rather than patch the row: the status is the server's to
+			// state, and the department booking happens there too.
+			if (res?.success) await loadCitations();
+			else citationMsg = res?.message ?? "Could not pay.";
+		} catch { citationMsg = "Could not pay."; }
+		payingNumber = null;
+		if (citationMsg) setTimeout(() => (citationMsg = ""), 3500);
+	}
 
 	// ── My impounds ───────────────────────────────────────────────────────────
 	// Settling the bill used to require finding an officer and asking them to press
@@ -353,6 +434,46 @@
 						<!-- Impounds lead. If your car is in a lot, that is the single most
 						     actionable thing on this screen, and the one thing here you can
 						     actually do something about. -->
+						{#if !loadingCitations && unpaidCitations.length > 0}
+							<!-- What is owed, worst first. Placed above impounds
+							     because an unpaid citation turns into a warrant,
+							     while an impound fee only keeps a car parked. -->
+							<div class="section-card citation-card">
+								<h3 class="section-header">
+									<span class="material-icons">receipt_long</span> Outstanding Citations
+									<span class="cit-owed">{money(citationsOwed)} outstanding</span>
+								</h3>
+
+								{#if citationMsg}<div class="cit-msg">{citationMsg}</div>{/if}
+
+								<div class="cit-list">
+									{#each unpaidCitations as c (c.citation_number)}
+										<div class="cit-row" class:late={c.status === "overdue"}>
+											<div class="cit-left">
+												<span class="cit-no">{c.citation_number}</span>
+												<span class="cit-what">
+													{c.charges?.[0]?.label ?? "No charges"}{#if (c.charges?.length ?? 0) > 1}
+														<span class="cit-more">+{c.charges.length - 1}</span>{/if}
+												</span>
+												<span class="cit-meta">
+													{#if c.type === "parking"}{c.plate ?? "—"} · {/if}{c.officer_name}
+												</span>
+											</div>
+
+											<div class="cit-right">
+												<span class="cit-when" class:late={c.status === "overdue"}>{dueLabel(c)}</span>
+												<span class="cit-amt">{money(Number(c.fine_total))}</span>
+												<button class="cit-pay" disabled={payingNumber === c.citation_number}
+													onclick={() => payCitation(c.citation_number)}>
+													{payingNumber === c.citation_number ? "Paying…" : "Pay"}
+												</button>
+											</div>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+
 						{#if impoundsEnabled && !loadingImpounds && impounds.length > 0}
 							<div class="section-card impound-card">
 								<h3 class="section-header">
@@ -1632,4 +1753,67 @@
 		0% { transform: rotate(0deg); }
 		100% { transform: rotate(360deg); }
 	}
+
+	/* Outstanding citations. Built from the same pieces as the impound card —
+	   section-card, section-header, a right-aligned total — so it reads as part
+	   of the page rather than something bolted on. */
+	.citation-card { margin-bottom: 12px; border-color: rgba(251, 191, 36, 0.2); }
+	.citation-card .section-header { display: flex; align-items: center; gap: 6px; }
+	.cit-owed {
+		margin-left: auto;
+		padding: 2px 8px;
+		border-radius: 3px;
+		background: rgba(251, 191, 36, 0.15);
+		border: 1px solid rgba(251, 191, 36, 0.3);
+		color: rgba(253, 224, 71, 1);
+		font-size: 10px; font-weight: 700;
+		letter-spacing: 0.3px;
+	}
+
+	.cit-list { display: flex; flex-direction: column; }
+	.cit-row {
+		display: flex; align-items: center; gap: 16px;
+		padding: 11px 14px;
+		border-top: 1px solid rgba(255, 255, 255, 0.05);
+		transition: background 0.12s;
+	}
+	.cit-row:hover { background: rgba(255, 255, 255, 0.02); }
+	/* Overdue is the one thing worth spotting without reading, so it gets an
+	   edge rather than another line of text. */
+	.cit-row.late { box-shadow: inset 3px 0 0 rgb(239, 68, 68); background: rgba(239, 68, 68, 0.04); }
+
+	.cit-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+	.cit-no {
+		font-family: "Courier New", monospace;
+		font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+		color: rgba(255, 255, 255, 0.45);
+	}
+	.cit-what {
+		font-size: 13px; font-weight: 600;
+		color: rgba(255, 255, 255, 0.9);
+		overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	}
+	.cit-more { color: rgba(255, 255, 255, 0.3); font-weight: 400; }
+	.cit-meta { font-size: 11px; color: rgba(255, 255, 255, 0.35); }
+
+	.cit-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+	.cit-when { font-size: 11px; font-weight: 600; color: rgba(253, 224, 71, 0.85); }
+	.cit-when.late { color: #f87171; }
+	.cit-amt {
+		min-width: 76px; text-align: right;
+		font-size: 15px; font-weight: 700;
+		color: rgba(255, 255, 255, 0.92);
+	}
+	.cit-pay {
+		padding: 6px 18px;
+		background: rgba(16, 185, 129, 0.14);
+		border: 1px solid rgba(16, 185, 129, 0.32);
+		border-radius: 5px;
+		color: #34d399;
+		font-size: 11px; font-weight: 700;
+		cursor: pointer; transition: all 0.12s;
+	}
+	.cit-pay:hover:not(:disabled) { background: rgba(16, 185, 129, 0.24); border-color: rgba(16, 185, 129, 0.5); }
+	.cit-pay:disabled { opacity: 0.45; cursor: wait; }
+	.cit-msg { padding: 9px 14px; font-size: 11px; color: #f87171; }
 </style>
