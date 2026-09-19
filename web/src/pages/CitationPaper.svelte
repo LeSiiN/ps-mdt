@@ -345,10 +345,6 @@
       {/if}
 
       {#if msg}<div class="cc-msg">{msg}</div>{/if}
-
-      <!-- The officer's copy is a record; the recipient's is a thing to act on. -->
-      {#if !carbon && row.status !== "paid" && row.status !== "void"}
-      {/if}
     {/if}
   </div>
 </div>

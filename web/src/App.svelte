@@ -5,6 +5,7 @@
 	import ComplaintForm from "./pages/ComplaintForm.svelte";
 	import ApplicationForm from "./pages/ApplicationForm.svelte";
 	import Citations from "./pages/Citations.svelte";
+	import TowJobs from "./pages/TowJobs.svelte";
 	import CitationPaper from "./pages/CitationPaper.svelte";
 	import ImpoundForm from "./pages/ImpoundForm.svelte";
 	import { SvelteQueryDevtools } from "@tanstack/svelte-query-devtools";
@@ -29,6 +30,8 @@
 	let paperCarbon = $state(false);
 	let applicationDept = $state("");
 	let showImpoundForm = $state(false);
+	// The tow driver's job list. Standalone: no MDT access needed.
+	let showTowJobs = $state(false);
 	let impoundVehicle = $state<{ plate: string; model?: string; netId: number; owner?: string; stolen?: boolean; bolo?: boolean; priorImpounds?: number } | null>(null);
 
 	onMount(() => {
@@ -64,6 +67,9 @@
 				ticketFormType = event.data.data?.type ?? 'citation';
 				showTicketForm = true;
 			}
+			if (event.data?.action === 'showTowJobs') {
+				showTowJobs = true;
+			}
 			if (event.data?.action === 'showImpoundForm') {
 				impoundVehicle = event.data.data ?? null;
 				showImpoundForm = true;
@@ -90,6 +96,7 @@
 	<ApplicationForm show={showApplicationForm} department={applicationDept} onClose={() => { showApplicationForm = false; applicationDept = ""; }} />
 	<ImpoundForm show={showImpoundForm} vehicle={impoundVehicle} onClose={() => { showImpoundForm = false; impoundVehicle = null; }} />
 	<Citations show={showTicketForm} type={ticketFormType} onClose={() => (showTicketForm = false)} />
+	<TowJobs show={showTowJobs} onClose={() => (showTowJobs = false)} />
 	<CitationPaper show={showPaper} number={paperNumber} carbon={paperCarbon} onClose={() => (showPaper = false)} />
 	<SvelteQueryDevtools />
 </QueryClientProvider>

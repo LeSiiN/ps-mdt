@@ -42,9 +42,9 @@ function FiveManageUpload(base64Data, filename)
     PerformHttpRequest(FiveManageApiUrl, function(statusCode, responseText)
         if statusCode >= 200 and statusCode < 300 and responseText then
             local ok, data = pcall(json.decode, responseText)
-            if ok and data and data.data and data.data.url then
+            if ok and type(data) == 'table' and type(data.data) == 'table' and data.data.url then
                 p:resolve({ url = data.data.url })
-            elseif ok and data and data.url then
+            elseif ok and type(data) == 'table' and data.url then
                 p:resolve({ url = data.url })
             else
                 MDT.warn('FiveManage upload: unexpected response: ' .. tostring(responseText))

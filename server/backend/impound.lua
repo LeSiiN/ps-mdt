@@ -302,7 +302,9 @@ local function doImpound(src, payload)
     local cid, officerName = officerInfo(src)
 
     MySQL.update.await('UPDATE player_vehicles SET state = 2 WHERE plate = ?', { plate })
-    MySQL.insert.await([[
+    -- Kept: the tow job links to this row, and the vehicle only counts as
+    -- in the lot once a driver delivers it.
+    local impoundId = MySQL.insert.await([[
         INSERT INTO mdt_impound
             (vehicleid, status, plate, reason, notes, photo, lot, linkedreport, fee, fee_paid,
              hold_type, hold_until, hold_label,
@@ -361,7 +363,7 @@ local function doImpound(src, payload)
 
     local msg = ('%s impounded'):format(plate)
     if boloClosed then msg = msg .. ' — BOLO resolved' end
-    return { success = true, message = msg, boloClosed = boloClosed }
+    return { success = true, message = msg, boloClosed = boloClosed, id = impoundId }
 end
 
 registerImpoundCallback('impoundVehicle', function(source, payload)
@@ -632,6 +634,8 @@ end)
 -- Release a vehicle: administrative, works from anywhere. The car is queued to
 -- be spawned into a free spot at its lot.
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Releasing a vehicle that is still waiting for a tow cancels the job: nobody
+-- should drive out to collect something that has already been let go.
 registerImpoundCallback('releaseImpound', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -698,6 +702,9 @@ registerImpoundCallback('releaseImpound', function(source, payload)
             override_reason = ?
         WHERE id = ?
     ]], { os.time(), cid, officerName, overrideReason, row.id })
+
+    -- Nobody should drive out to collect something that has been let go.
+    if CancelTowJob then pcall(CancelTowJob, row.id) end
 
     -- Let the owner know it's waiting for them. By e-mail, so it also reaches them
     -- if they were offline when it was released.
@@ -926,6 +933,16 @@ registerImpoundCallback('inspectOnSiteVehicle', function(source, payload)
 end)
 
 -- Step 2a: owned vehicle — impound it properly, then remove it from the world.
+--- Callsign and name, the way a tow driver would be told who called it in.
+local function towOfficerName(src)
+    local name = MDT.getPlayerName(src) or 'Officer'
+    local callsign = MDT.getMetadata and MDT.getMetadata(src, 'callsign')
+    if callsign and callsign ~= '' then
+        return ('%s %s'):format(callsign, name)
+    end
+    return name
+end
+
 registerImpoundCallback('impoundOnSite', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
@@ -945,6 +962,42 @@ registerImpoundCallback('impoundOnSite', function(source, payload)
     local result = doImpound(src, payload)
     if not result or not result.success then
         return result or { success = false, message = 'Impound failed' }
+    end
+
+    -- A tow company was picked: the vehicle stays where it is until somebody
+    -- collects it. It is on the record as pending — logged, but not yet in a
+    -- lot it could be released from.
+    if payload.towJob and CreateTowJob then
+        local coords = GetEntityCoords(entity)
+        -- GetDisplayNameFromVehicleModel is a CLIENT native; the server has no
+        -- way to name a model. The client sends it with the form instead.
+        local model = payload.model or payload.vehicle or payload.displayName
+
+        local ok = CreateTowJob(src, {
+            impound_id = result.id,
+            plate = payload.plate,
+            model = model,
+            lot = payload.lot,
+            coords = ('%.2f, %.2f, %.2f'):format(coords.x, coords.y, coords.z),
+            coordsTable = { x = coords.x, y = coords.y, z = coords.z },
+            location = payload.location or payload.street,
+            -- getOfficerDisplayName is a local in other files, not shared. The
+            -- callsign and name are what a driver needs anyway.
+            officerName = towOfficerName(src),
+            job = payload.towJob,
+        })
+
+        if ok then
+            if result.id then
+                MySQL.update.await('UPDATE mdt_impound SET status = ? WHERE id = ?',
+                    { 'pending', result.id })
+            end
+            result.towed = true
+            result.message = 'Tow requested'
+            return result
+        end
+        -- Posting failed; fall through and remove it rather than leaving the
+        -- officer with a vehicle nobody is coming for.
     end
 
     -- Give the client a moment to fade it out; this is the backstop if it never does.

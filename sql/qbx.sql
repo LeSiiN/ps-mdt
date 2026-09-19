@@ -1664,3 +1664,33 @@ ALTER TABLE `mdt_citations`
 
 -- The lapse sweep filters on both, every few minutes.
 CREATE INDEX IF NOT EXISTS `contest_deadline` ON `mdt_citations` (`status`, `contest_deadline`);
+
+-- Tow jobs. An impound no longer makes a vehicle vanish: it becomes a job a
+-- tow company picks up, drives in, and drops at a lot.
+CREATE TABLE IF NOT EXISTS `mdt_tow_jobs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `impound_id` int(11) DEFAULT NULL,
+  `plate` varchar(12) NOT NULL,
+  `model` varchar(64) DEFAULT NULL,
+  `lot` varchar(50) DEFAULT NULL,
+  `coords` varchar(64) DEFAULT NULL,
+  `location` varchar(128) DEFAULT NULL,
+  `pay` int(10) unsigned NOT NULL DEFAULT 0,
+  `status` enum('open','taken','done','cancelled') NOT NULL DEFAULT 'open',
+  `job_name` varchar(50) DEFAULT NULL,
+  `driver_citizenid` varchar(50) DEFAULT NULL,
+  `driver_name` varchar(100) DEFAULT NULL,
+  `officer_citizenid` varchar(50) DEFAULT NULL,
+  `officer_name` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `taken_at` timestamp NULL DEFAULT NULL,
+  `done_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `status_job` (`status`, `job_name`),
+  KEY `driver` (`driver_citizenid`, `status`),
+  KEY `plate` (`plate`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- A vehicle waiting for a tow is not in the lot yet.
+ALTER TABLE `mdt_impound`
+  MODIFY COLUMN `status` enum('active','released','pending') NOT NULL DEFAULT 'active';

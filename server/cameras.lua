@@ -639,12 +639,19 @@ function Camera.loadAllFromDatabase()
 
             -- Decode feed transform if present (decoupled from prop)
             if row.feed_coords and row.feed_coords ~= '' then
+                -- Type-checked, not just decode-checked: json.decode("0")
+                -- succeeds and returns a number, and indexing that is what took
+                -- the whole camera load down over one bad row.
                 local okC, fc = pcall(json.decode, row.feed_coords)
-                if okC and fc then camera.feedCoords = vector3(fc.x, fc.y, fc.z) end
+                if okC and type(fc) == 'table' and fc.x then
+                    camera.feedCoords = vector3(fc.x, fc.y, fc.z)
+                end
             end
             if row.feed_rotation and row.feed_rotation ~= '' then
                 local okR, fr = pcall(json.decode, row.feed_rotation)
-                if okR and fr then camera.feedRotation = vector3(fr.x, fr.y, fr.z) end
+                if okR and type(fr) == 'table' and fr.x then
+                    camera.feedRotation = vector3(fr.x, fr.y, fr.z)
+                end
             end
             local fovNum = tonumber(row.feed_fov)
             if fovNum and fovNum > 0 then camera.feedFov = fovNum end

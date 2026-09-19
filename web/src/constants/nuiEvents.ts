@@ -175,6 +175,18 @@ export const NUI_EVENTS = {
 	},
 	// Citations and parking tickets. Distinct from SENTENCING.GIVE_CITATION,
 	// which is the old fine-on-a-report path.
+	TOWING: {
+		GET_TOW_JOBS: "getTowJobs",
+		TAKE_TOW_JOB: "takeTowJob",
+		DROP_TOW_JOB: "dropTowJob",
+		DELIVER_TOW_JOB: "deliverTowJob",
+		TOW_WAYPOINT: "towWaypoint",
+		CLOSE_TOW_JOBS: "closeTowJobs",
+		GET_TOW_COMPANIES: "getTowCompanies",
+		SET_TOW_AVAILABLE: "setTowAvailable",
+		GET_TOW_AVAILABLE: "getTowAvailable",
+	},
+
 	CITATION: {
 		CREATE_CITATION: "createCitation",
 		GET_CITATIONS: "getCitations",
@@ -474,6 +486,7 @@ export const ALL_NUI_EVENTS = [
 	...Object.values(NUI_EVENTS.WARRANT),
 	...Object.values(NUI_EVENTS.SENTENCING),
 	...Object.values(NUI_EVENTS.CITATION),
+	...Object.values(NUI_EVENTS.TOWING),
 	...Object.values(NUI_EVENTS.ROSTER),
 	...Object.values(NUI_EVENTS.CAMERA),
 	...Object.values(NUI_EVENTS.BODYCAM),

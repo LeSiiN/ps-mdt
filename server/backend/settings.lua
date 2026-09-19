@@ -380,7 +380,7 @@ lib.callback.register(resourceName .. ':server:getColorConfig', function(source)
     local rows = MySQL.query.await('SELECT `value` FROM mdt_settings WHERE `key` = ?', { settingsKey })
     if rows and rows[1] and rows[1].value then
         local ok, parsed = pcall(json.decode, rows[1].value)
-        if ok and parsed then
+        if ok and type(parsed) == 'table' then
             parsed._key = settingsKey
             colorConfigCache = parsed
             return parsed

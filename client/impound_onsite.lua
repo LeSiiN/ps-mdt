@@ -135,6 +135,11 @@ local function finishImpound(veh, netId, serverCall, payload)
 
     MDT.notify(res.message or 'Vehicle impounded', 'success')
 
+    -- A tow was requested: the vehicle stays where it is until somebody comes
+    -- for it. Fading it out here is what made it vanish the moment the officer
+    -- pressed Impound, which is the opposite of the point.
+    if res.towed then return end
+
     if DoesEntityExist(veh) then
         fadeOutVehicle(veh)
     end
@@ -266,8 +271,21 @@ RegisterNUICallback('submitOnSiteImpound', function(data, cb)
     pending = nil
 
     data.netId = job.netId
+
+    -- The street, added here because only the client can read it. A tow driver
+    -- gets a blip, but "Innocence Blvd" is what they tell each other on the
+    -- radio.
+    local ped = cache and cache.ped or PlayerPedId()
+    local pos = GetEntityCoords(ped)
+    local street = GetStreetNameAtCoord(pos.x, pos.y, pos.z)
+    data.location = GetStreetNameFromHashKey(street)
     data.plate = job.plate
     data.onSite = true
+
+    -- Only the client can name a model, so it travels with the form.
+    if DoesEntityExist(job.veh) then
+        data.model = GetLabelText(GetDisplayNameFromVehicleModel(GetEntityModel(job.veh)))
+    end
 
     CreateThread(function()
         finishImpound(job.veh, job.netId, 'impoundOnSite', data)
