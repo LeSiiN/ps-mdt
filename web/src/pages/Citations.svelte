@@ -794,8 +794,6 @@
 	}
 	.pos-label { flex: 1; min-width: 0; font-size: 11px; color: rgba(255,255,255,0.85); }
 	.pos-fine { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.7); }
-	.pos-x { background: none; border: none; color: rgba(255,255,255,0.3); font-size: 11px; cursor: pointer; }
-	.pos-x:hover { color: rgba(248,113,113,0.9); }
 
 	.msg { margin-top: 8px; font-size: 11px; }
 	.err { color: rgba(248,113,113,0.9); }
@@ -889,9 +887,6 @@
 	}
 	.p-foot { margin-top: 10px; padding-top: 5px; border-top: 1px dashed #17181c; text-align: center; font-size: 10px; }
 
-	/* Recipient picker. Tiles rather than a list: a face and a distance are
-	   what an officer matches against, and both read faster as a card. */
-	.targets { display: flex; gap: 6px; overflow-x: auto; margin: 6px 0 14px; padding-bottom: 2px; }
 	.tgt {
 		display: flex; flex-direction: column; align-items: center; gap: 4px;
 		flex-shrink: 0; width: 128px; padding: 10px 8px;
@@ -901,7 +896,6 @@
 		cursor: pointer; transition: all 0.1s;
 	}
 	.tgt:hover { background: rgba(255,255,255,0.06); }
-	.tgt.sel { background: rgba(var(--accent-rgb), 0.15); border-color: rgba(var(--accent-rgb), 0.4); }
 	.tgt-img {
 		width: 40px; height: 40px; border-radius: 50%;
 		object-fit: cover; background: rgba(0,0,0,0.3);
@@ -918,13 +912,6 @@
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 	.tgt-dist { font-size: 9px; color: rgba(255,255,255,0.35); }
-	.relink {
-		margin-left: 6px; padding: 0; background: none; border: none;
-		color: rgba(var(--accent-text-rgb), 0.7);
-		font-size: 9px; font-weight: 600; text-transform: none;
-		letter-spacing: 0; cursor: pointer;
-	}
-	.relink:hover { color: rgba(var(--accent-text-rgb), 1); }
 
 	/* Stage 1: the picker. Wide and short — a step on the way, not a window. */
 	.pick-bar {
@@ -980,8 +967,6 @@
 
 	/* A citation's vehicle is context, not the case — quieter than the rows
 	   that carry the charge itself. */
-	.p-aside .p-v { font-size: 12px; opacity: 0.8; }
-	.p-aside { border-style: dashed; }
 
 	/* Fades out after issuing so the handover animation is actually seen. */
 	.cit-overlay.closing {

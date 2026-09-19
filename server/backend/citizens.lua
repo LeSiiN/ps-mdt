@@ -465,7 +465,7 @@ lib.callback.register(resourceName .. ':server:getCitizenProfile', function(sour
     local occupations = {}
     if playerRow and playerRow.job then
         local ok, decoded = pcall(json.decode, playerRow.job)
-        if ok and decoded then
+        if ok and type(decoded) == 'table' then
             if decoded.label then
                 occupations[#occupations + 1] = decoded.label
             elseif decoded.name then
@@ -600,7 +600,7 @@ lib.callback.register(resourceName .. ':server:getCitizenProfile', function(sour
     local metadata = nil
     if playerRow and playerRow.metadata then
         local ok, decoded = pcall(json.decode, playerRow.metadata)
-        if ok and decoded then
+        if ok and type(decoded) == 'table' then
             metadata = decoded
             if decoded.licences then
                 licences = decoded.licences
@@ -1167,7 +1167,7 @@ lib.callback.register(resourceName .. ':server:getMyProfile', function(source)
     local licences = {}
     if pPlayer.metadata then
         local ok, decoded = pcall(json.decode, pPlayer.metadata)
-        if ok and decoded then
+        if ok and type(decoded) == 'table' then
             if decoded.fingerprint then fingerprint = decoded.fingerprint end
             if decoded.dna then dna = decoded.dna end
             if decoded.licences then licences = decoded.licences end
@@ -1420,7 +1420,7 @@ lib.callback.register(resourceName .. ':server:getProperty', function(source, pr
     local keyholderList = {}
     if propRow.keyholders and propRow.keyholders ~= '' and propRow.keyholders ~= '{}' and propRow.keyholders ~= '[]' then
         local ok, decoded = pcall(json.decode, propRow.keyholders)
-        if ok and decoded then
+        if ok and type(decoded) == 'table' then
             -- Array form: ["CID1", "CID2"]
             if decoded[1] ~= nil then
                 for _, cid in ipairs(decoded) do

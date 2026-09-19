@@ -1377,7 +1377,6 @@
 <PersonSearchModal
 	show={showOfficerSearch}
 	title="Search Officers"
-	searchQuery={officerSearchQuery}
 	searchResults={searchService.state.results}
 	onClose={() => {
 		showOfficerSearch = false;

@@ -8,6 +8,7 @@
 	 * without the MDT being open.
 	 */
 	import { fetchNui } from "../utils/fetchNui";
+	import { NUI_EVENTS } from "../constants/nuiEvents";
 	import ImpoundFormFields from "../components/impound/ImpoundFormFields.svelte";
 	import type { ImpoundReason, ImpoundLot, ImpoundDuration } from "../interfaces/IImpound";
 
@@ -91,6 +92,25 @@
 		onClose();
 	}
 
+	// Tow companies with somebody on duty. An empty list means nobody is
+	// working, and the vehicle is removed the old way instead.
+	type TowCompany = { job: string; onDuty: number; free: number; distance?: number };
+	let companies = $state<TowCompany[]>([]);
+	let towJob = $state<string | null>(null);
+
+	async function loadCompanies() {
+		try {
+			companies = (await fetchNui<TowCompany[]>(NUI_EVENTS.TOWING.GET_TOW_COMPANIES, {})) ?? [];
+			// The server sorts free-and-nearest first, so the default is already
+			// the one an officer would pick.
+			towJob = companies.find((c) => c.free > 0)?.job ?? null;
+		} catch { companies = []; }
+	}
+
+	$effect(() => {
+		if (show) loadCompanies();
+	});
+
 	async function submit() {
 		if (!vehicle || busy || !reason) return;
 		busy = true;
@@ -108,6 +128,9 @@
 					notes: notes.trim() || undefined,
 					photo: photo.trim() || undefined,
 					onSite: true,
+					// Null means remove it here and now. The officer should not
+					// be stuck waiting on a company that has nobody working.
+					towJob,
 				},
 				{ success: true, message: "Impounded" },
 			);
@@ -188,6 +211,55 @@
 					{reasons} {lots} {durations} {defaultDuration} {storage} {maxFee}
 					bind:reason bind:fee bind:lot bind:duration bind:notes bind:photo
 				/>
+
+				<div class="form-full tow-pick">
+					<span class="tow-label">
+						Collection
+						<!-- Somebody may clock on while the form is open, and
+						     reopening it to find out is a poor answer. -->
+						<button type="button" class="tow-reload" title="Check again"
+							onclick={loadCompanies}>
+							<span class="material-icons">refresh</span>
+						</button>
+					</span>
+					{#if companies.length === 0}
+						<span class="tow-none">Nobody on duty — the vehicle is removed on the spot.</span>
+					{:else}
+						<div class="tow-opts">
+							{#each companies as c (c.job)}
+								<button type="button" class="tow-card"
+									class:sel={towJob === c.job} class:busy={c.free === 0}
+									onclick={() => (towJob = c.job)}>
+									<span class="material-icons tow-card-icon">local_shipping</span>
+									<span class="tow-card-text">
+										<span class="tow-card-name">{c.job}</span>
+										<span class="tow-card-duty">
+											{#if c.free > 0}
+												<span class="tow-dot"></span>{c.free} free
+											{:else}
+												<span class="tow-dot busy"></span>all on a run
+											{/if}
+											{#if c.distance !== undefined}
+												· {c.distance < 1000 ? `${c.distance} m` : `${(c.distance / 1000).toFixed(1)} km`}
+											{/if}
+										</span>
+									</span>
+									<span class="material-icons tow-check">
+										{towJob === c.job ? "radio_button_checked" : "radio_button_unchecked"}
+									</span>
+								</button>
+							{/each}
+						</div>
+
+						<!-- Always available, and deliberately quiet: a driver who
+						     is online but not answering shouldn't hold an officer
+						     up, but calling one is the normal thing to do. -->
+						<button type="button" class="tow-skip" class:sel={towJob === null}
+							onclick={() => (towJob = null)}>
+							{towJob === null ? "✓ " : ""}Remove it myself — no tow
+						</button>
+					{/if}
+				</div>
 
 				{#if error}
 					<div class="form-error form-full">{error}</div>
@@ -373,4 +445,74 @@
 	}
 	.danger-btn:hover:not(:disabled) { background: rgba(239, 68, 68, 0.13); color: rgba(252, 165, 165, 0.95); }
 	.cancel-btn:disabled, .danger-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+	/* Picking a company is the main decision here, so the companies are cards
+	   and the opt-out is a line of text underneath. */
+	.tow-pick { display: flex; flex-direction: column; gap: 8px; }
+	.tow-label {
+		display: flex; align-items: center; gap: 4px;
+		font-size: 9px; font-weight: 700; letter-spacing: 1px;
+		text-transform: uppercase; color: rgba(255, 255, 255, 0.32);
+	}
+	.tow-reload {
+		display: grid; place-items: center;
+		width: 16px; height: 14px; padding: 0;
+		background: none; border: none; border-radius: 3px;
+		color: rgba(255, 255, 255, 0.35); cursor: pointer;
+	}
+	.tow-reload:hover { color: rgba(var(--accent-text-rgb), 1); background: rgba(255, 255, 255, 0.06); }
+	.tow-reload .material-icons { font-size: 13px; }
+	.tow-none { font-size: 11px; color: rgba(255, 255, 255, 0.35); }
+
+	.tow-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+	.tow-card {
+		display: flex; align-items: center; gap: 11px;
+		padding: 13px 14px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 9px;
+		cursor: pointer; text-align: left;
+		transition: all 0.14s;
+	}
+	.tow-card:hover { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
+	.tow-card.sel {
+		background: rgba(var(--accent-rgb), 0.12);
+		border-color: rgba(var(--accent-rgb), 0.45);
+	}
+	.tow-card-icon { font-size: 22px; color: rgba(255, 255, 255, 0.35); }
+	.tow-card.sel .tow-card-icon { color: rgba(var(--accent-text-rgb), 1); }
+	.tow-card-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+	.tow-card-name {
+		font-size: 14px; font-weight: 700; text-transform: capitalize;
+		color: rgba(255, 255, 255, 0.92);
+	}
+	.tow-card-duty {
+		display: flex; align-items: center; gap: 5px;
+		font-size: 10px; color: rgba(255, 255, 255, 0.4);
+	}
+	/* A green dot says "someone is actually there" faster than the number does. */
+	.tow-dot {
+		width: 6px; height: 6px; border-radius: 50%;
+		background: #34d399;
+		box-shadow: 0 0 6px rgba(52, 211, 153, 0.7);
+	}
+	.tow-dot.busy { background: #fbbf24; box-shadow: 0 0 6px rgba(251, 191, 36, 0.6); }
+	/* Still pickable — somebody may finish a run in a minute — but it should be
+	   obvious that nobody is free right now. */
+	.tow-card.busy { opacity: 0.55; }
+	.tow-card.busy:hover { opacity: 0.8; }
+	.tow-check { margin-left: auto; font-size: 18px; color: rgba(255, 255, 255, 0.2); }
+	.tow-card.sel .tow-check { color: rgba(var(--accent-text-rgb), 1); }
+
+	.tow-skip {
+		align-self: flex-start;
+		padding: 5px 2px;
+		background: none; border: none;
+		color: rgba(255, 255, 255, 0.35);
+		font-size: 11px; font-family: inherit;
+		text-decoration: underline; text-underline-offset: 3px;
+		cursor: pointer; transition: color 0.12s;
+	}
+	.tow-skip:hover { color: rgba(255, 255, 255, 0.6); }
+	.tow-skip.sel { color: #fbbf24; text-decoration: none; font-weight: 600; }
 </style>

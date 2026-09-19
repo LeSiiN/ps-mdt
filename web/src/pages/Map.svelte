@@ -469,6 +469,44 @@
 
     let ccSelectedCode  = $derived(callCodes.find(c => c.code === ccCode) ?? null);
 
+    // ═══ Right-click menu ═══
+    // A small menu at the cursor rather than the modal straight away: a stray
+    // right-click shouldn't drop you into a form, and on a unit there are two
+    // sensible things to do, not one.
+    type MapMenu = {
+        x: number; y: number;
+        gp: GtaPoint;
+        unit?: { name?: string; callsign?: string };
+    };
+    let mapMenu = $state<MapMenu | null>(null);
+
+    function closeMapMenu() { mapMenu = null; }
+
+    /// Open the call form with the location already resolved. onPickLocation
+    /// only drops a provisional pin — confirmPick is what turns it into the
+    /// call's location, which is why right-click left the field empty.
+    async function openCallAt(gp: GtaPoint, preset?: { code?: string; title?: string; note?: string }) {
+        closeMapMenu();
+        await openCreateCall();
+        onPickLocation(gp);
+        await confirmPick();
+        if (preset?.code) ccCode = preset.code;
+        if (preset?.title) ccTitle = preset.title;
+        if (preset?.note) ccNote = preset.note;
+    }
+
+    /// Backup at a unit's position, addressed to them. The note names who it is
+    /// for so the answering car knows who to look for.
+    async function openBackupFor(o: { name?: string; callsign?: string; x: number; y: number }) {
+        const who = [o.callsign, o.name].filter(Boolean).join(" ") || "a unit";
+        const backup = callCodes.find(c => /backup|assist|10-13/i.test(c.code + " " + c.label));
+        await openCallAt({ x: o.x, y: o.y }, {
+            code: backup?.code,
+            title: "Officer needs assistance",
+            note: `Backup requested for ${who}.`,
+        });
+    }
+
     async function openCreateCall() {
         // Load the configured 10-codes lazily on first open.
         if (callCodes.length === 0) {
@@ -2034,6 +2072,20 @@
                     const m = createMarker("bodycam", coords, label, bodycam.heading, color, false, sColor);
                     const cid = bc.citizenid;
                     m.on("click", () => selectOfficer(cid));
+                    // Right-click a unit: backup at their position, addressed to
+                    // them. The commonest call there is, and the one where
+                    // typing the location costs the most time.
+                    m.on("contextmenu", (e: L.LeafletMouseEvent) => {
+                        L.DomEvent.stop(e);
+                        if (!canAssignUnits) return;
+                        const o = officers.find(x => x.citizenid === cid);
+                        const oe = e.originalEvent as MouseEvent;
+                        mapMenu = {
+                            x: oe.clientX, y: oe.clientY,
+                            gp: { x: coords.x, y: coords.y },
+                            unit: { name: o?.name, callsign: (o as any)?.callsign },
+                        };
+                    });
                     m.addTo(bodycamLayer);
                     bodycamMarkers.set(bc.citizenid, m);
                 }
@@ -2100,6 +2152,16 @@
                     if (existing.isPopupOpen()) attachDashcamHandler(existing, plate);
                 } else {
                     const m = createMarker("vehicle", coords, label, (vehicle as any).heading, undefined, cached);
+                    m.on("contextmenu", (e: L.LeafletMouseEvent) => {
+                        L.DomEvent.stop(e);
+                        if (!canAssignUnits) return;
+                        const oe = e.originalEvent as MouseEvent;
+                        mapMenu = {
+                            x: oe.clientX, y: oe.clientY,
+                            gp: { x: coords.x, y: coords.y },
+                            unit: { name: label },
+                        };
+                    });
                     m.bindPopup(buildVehiclePopupHtml(vehicle, plate, cached), {
                         className: "officer-popup veh-popup",
                         closeButton: true,
@@ -2519,6 +2581,17 @@
             if (ccPicking && !drawingPatrolId) onPickLocation(toGtaCoords(mouseEventToLatLng(e)));
         });
 
+        // Right-click offers a call there. Not while drawing a patrol area or
+        // picking a location — those gestures already mean something else.
+        map.on("contextmenu", (e: L.LeafletMouseEvent) => {
+            if (drawingPatrolId || ccPicking) return;
+            if (!canAssignUnits) return;
+            const oe = e.originalEvent as MouseEvent;
+            mapMenu = { x: oe.clientX, y: oe.clientY, gp: toGtaCoords(mouseEventToLatLng(e)) };
+        });
+
+        map.on("click movestart zoomstart", closeMapMenu);
+
 
         // Image placement bounds (world extent of the map render). Intentionally
         // NOT applied as maxBounds: units can roam far off the island (e.g.
@@ -2868,6 +2941,45 @@
                         <button class="call-btn call-btn-ghost" onclick={() => dismissConfirmId = null}>Cancel</button>
                         <button class="call-btn call-btn-danger" onclick={() => dismissCall(dismissConfirmId!)}>Dismiss call</button>
                     </div>
+                </div>
+            </div>
+        {/if}
+
+        <!-- ═══ Right-click menu ═══ -->
+        {#if mapMenu}
+            <!-- Backdrop catches the next click anywhere, so the menu closes the
+                 way every other menu does. -->
+            <div class="mm-catch" onclick={closeMapMenu} oncontextmenu={(e) => { e.preventDefault(); closeMapMenu(); }}
+                role="presentation"></div>
+            <div class="mm op-wrap" style="left:{mapMenu.x}px; top:{mapMenu.y}px;">
+                <div class="op-header mm-header">
+                    {#if mapMenu.unit}
+                        {#if mapMenu.unit.callsign}
+                            <span class="op-callsign-badge">{mapMenu.unit.callsign}</span>
+                        {/if}
+                        <span class="op-name">{mapMenu.unit.name || "Unit"}</span>
+                    {:else}
+                        <span class="op-name">This location</span>
+                    {/if}
+                </div>
+
+                <div class="op-body mm-body">
+                    {#if mapMenu.unit}
+                        <button class="mm-item urgent" onclick={() => mapMenu && openBackupFor({ ...mapMenu.unit, ...mapMenu.gp })}>
+                            <span class="material-icons">campaign</span>
+                            <span class="mm-text">
+                                Request backup
+                                <span class="mm-sub">Call at their position</span>
+                            </span>
+                        </button>
+                    {/if}
+                    <button class="mm-item" onclick={() => mapMenu && openCallAt(mapMenu.gp)}>
+                        <span class="material-icons">add_location_alt</span>
+                        <span class="mm-text">
+                            New call here
+                            <span class="mm-sub">Location filled in for you</span>
+                        </span>
+                    </button>
                 </div>
             </div>
         {/if}
@@ -4344,4 +4456,39 @@
         color: rgba(248, 113, 113, 0.9);
     }
     .call-cam-play { font-size: 13px; }
+
+	/* Right-click menu. Wears the officer popup's clothes — same surface, header
+	   and body — so left-click and right-click on the map look like one thing. */
+	.mm-catch { position: fixed; inset: 0; z-index: 1400; }
+	.mm {
+		position: fixed; z-index: 1401;
+		min-width: 216px;
+		background: rgba(13, 13, 13, 0.97);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 10px;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+		transform: translate(4px, 4px);
+		--op-color: #38bdf8;
+	}
+	/* A unit's menu takes the red the backup entry carries, the way the popup
+	   header tints itself by status. */
+	.mm:has(.mm-item.urgent) { --op-color: #f87171; }
+
+	.mm-header { flex-direction: row !important; align-items: center; gap: 7px !important; padding-right: 12px !important; }
+	.mm-body { gap: 2px !important; padding: 5px !important; }
+
+	.mm-item {
+		display: flex; align-items: center; gap: 10px;
+		width: 100%; padding: 8px 9px;
+		background: none; border: none; border-radius: 6px;
+		color: rgba(255, 255, 255, 0.9);
+		font-family: inherit; text-align: left;
+		cursor: pointer; transition: background 0.1s;
+	}
+	.mm-item:hover { background: rgba(255, 255, 255, 0.07); }
+	.mm-item .material-icons { font-size: 18px; color: rgba(255, 255, 255, 0.4); }
+	.mm-text { display: flex; flex-direction: column; gap: 1px; font-size: 11px; font-weight: 600; }
+	.mm-sub { font-size: 9px; font-weight: 400; color: rgba(255, 255, 255, 0.35); }
+	.mm-item.urgent .material-icons { color: #f87171; }
+	.mm-item.urgent:hover { background: rgba(239, 68, 68, 0.1); }
 </style>

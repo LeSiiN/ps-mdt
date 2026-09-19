@@ -1467,6 +1467,44 @@ Config.Citations = {
     },
 }
 
+-- Towing. Instead of the vehicle vanishing, a tow company is dispatched to
+-- collect it. Works with any towing script, or none: the job completes when the
+-- vehicle reaches a drop-off, however it got there.
+Config.Towing = {
+    Enabled = true,
+
+    -- Jobs that receive tow jobs. Only those with someone on duty are offered.
+    Jobs = { 'mechanic', 'tow' },
+
+    -- Command that opens the job list.
+    Command = 'towjobs',
+
+    -- Pay per job, split between the driver and the company account.
+    Pay = 750,
+    DriverShare = 0.75,
+
+    -- Where a towed vehicle may be dropped, and how close counts as arrived.
+    DropOffs = {
+        { lot = 'lspd',   label = 'LSPD Impound',   coords = vec3(-1085.0, -845.0, 19.0), radius = 25.0 },
+        { lot = 'paleto', label = 'Paleto Impound', coords = vec3(-190.0, 6255.0, 31.5),  radius = 25.0 },
+    },
+
+    -- Minutes before an unclaimed job goes back in the queue, and before a
+    -- claimed one that never arrives is released again.
+    ExpireUnclaimed = 20,
+    ExpireTaken = 30,
+
+    -- Send a ps-dispatch alert when a job is posted. The alert is a hint, not
+    -- the job itself — drivers find everything in the list either way.
+    DispatchAlert = true,
+
+    -- Require the driver to be in a tow truck (vehicle class 9) when delivering.
+    RequireTruck = false,
+
+    -- An officer may always remove a vehicle themselves. It is logged.
+    AllowDirectRemoval = true,
+}
+
 -- Radio in MDT Lets players talk on the radio while the MDT is open.
 Config.Radio = {
     Enabled = true,
